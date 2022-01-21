@@ -12,10 +12,10 @@
 
 
   # Make ready for nix flakes
-  # nix.package = pkgs.nixFlakes
-  # nix.extraOptions = ''
-  #   experimental-features = nix-command flakes
-  # '';
+  nix.package = pkgs.nixFlakes;
+  nix.extraOptions = ''
+    experimental-features = nix-command flakes
+  '';
 
   # Use the GRUB 2 boot loader.
   boot.loader = {
@@ -33,7 +33,7 @@
    };
 
 	
-  networking.hostName = "nixos"; # Define your hostname.
+  networking.hostName = "kotur-pc"; # Define your hostname.
   # networking.wireless.enable = true;  # Enables wireless support via wpa_supplicant.
 
   # Set your time zone.
@@ -80,9 +80,9 @@
   services.xserver.libinput.enable = true;
 
   # Define a user account. Don't forget to set a password with ‘passwd’.
-  users.users.nix = {
+  users.users.kotur = {
     isNormalUser = true;
-    initialPassword = "nix";
+    initialPassword = "kotur";
     extraGroups = [ "wheel" ]; # Enable ‘sudo’ for the user.
   };
 

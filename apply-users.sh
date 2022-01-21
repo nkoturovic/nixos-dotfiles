@@ -1,5 +1,6 @@
 #!/bin/sh
 
 pushd ~/.dotfiles
-    home-manager switch -f ./users/nix/home.nix
+nix build .#homeManagerConfigurations.kotur.activationPackage
+./result/activate
 popd
