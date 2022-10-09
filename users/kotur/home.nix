@@ -1,4 +1,4 @@
-{ config, pkgs, ... }:
+{ config, pkgs, lib, ... }:
 
 {
   # Home Manager needs a bit of information about you and the
@@ -14,34 +14,55 @@
   # You can update Home Manager without changing this value. See
   # the Home Manager release notes for a list of state version
   # changes in each release.
-  # home.stateVersion = pkgs.lib.trivial.release; # "21.11";
- 
+  home.stateVersion = "22.05";
 
-  home.packages = with pkgs; [
-      alacritty
-      neovim
-      git
-      git-crypt
-      gnupg
-      neofetch
-      pinentry_qt
+  home.packages = with pkgs; [ 
+    # neovim
+    meld
+    trash-cli
+    nodejs
+    rustup
+    python310
+    python310Packages.pip
+    gh
+    openssl
   ];
 
-  home.file = {
-    ".config/alacritty/alacritty.yaml".text = ''
-      env:
-        TERM: xterm-256color
-    '';
-  };
+  # Raw configuration files
+  home.file.".p10k.zsh".source = ./dotfiles/.p10k.zsh;
+  home.file.".commonrc".source = ./dotfiles/.commonrc;
+  home.file.".profile".source = ./dotfiles/.profile;
+  home.file.".zshenv".text = ''
+    source .profile
+    source .p10k.zsh
+    source .commonrc
+  '';
 
   # Let Home Manager install and manage itself.
   programs.home-manager.enable = true;
-  programs.gpg = {
-      enable = true;
+
+  programs.git = {
+    enable = true;
+    userName = "Nebojsa Koturovic";
+    userEmail = "contact@kotur.me";
+    aliases = {
+      st = "status";
+      dt = "!git difftool --dir-diff --no-symlinks -t meld";
+      hist = "!git --no-pager log --graph --pretty=format:'%C(green)%h%C(reset) - %C(italic)%C(cyan)%an%C(reset) (%C(yellow)%ar%C(reset))%n%C(bold)%s%C(reset)%n%b'";
+      lg = "!git --no-pager log --graph --pretty=format:'%C(green)%h%C(reset) - %C(italic)%C(cyan)%an%C(reset) (%C(yellow)%ar%C(reset)): %s'";
+    };
   };
 
-  services.gpg-agent = {
+  programs.zsh = {
+    enable = true;
+    # zsh conf here
+
+    zplug = {
       enable = true;
-      pinentryFlavor = "qt";
+      plugins = [
+        { name = "zsh-users/zsh-autosuggestions"; } # Simple plugin installation
+        { name = "romkatv/powerlevel10k"; tags = [ as:theme depth:1 ]; } # Installations with additional options. For the list of options, please refer to Zplug README.
+      ];
+    };
   };
 }

@@ -1,0 +1,11 @@
+alias ls='ls --color=auto'
+alias rm='echo "rm is disabled, use trash/trash-put/rmt for safe rm or remove (/bin/rm) for removing file."'
+alias remove='/bin/rm -irv'
+alias rmt=trash-put
+alias vi=nvim
+alias vim=nvim
+alias la='ls -la'
+alias ll='ls -l'
+cdc () {
+    cd $(ec)
+}
