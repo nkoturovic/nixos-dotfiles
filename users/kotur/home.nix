@@ -32,6 +32,7 @@
   home.file.".p10k.zsh".source = ./dotfiles/.p10k.zsh;
   home.file.".commonrc".source = ./dotfiles/.commonrc;
   home.file.".profile".source = ./dotfiles/.profile;
+  home.file.".bashrc".source = ./dotfiles/.bashrc;
   home.file.".zshenv".text = ''
     source .profile
     source .p10k.zsh
