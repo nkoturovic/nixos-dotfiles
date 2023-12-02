@@ -15,3 +15,6 @@ nix-env -qa --installed "*"
 
 # Run python server
 python -m http.server 8000
+
+# Clean-up nix store
+nix-collect-garbage --delete-old
