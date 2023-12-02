@@ -81,6 +81,8 @@ in
   # Select internationalisation properties.
   i18n.defaultLocale = "en_US.UTF-8";
 
+  nix.settings.experimental-features = ["nix-command" "flakes" ]; 
+
   # Configure keymap in X11
   services.xserver = {
     layout = "us";

@@ -1,4 +1,4 @@
-{ config, pkgs, ... }:
+{ pkgs, ... }:
 
 {
   # Home Manager needs a bit of information about you and the paths it should
@@ -35,7 +35,10 @@
     #   echo "Hello, ${config.home.username}!"
     # '')
     git
+    zsh
     neovim
+    #jetbrains-mono
+    inconsolata-nerdfont
   ];
 
   # Home Manager is pretty good at managing dotfiles. The primary way to manage
@@ -57,11 +60,12 @@
     ".commonrc".source = ./dotfiles/.commonrc;
     ".profile".source = ./dotfiles/.profile;
     ".zshenv".text = ''
-       source .profile
-       source .p10k.zsh
-       source .commonrc
+       source ~/.profile
+       source ~/.p10k.zsh
+       source ~/.commonrc
     '';
     ".config/sway/config".source = ./dotfiles/sway;
+    ".config/alacritty/alacritty.toml".source = ./dotfiles/alacritty.toml;
   };
 
   # Home Manager can also manage your environment variables through
@@ -91,6 +95,18 @@
       dt = "!git difftool --dir-diff --no-symlinks -t meld";
       hist = "!git --no-pager log --graph --pretty=format:'%C(green)%h%C(reset) - %C(italic)%C(cyan)%an%C(reset) (%C(yellow)%ar%C(reset))%n%C(bold)%s%C(reset)%n%b'";
       lg = "!git --no-pager log --graph --pretty=format:'%C(green)%h%C(reset) - %C(italic)%C(cyan)%an%C(reset) (%C(yellow)%ar%C(reset)): %s'";
+    };
+  };
+
+  programs.zsh = {
+    enable = true;
+   
+    zplug = {
+      enable = true;
+      plugins = [
+        { name = "zsh-users/zsh-autosuggestions"; }
+        { name = "romkatv/powerlevel10k"; tags = [ as:theme depth:1 ]; }
+      ];
     };
   };
 }
