@@ -221,7 +221,7 @@ bar {
 gaps inner 17
 gaps outer 7
 
-set $opacity 0.97
+set $opacity 0.98
 for_window [class=".*"] opacity $opacity
 for_window [app_id=".*"] opacity $opacity
 

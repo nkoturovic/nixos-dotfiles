@@ -6,3 +6,9 @@ font:
 
 shell:
   program: /home/kotur/.nix-profile/bin/zsh
+
+
+colors:
+  # Default colors
+  primary:
+    background: '0x1a202a'
