@@ -34,11 +34,11 @@
     # (pkgs.writeShellScriptBin "my-hello" ''
     #   echo "Hello, ${config.home.username}!"
     # '')
-    git
     zsh
     neovim
     #jetbrains-mono
     inconsolata-nerdfont
+    gh
   ];
 
   # Home Manager is pretty good at managing dotfiles. The primary way to manage
@@ -96,6 +96,22 @@
       hist = "!git --no-pager log --graph --pretty=format:'%C(green)%h%C(reset) - %C(italic)%C(cyan)%an%C(reset) (%C(yellow)%ar%C(reset))%n%C(bold)%s%C(reset)%n%b'";
       lg = "!git --no-pager log --graph --pretty=format:'%C(green)%h%C(reset) - %C(italic)%C(cyan)%an%C(reset) (%C(yellow)%ar%C(reset)): %s'";
     };
+
+    # Global Git config
+    extraConfig = {
+      core = {
+        editor = "lvim";
+        pager = "lvim";
+        whitespace = "trailing-space,space-before-tab";
+      };
+                                                        
+      # commit.gpgsign = "true";
+      # gpg.program = "gpg2";
+                                                        
+      # protocol.keybase.allow = "always";
+      credential.helper = "!gh auth git-credential";
+      # pull.rebase = "false";
+    }; 
   };
 
   programs.zsh = {
