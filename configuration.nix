@@ -175,6 +175,9 @@ in
   # Enable the OpenSSH daemon.
   # services.openssh.enable = true;
 
+  # bluetooth should be enabled in hardware config
+  services.blueman.enable = true;
+
   # Open ports in the firewall.
   # networking.firewall.allowedTCPPorts = [ ... ];
   # networking.firewall.allowedUDPPorts = [ ... ];
