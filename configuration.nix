@@ -176,6 +176,8 @@ in
   # services.openssh.enable = true;
 
   # bluetooth should be enabled in hardware config
+  hardware.bluetooth.enable = true; # enables support for Bluetooth
+  hardware.bluetooth.powerOnBoot = true; # powers up the default Bluetooth controller on boot
   services.blueman.enable = true;
 
   # Open ports in the firewall.
