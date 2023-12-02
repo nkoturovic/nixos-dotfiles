@@ -130,6 +130,7 @@ in
     wdisplays # tool to configure displays
 
     # my custom apps
+    pavucontrol
     vim
     firefox
     networkmanagerapplet

@@ -17,4 +17,8 @@ nix-env -qa --installed "*"
 python -m http.server 8000
 
 # Clean-up nix store
-nix-collect-garbage --delete-old
+sudo nix-collect-garbage --delete-old
+
+# prune old gens
+sudo nixos-rebuild switch/boot
+
