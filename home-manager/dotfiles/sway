@@ -19,6 +19,9 @@ set $term alacritty
 # on the original workspace that the command was run on.
 set $menu fuzzel --background-color=#2b303bee # dmenu_path | dmenu | xargs swaymsg exec --
 
+# screenshots
+bindsym $mod+c exec grim -g "$(slurp)" /home/kotur/Pictures/Screenshot_$(date +'%y-%m-%d_%H:%M:%S.png')
+
 ### Output configuration
 #
 # Default wallpaper (more resolutions are available in /run/current-system/sw/share/backgrounds/sway/)
@@ -228,3 +231,6 @@ for_window [app_id=".*"] opacity $opacity
 default_border pixel 3
 default_floating_border pixel 3
 for_window [class="^.*"] border pixel 2
+
+exec dbus-sway-environment
+exec configure-gtk
