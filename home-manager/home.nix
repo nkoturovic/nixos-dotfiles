@@ -99,11 +99,11 @@
 
     # Global Git config
     extraConfig = {
-      core = {
-        editor = "lvim";
-        pager = "lvim";
-        whitespace = "trailing-space,space-before-tab";
-      };
+      # core = {
+      # editor = "nvim";
+      # pager = "nvim";
+      # whitespace = "trailing-space,space-before-tab";
+      # };
                                                         
       # commit.gpgsign = "true";
       # gpg.program = "gpg2";
