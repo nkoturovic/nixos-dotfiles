@@ -1,7 +1,7 @@
 ## Instructions
 
+* Make symbolic links configuration.nix -> /etc/nixos/configuration.nix
 * home-manager is ~/.config/home-manager
-* configuration.nix is /etc/nixos/configuration.nix
 
 ### Install base system
 
@@ -16,3 +16,5 @@
 ### Install home-manager
 
 * Follow the standalone install tutorial
+* Make symbolic links home-manager -> /.config/home-manager
+* Run home-manager switch
