@@ -18,3 +18,7 @@
 * Follow the standalone install tutorial
 * Make symbolic links home-manager -> /.config/home-manager
 * Run home-manager switch
+
+### Colors
+
+* if color scheme is not dark, run: configure-gtk
