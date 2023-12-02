@@ -12,3 +12,6 @@ configure-gtk
 
 # List installed packages
 nix-env -qa --installed "*"
+
+# Run python server
+python -m http.server 8000
