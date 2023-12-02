@@ -22,3 +22,8 @@
 ### Colors
 
 * if color scheme is not dark, run: configure-gtk
+
+### TODO
+
+* Move sway to home-manager
+* Use flakes for building configuration.nix and home-manager
