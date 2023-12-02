@@ -36,9 +36,11 @@
     # '')
     zsh
     neovim
-    #jetbrains-mono
     inconsolata-nerdfont
     gh
+    fuzzel
+    waybar
+    pcmanfm
   ];
 
   # Home Manager is pretty good at managing dotfiles. The primary way to manage
@@ -65,7 +67,9 @@
        source ~/.commonrc
     '';
     ".config/sway/config".source = ./dotfiles/sway;
-    ".config/alacritty/alacritty.toml".source = ./dotfiles/alacritty.toml;
+    ".config/alacritty/alacritty.yml".source = ./dotfiles/alacritty.yml;
+    ".config/waybar/style.css".source = ./dotfiles/waybar-style.css;
+    "Pictures/background.jpg".source = ./dotfiles/pexels-stevan-aksentijevic-3958744.jpg;
   };
 
   # Home Manager can also manage your environment variables through

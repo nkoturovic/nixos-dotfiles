@@ -10,7 +10,7 @@
   * You can add encryption as well
 * After installing copy configuration.nix to the /mnt
 * Boot the system
-* Copy configuration.nix to /etc/nixos/
+* Symlink configuration.nix to /etc/nixos/configuration.nix
 * run nixos-rebuild switch
 
 ### Install home-manager
