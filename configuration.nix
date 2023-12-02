@@ -39,8 +39,7 @@ let
     in ''
       export XDG_DATA_DIRS=${datadir}:$XDG_DATA_DIRS
       gnome_schema=org.gnome.desktop.interface
-      gsettings set $gnome_schema gtk-theme 'Dracula'
-      gsettings set org.gnome.desktop.interface color-scheme 'prefer-dark'
+      gsettings set $gnome_schema gtk-theme 'Arc-Dark'
     '';
   };
   swayRun = pkgs.writeShellScript "sway-run" ''
@@ -119,7 +118,7 @@ in
     wayland
     xdg-utils # for opening default programs when clicking links
     glib # gsettings
-    dracula-theme # gtk theme
+    arc-theme # gtk theme
     gnome3.adwaita-icon-theme  # default gnome cursors
     swaylock
     swayidle
@@ -135,7 +134,6 @@ in
     firefox
     networkmanagerapplet
   ];
-
 
   services.pipewire = {
     enable = true;
