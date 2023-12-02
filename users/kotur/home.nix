@@ -50,7 +50,18 @@
     # ".gradle/gradle.properties".text = ''
     #   org.gradle.console=verbose
     #   org.gradle.daemon.idletimeout=3600000
-    # '';
+    # '';o
+
+    # Raw configuration files
+    ".p10k.zsh".source = ./dotfiles/.p10k.zsh;
+    ".commonrc".source = ./dotfiles/.commonrc;
+    ".profile".source = ./dotfiles/.profile;
+    ".zshenv".text = ''
+       source .profile
+       source .p10k.zsh
+       source .commonrc
+    '';
+    ".config/sway/config".source = ./dotfiles/sway;
   };
 
   # Home Manager can also manage your environment variables through
