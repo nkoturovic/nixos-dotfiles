@@ -241,3 +241,8 @@ exec swaync
 
 # Toggle control center
 bindsym $mod+Shift+n exec swaync-client -t -sw
+
+# clipboard
+set $clipboard "~/.local/share/clipman.json"
+exec wl-paste -t text --watch clipman store --max-items 1024
+bindsym $mod+y exec clipman pick --tool=CUSTOM --tool-args="fuzzel --background-color=#2b303bee -d"
