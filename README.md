@@ -16,6 +16,19 @@
 ### Install home-manager
 
 * Follow the standalone install tutorial
+
+```sh
+nix-channel --add https://github.com/nix-community/home-manager/archive/release-23.11.tar.gz home-manager
+nix-channel --update
+```
+
+* Be sure to logout/login to continue
+
+
+```sh
+nix-shell '<home-manager>' -A install
+```
+
 * Make symbolic links home-manager -> /.config/home-manager
 * Run home-manager switch
 
