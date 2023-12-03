@@ -59,6 +59,8 @@ in
   # Bootloader.
   boot.loader.systemd-boot.enable = true;
   boot.loader.efi.canTouchEfiVariables = true;
+  boot.kernelParams = [ "quiet" "splash" ];
+  boot.plymouth.enable = true;
 
   # tp-link archer t2u ac600
   boot.extraModulePackages = with config.boot.kernelPackages; [
