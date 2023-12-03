@@ -85,8 +85,8 @@ output DP-1 scale 1.30
     bindsym $mod+Shift+c reload
 
     # Exit sway (logs you out of your Wayland session)
-    bindsym $mod+Shift+e exec swaynag -t warning -m 'You pressed the exit shortcut. Do you really want to exit sway? This will end your Wayland session.' -B 'Yes, exit sway' 'swaymsg exit'
-#
+    bindsym $mod+Shift+e exec nwg-bar
+
 # Moving around:
 #
     # Move your focus around

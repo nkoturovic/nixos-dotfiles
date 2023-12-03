@@ -35,6 +35,7 @@
     #   echo "Hello, ${config.home.username}!"
     # '')
     zsh
+    trash-cli
     neovim
     inconsolata-nerdfont
     gh
@@ -43,6 +44,8 @@
     pcmanfm
     loupe
     swaynotificationcenter
+    swaylock-fancy
+    nwg-bar
   ];
 
   # Home Manager is pretty good at managing dotfiles. The primary way to manage
@@ -72,6 +75,8 @@
     ".config/alacritty/alacritty.yml".source = ./dotfiles/alacritty.yml;
     ".config/waybar/style.css".source = ./dotfiles/waybar-style.css;
     "Pictures/background.jpg".source = ./dotfiles/pexels-stevan-aksentijevic-3958744.jpg;
+    ".config/nwg-bar/style.css".source = ./dotfiles/nwg-bar-style.css;
+    ".config/nwg-bar/bar.json".source = ./dotfiles/nwg-bar.json;
   };
 
   # Home Manager can also manage your environment variables through
