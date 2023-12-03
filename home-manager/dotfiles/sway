@@ -17,7 +17,7 @@ set $term alacritty
 # Your preferred application launcher
 # Note: pass the final command to swaymsg so that the resulting window can be opened
 # on the original workspace that the command was run on.
-set $menu fuzzel --width 40 --line-height 25 --font ":weight=bold" --background-color=#2b303bee # dmenu_path | dmenu | xargs swaymsg exec --
+set $menu fuzzel --width 32 --line-height 20 --font ":weight=bold" --background-color=#2b303bee # dmenu_path | dmenu | xargs swaymsg exec --
 
 # screenshots
 bindsym $mod+c exec grim -g "$(slurp)" /home/kotur/Pictures/Screenshot_$(date +'%y-%m-%d_%H:%M:%S.png')
@@ -252,4 +252,4 @@ bindsym $mod+Shift+n exec swaync-client -t -sw
 # clipboard
 set $clipboard "~/.local/share/clipman.json"
 exec wl-paste -t text --watch clipman store --max-items 1024
-bindsym $mod+y exec clipman pick --tool=CUSTOM --tool-args="fuzzel --width 40 --line-height 25 --font ':weight=bold' --background-color=#2b303bee -d"
+bindsym $mod+y exec clipman pick --tool=CUSTOM --tool-args="fuzzel --width 66 --line-height 20 --background-color=#2b303bee -d"
