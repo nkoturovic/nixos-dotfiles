@@ -32,6 +32,14 @@ Home manager goes similar
 home-manager switch --flake .#kotur
 ```
 
+If home-manager is not installed on the system, use:
+
+```sh
+nix shell nixpkgs#home-manager
+# and then run the previous command
+home-manager switch --flake .#kotur
+```
+
 Similarly, to avoid using `.#kotur`, you can create a symlink
 (username is default output inspected by home manager) username -> home-manager
 
@@ -43,6 +51,8 @@ home-manager switch
 
 If you think about symlinks for nixos and home-manager, it should be  the first thing you create,
 even before running the installer/home manager for the first time ;)
+
+The only downside is that system and home-manager installers need to be ran separately
  
 Enjoy!!
 
@@ -87,6 +97,7 @@ nix-shell '<home-manager>' -A install
 ### TODO
 
 * [x] Use flakes for building configuration.nix and home-manager
+* [ ] Consider adding home-manager as a nixos module
 * [ ] Move sway to home-manager
 * [ ] Fix lock screen and sleep
 
