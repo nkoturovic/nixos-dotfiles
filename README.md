@@ -16,7 +16,9 @@ nixos-install --flake .#kotur-pc
 sudo nixos-rebuild switch --flake .#kotur-pc
 ```
 
-To avoid using .#kotur-pc, you can create a symlink - is it possible??
+To avoid using .#kotur-pc, you can create a symlink
+(this is possible because the current hostname is default output inspected by nixos-rebuild)
+kotur-pc -> (nixos)
 
 ```sh
 cd /etc/
@@ -27,15 +29,19 @@ sudo nixos-rebuild switch
 Home manager goes similar
 
 ```sh
-home-manager switch --flake .#kotur@kotur-pc
+home-manager switch --flake .#kotur
 ```
 
-And to avoid using the hostname -- is it possible?
+Similarly, to avoid using .#kotur, you can create a symlink
+(username is default output inspected by home manager) username -> home-manager
 
 ```sh
+cd /home/kotur/.config
 ln -s /home/kotur/.nixos-dotfiles home-manager
 home-manager switch
 ```
+
+Enjoy!!
 
 ## Old Instructions
 
@@ -79,6 +85,5 @@ nix-shell '<home-manager>' -A install
 
 * Move sway to home-manager
 * Use flakes for building configuration.nix and home-manager
-
 
 
