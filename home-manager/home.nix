@@ -47,6 +47,7 @@
     swaylock-fancy
     nwg-bar
     clipman
+    fzf
   ];
 
   # Home Manager is pretty good at managing dotfiles. The primary way to manage
@@ -71,6 +72,22 @@
        source ~/.profile
        source ~/.p10k.zsh
        source ~/.commonrc
+
+       HISTSIZE=10000000
+       SAVEHIST=10000000
+       setopt HIST_EXPIRE_DUPS_FIRST
+       setopt HIST_IGNORE_DUPS
+       setopt HIST_IGNORE_ALL_DUPS
+       setopt HIST_IGNORE_SPACE
+       setopt HIST_FIND_NO_DUPS
+       setopt HIST_SAVE_NO_DUPS
+
+       ZSH_FZF_HISTORY_SEARCH_BIND='^f'
+       ZSH_FZF_HISTORY_SEARCH_REMOVE_DUPLICATES=1
+
+       # Reverse tab cycle
+       bindkey '^[[Z' reverse-menu-complete
+
     '';
     ".config/sway/config".source = ./dotfiles/sway;
     ".config/alacritty/alacritty.yml".source = ./dotfiles/alacritty.yml;
@@ -128,12 +145,17 @@
 
   programs.zsh = {
     enable = true;
-   
+    enableAutosuggestions = true;
+    enableCompletion = true;
+    syntaxHighlighting.enable = true;
+    initExtra = builtins.readFile ./dotfiles/.zshrc;
+
     zplug = {
       enable = true;
       plugins = [
-        { name = "zsh-users/zsh-autosuggestions"; }
+        { name = "joshskidmore/zsh-fzf-history-search"; }
         { name = "romkatv/powerlevel10k"; tags = [ as:theme depth:1 ]; }
+	# { name = "Aloxaf/fzf-tab"; }
       ];
     };
   };
