@@ -86,7 +86,7 @@ nix-shell '<home-manager>' -A install
 
 ### TODO
 
-* Move sway to home-manager
-* Use flakes for building configuration.nix and home-manager
-
+* [x] Use flakes for building configuration.nix and home-manager
+* [ ] Move sway to home-manager
+* [ ] Fix lock screen and sleep
 
