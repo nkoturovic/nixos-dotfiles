@@ -88,9 +88,9 @@
     # '';o
 
     # Raw configuration files
-    ".p10k.zsh".source = ./dotfiles/.p10k.zsh;
-    ".commonrc".source = ./dotfiles/.commonrc;
-    ".profile".source = ./dotfiles/.profile;
+    ".p10k.zsh".source = ./kotur.dotfiles/.p10k.zsh;
+    ".commonrc".source = ./kotur.dotfiles/.commonrc;
+    ".profile".source = ./kotur.dotfiles/.profile;
     ".zshenv".text = ''
        source ~/.profile
        source ~/.p10k.zsh
@@ -112,12 +112,12 @@
        bindkey '^[[Z' reverse-menu-complete
 
     '';
-    ".config/sway/config".source = ./dotfiles/sway;
-    ".config/alacritty/alacritty.yml".source = ./dotfiles/alacritty.yml;
-    ".config/waybar/style.css".source = ./dotfiles/waybar-style.css;
-    "Pictures/background.jpg".source = ./dotfiles/pexels-stevan-aksentijevic-3958744.jpg;
-    ".config/nwg-bar/style.css".source = ./dotfiles/nwg-bar-style.css;
-    ".config/nwg-bar/bar.json".source = ./dotfiles/nwg-bar.json;
+    ".config/sway/config".source = ./kotur.dotfiles/sway;
+    ".config/alacritty/alacritty.yml".source = ./kotur.dotfiles/alacritty.yml;
+    ".config/waybar/style.css".source = ./kotur.dotfiles/waybar-style.css;
+    "Pictures/background.jpg".source = ./kotur.dotfiles/pexels-stevan-aksentijevic-3958744.jpg;
+    ".config/nwg-bar/style.css".source = ./kotur.dotfiles/nwg-bar-style.css;
+    ".config/nwg-bar/bar.json".source = ./kotur.dotfiles/nwg-bar.json;
   };
 
   # Home Manager can also manage your environment variables through
@@ -171,7 +171,7 @@
     enableAutosuggestions = true;
     enableCompletion = true;
     syntaxHighlighting.enable = true;
-    initExtra = builtins.readFile ./dotfiles/.zshrc;
+    initExtra = builtins.readFile ./kotur.dotfiles/.zshrc;
 
     zplug = {
       enable = true;
