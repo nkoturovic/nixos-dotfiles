@@ -1,5 +1,6 @@
-
 ## New instructions (flakes)
+
+Taken from: [github.com/Misterio77/nix-starter-configs](https://github.com/Misterio77/nix-starter-configs)
 
 ```sh
 export NIX_CONFIG="experimental-features = nix-command flakes"
@@ -15,7 +16,7 @@ nixos-install --flake .#kotur-pc
 sudo nixos-rebuild switch --flake .#kotur-pc
 ```
 
-To avoid using .#kotur-pc, you can create a symlink
+To avoid using .#kotur-pc, you can create a symlink - is it possible??
 
 ```sh
 cd /etc/
@@ -23,15 +24,13 @@ sudo ln -s /home/kotur/.nixos-dotfiles nixos
 sudo nixos-rebuild switch
 ```
 
-
-
 Home manager goes similar
 
 ```sh
 home-manager switch --flake .#kotur@kotur-pc
 ```
 
-And to avoid using the hostname
+And to avoid using the hostname -- is it possible?
 
 ```sh
 ln -s /home/kotur/.nixos-dotfiles home-manager

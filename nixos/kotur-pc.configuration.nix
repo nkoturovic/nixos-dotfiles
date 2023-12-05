@@ -2,7 +2,7 @@
 # your system.  Help is available in the configuration.nix(5) man page
 # and in the NixOS manual (accessible by running ‘nixos-help’).
 
-{ config, pkgs, lib, ... }:
+{ config, pkgs, lib, hwConf, hname, ... }:
 
 let
   # bash script to let dbus know about important env variables and
@@ -53,7 +53,7 @@ in
 {
   imports =
     [ # Include the results of the hardware scan.
-      ./hardware-configuration.nix
+      ./kotur-pc.hardware-configuration.nix
     ];
 
   # Bootloader.

@@ -1,5 +1,5 @@
 {
-  description = "Your new nix config";
+  description = "Kotur's NixOS configuration";
 
   inputs = {
     # Nixpkgs
@@ -24,14 +24,17 @@
     ...
   } @ inputs: let
     inherit (self) outputs;
+    # someParam = <some_value>
   in {
     # NixOS configuration entrypoint
     # Available through 'nixos-rebuild --flake .#your-hostname'
     nixosConfigurations = {
       kotur-pc = nixpkgs.lib.nixosSystem {
-        specialArgs = {inherit inputs outputs;};
+        specialArgs = {inherit inputs outputs /* someParam */;};
         # > Our main nixos configuration file <
-        modules = [./nixos/configuration.nix];
+        modules = [ 
+	  ./nixos/kotur-pc.configuration.nix  
+	];
       };
     };
 
