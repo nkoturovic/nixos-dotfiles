@@ -16,7 +16,7 @@ nixos-install --flake .#kotur-pc
 sudo nixos-rebuild switch --flake .#kotur-pc
 ```
 
-To avoid using .#kotur-pc, you can create a symlink
+To avoid using `.#kotur-pc`, you can create a symlink
 (this is possible because the current hostname is default output inspected by nixos-rebuild)
 kotur-pc -> (nixos)
 
@@ -32,7 +32,7 @@ Home manager goes similar
 home-manager switch --flake .#kotur
 ```
 
-Similarly, to avoid using .#kotur, you can create a symlink
+Similarly, to avoid using `.#kotur`, you can create a symlink
 (username is default output inspected by home manager) username -> home-manager
 
 ```sh
