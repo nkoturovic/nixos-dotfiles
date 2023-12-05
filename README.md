@@ -41,6 +41,9 @@ ln -s /home/kotur/.nixos-dotfiles home-manager
 home-manager switch
 ```
 
+If you think about symlinks for nixos and home-manager, it should be  the first thing you create,
+even before running the installer/home manager for the first time ;)
+ 
 Enjoy!!
 
 ## Old Instructions
