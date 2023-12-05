@@ -1,4 +1,44 @@
-## Instructions
+
+## New instructions (flakes)
+
+```sh
+export NIX_CONFIG="experimental-features = nix-command flakes"
+```
+
+To install from the installer run:
+
+```sh
+# On live CD
+nixos-install --flake .#kotur-pc
+
+# On distro
+sudo nixos-rebuild switch --flake .#kotur-pc
+```
+
+To avoid using .#kotur-pc, you can create a symlink
+
+```sh
+cd /etc/
+sudo ln -s /home/kotur/.nixos-dotfiles nixos
+sudo nixos-rebuild switch
+```
+
+
+
+Home manager goes similar
+
+```sh
+home-manager switch --flake .#kotur@kotur-pc
+```
+
+And to avoid using the hostname
+
+```sh
+ln -s /home/kotur/.nixos-dotfiles home-manager
+home-manager switch
+```
+
+## Old Instructions
 
 * Make symbolic links configuration.nix -> /etc/nixos/configuration.nix
 * home-manager is ~/.config/home-manager
@@ -40,3 +80,6 @@ nix-shell '<home-manager>' -A install
 
 * Move sway to home-manager
 * Use flakes for building configuration.nix and home-manager
+
+
+
