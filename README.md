@@ -6,6 +6,11 @@ Taken from: [github.com/Misterio77/nix-starter-configs](https://github.com/Miste
 export NIX_CONFIG="experimental-features = nix-command flakes"
 ```
 
+Be sure that `<hostname>` is set to use right `configuration.nix` and `hardware-configuration.nix`
+This should be done through `nixos-generate-config`, it generate only `hardware-configuration` if `configuration.nix` exists.
+But, if `configuration.nix` is initially generated it won't do any harm, as you can only copy `hardware-configuration.nix`, 
+put it to `./nixos/` folder and make sure to change include directive for it in the original `./nixos/kotur-pc.configuration.nix`
+
 To install from the installer run:
 
 ```sh
