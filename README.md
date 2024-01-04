@@ -99,6 +99,15 @@ nix-shell '<home-manager>' -A install
 
 * if color scheme is not dark, run: configure-gtk
 
+### Commands
+
+Removing old generations
+
+```sh
+sudo nixos-collect-gabage [-d]
+nixos-collect-gabage [-d] # clean home-manager generations
+```
+
 ### TODO
 
 * [x] Use flakes for building configuration.nix and home-manager
