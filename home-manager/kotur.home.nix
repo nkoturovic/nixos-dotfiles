@@ -61,6 +61,10 @@
     nwg-bar
     clipman
     fzf
+    gcc
+    unzip
+    ripgrep
+    nodejs_21
   ];
 
   # You can import other home-manager modules here
@@ -151,11 +155,13 @@
 
     # Global Git config
     extraConfig = {
-      # core = {
-      # editor = "nvim";
-      # pager = "nvim";
-      # whitespace = "trailing-space,space-before-tab";
-      # };
+      core = {
+        editor = "nvim";
+        pager = "nvim";
+        # whitespace = "trailing-space,space-before-tab";
+      };
+
+      color.diff = false;
                                                         
       # commit.gpgsign = "true";
       # gpg.program = "gpg2";
