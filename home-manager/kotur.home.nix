@@ -48,6 +48,9 @@
     #   echo "Hello, ${config.home.username}!"
     # '')
     zsh
+    gcc
+    binutils
+    file
     trash-cli
     neovim
     inconsolata-nerdfont
@@ -61,10 +64,10 @@
     nwg-bar
     clipman
     fzf
-    gcc
     unzip
     ripgrep
     nodejs_21
+    cargo
   ];
 
   # You can import other home-manager modules here
