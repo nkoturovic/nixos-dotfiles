@@ -1,8 +1,8 @@
 font:
   normal:
-    family: Inconsolata Nerd Font Mono
+    family: JetBrains Mono
     style: Regular
-  size: 13.0
+  size: 10
 
 shell:
   program: /home/kotur/.nix-profile/bin/zsh

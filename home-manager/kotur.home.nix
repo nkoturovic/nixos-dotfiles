@@ -54,6 +54,7 @@
     trash-cli
     neovim
     inconsolata-nerdfont
+    jetbrains-mono
     gh
     fuzzel
     waybar
