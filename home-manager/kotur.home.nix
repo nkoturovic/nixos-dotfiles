@@ -68,6 +68,7 @@
     ripgrep
     nodejs_21
     cargo
+    v4l-utils
   ];
 
   # You can import other home-manager modules here
