@@ -236,8 +236,8 @@ bar {
 exec_always nm-applet --indicator
 exec_always blueman-applet
 
-gaps inner 13
-gaps outer 2
+gaps inner 14
+# gaps outer 2
 
 set $opacity 0.98
 for_window [class=".*"] opacity $opacity
