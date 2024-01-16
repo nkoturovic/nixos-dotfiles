@@ -27,6 +27,8 @@ bindsym $mod+c exec grim -g "$(slurp)" /home/kotur/Pictures/Screenshot_$(date +'
 # Default wallpaper (more resolutions are available in /run/current-system/sw/share/backgrounds/sway/)
 output * bg /home/kotur/Pictures/background.jpg fill
 output DP-1 scale 1.33
+output DP-3 scale 1.33
+output HDMI-A-1 scale 0.85
 #
 # Example configuration:
 #
@@ -234,8 +236,8 @@ bar {
 exec_always nm-applet --indicator
 exec_always blueman-applet
 
-gaps inner 15
-gaps outer 5
+gaps inner 13
+gaps outer 2
 
 set $opacity 0.98
 for_window [class=".*"] opacity $opacity
