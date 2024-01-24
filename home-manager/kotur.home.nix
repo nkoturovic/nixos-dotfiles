@@ -1,10 +1,9 @@
 # Use this to configure your home environment (it replaces ~/.config/nixpkgs/home.nix)
-{
-  inputs,
-  lib,
-  config,
-  pkgs,
-  ...
+{ inputs
+, lib
+, config
+, pkgs
+, ...
 }: {
 
   # Home Manager needs a bit of information about you and the paths it should manage.
@@ -101,24 +100,24 @@
     ".commonrc".source = ./kotur.dotfiles/.commonrc;
     ".profile".source = ./kotur.dotfiles/.profile;
     ".zshenv".text = ''
-       source ~/.profile
-       source ~/.p10k.zsh
-       source ~/.commonrc
+      source ~/.profile
+      source ~/.p10k.zsh
+      source ~/.commonrc
 
-       HISTSIZE=10000000
-       SAVEHIST=10000000
-       setopt HIST_EXPIRE_DUPS_FIRST
-       setopt HIST_IGNORE_DUPS
-       setopt HIST_IGNORE_ALL_DUPS
-       setopt HIST_IGNORE_SPACE
-       setopt HIST_FIND_NO_DUPS
-       setopt HIST_SAVE_NO_DUPS
+      HISTSIZE=10000000
+      SAVEHIST=10000000
+      setopt HIST_EXPIRE_DUPS_FIRST
+      setopt HIST_IGNORE_DUPS
+      setopt HIST_IGNORE_ALL_DUPS
+      setopt HIST_IGNORE_SPACE
+      setopt HIST_FIND_NO_DUPS
+      setopt HIST_SAVE_NO_DUPS
 
-       ZSH_FZF_HISTORY_SEARCH_BIND='^f'
-       ZSH_FZF_HISTORY_SEARCH_REMOVE_DUPLICATES=1
+      ZSH_FZF_HISTORY_SEARCH_BIND='^f'
+      ZSH_FZF_HISTORY_SEARCH_REMOVE_DUPLICATES=1
 
-       # Reverse tab cycle
-       bindkey '^[[Z' reverse-menu-complete
+      # Reverse tab cycle
+      bindkey '^[[Z' reverse-menu-complete
 
     '';
     ".config/sway/config".source = ./kotur.dotfiles/sway;
@@ -167,15 +166,19 @@
         # whitespace = "trailing-space,space-before-tab";
       };
 
+      init = {
+        defaultBranch = "main";
+      };
+
       color.diff = false;
-                                                        
+
       # commit.gpgsign = "true";
       # gpg.program = "gpg2";
-                                                        
+
       # protocol.keybase.allow = "always";
       credential.helper = "!gh auth git-credential";
       # pull.rebase = "false";
-    }; 
+    };
   };
 
   programs.zsh = {
@@ -190,7 +193,7 @@
       plugins = [
         { name = "joshskidmore/zsh-fzf-history-search"; }
         { name = "romkatv/powerlevel10k"; tags = [ as:theme depth:1 ]; }
-	# { name = "Aloxaf/fzf-tab"; }
+        # { name = "Aloxaf/fzf-tab"; }
       ];
     };
   };
