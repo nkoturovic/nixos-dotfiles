@@ -3,6 +3,7 @@
 , lib
 , config
 , pkgs
+, pkgs-unstable
 , ...
 }: {
 
@@ -69,6 +70,7 @@
     nodejs_21
     cargo
     v4l-utils
+    pkgs-unstable.qtcreator
   ];
 
   # You can import other home-manager modules here

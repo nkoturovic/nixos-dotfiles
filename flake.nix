@@ -4,6 +4,7 @@
   inputs = {
     # Nixpkgs
     nixpkgs.url = "github:nixos/nixpkgs/nixos-23.11";
+    nixpkgs-unstable.url = "github:nixos/nixpkgs/nixos-unstable";
 
     # Home manager
     home-manager.url = "github:nix-community/home-manager/release-23.11";
@@ -20,6 +21,7 @@
   outputs = {
     self,
     nixpkgs,
+    nixpkgs-unstable,
     home-manager,
     ...
   } @ inputs: let
@@ -43,7 +45,10 @@
     homeConfigurations = {
       "kotur" = home-manager.lib.homeManagerConfiguration {
         pkgs = nixpkgs.legacyPackages.x86_64-linux; # Home-manager requires 'pkgs' instance
-        extraSpecialArgs = {inherit inputs outputs;};
+        extraSpecialArgs = {
+          inherit inputs outputs;
+          pkgs-unstable = nixpkgs-unstable.legacyPackages.x86_64-linux;
+        };
         # > Our main home-manager configuration file <
         modules = [./home-manager/kotur.home.nix];
       };
