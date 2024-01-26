@@ -71,6 +71,10 @@
     cargo
     v4l-utils
     pkgs-unstable.qtcreator
+    clang-tools # clangd required for better diagnostics in qtcreator
+    gdb
+    cmake
+    gnumake
   ];
 
   # You can import other home-manager modules here
