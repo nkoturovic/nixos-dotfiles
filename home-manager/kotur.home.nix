@@ -38,6 +38,18 @@
   };
 
   home.packages = with pkgs; [
+    #system pkgs
+    # alacritty # gpu accelerated terminal
+    # arc-theme # gtk theme
+    # swaylock
+    # swayidle
+    # grim # screenshot functionality
+    # slurp # screenshot functionality
+    # wl-clipboard # wl-copy and wl-paste for copy/paste from stdin / stdout
+    # bemenu # wayland clone of dmenu
+    # mako # notification system developed by swaywm maintainer
+    # wdisplays # tool to configure displays
+    # pavucontrol
     # It is sometimes useful to fine-tune packages, for example, by applying
     # overrides. You can do that directly here, just don't forget the
     # parentheses. Maybe you want to install Nerd Fonts with a limited number of fonts?
@@ -48,11 +60,11 @@
     #   echo "Hello, ${config.home.username}!"
     # '')
     zsh
+    # nix-zsh-completions
     gcc
     binutils
     file
     trash-cli
-    neovim
     inconsolata-nerdfont
     jetbrains-mono
     gh
@@ -60,10 +72,9 @@
     waybar
     pcmanfm
     loupe
-    swaynotificationcenter
-    swaylock-fancy
-    nwg-bar
-    clipman
+    # swaynotificationcenter
+    # nwg-bar
+    # clipman
     fzf
     unzip
     ripgrep
@@ -71,10 +82,13 @@
     cargo
     v4l-utils
     pkgs-unstable.qtcreator
+    pkgs-unstable.neovim
     clang-tools # clangd required for better diagnostics in qtcreator
     gdb
     cmake
     gnumake
+    zsh-powerlevel10k
+    zsh-fzf-history-search
   ];
 
   # You can import other home-manager modules here
@@ -192,20 +206,28 @@
     enableAutosuggestions = true;
     enableCompletion = true;
     syntaxHighlighting.enable = true;
-    initExtra = builtins.readFile ./kotur.dotfiles/.zshrc;
+    initExtra = ''
+      ${builtins.readFile ./kotur.dotfiles/.zshrc}
+      source ${pkgs.zsh-powerlevel10k}/share/zsh-powerlevel10k/powerlevel10k.zsh-theme  
+      test -f ~/.config/zsh/.p10k.zsh && source ~/.config/zsh/.p10k.zsh  
+      source ${pkgs.zsh-fzf-history-search}/share/zsh-fzf-history-search/zsh-fzf-history-search.plugin.zsh
+    '';
+      #source ${pkgs.nix-zsh-completions}/share/zsh/plugins/nix/nix-zsh-completions.plugin.zsh
 
-    zplug = {
+    oh-my-zsh = {
       enable = true;
       plugins = [
-        { name = "joshskidmore/zsh-fzf-history-search"; }
-        { name = "romkatv/powerlevel10k"; tags = [ as:theme depth:1 ]; }
+        "git" "thefuck" "kubectl" "fzf"
+        # { name = "joshskidmore/zsh-fzf-history-search"; }
+        # { name = "romkatv/powerlevel10k"; tags = [ as:theme depth:1 ]; }
         # { name = "Aloxaf/fzf-tab"; }
+        # { name = "chitoku-k/fzf-zsh-completions"; }
       ];
     };
   };
 
   # Nicely reload system units when changing configs
-  systemd.user.startServices = "sd-switch";
+  #systemd.user.startServices = "sd-switch";
 
   # https://nixos.wiki/wiki/FAQ/When_do_I_update_stateVersion
 }
