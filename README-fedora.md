@@ -28,4 +28,5 @@ QT_QPA_PLATFORMTHEME=KDE
 
 if [[ "$XDG_SESSION_DESKTOP" == "Sway" ]] ; then
     XDG_CURRENT_DESKTOP="sway"
+    GDK_DPI_SCALE=65
 fi
