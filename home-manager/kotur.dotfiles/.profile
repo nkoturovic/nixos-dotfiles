@@ -21,4 +21,6 @@ export PATH=/home/kotur/.nix-profile/bin:/home/kotur/personal/DataGrip-2023.1/bi
 
 . "$HOME/.nix-profile/etc/profile.d/hm-session-vars.sh"
 
-export XDG_CURRENT_DESKTOP="KDE"
+if [[ "$XDG_SESSION_DESKTOP" == "Sway" ]] ; then
+    export XDG_CURRENT_DESKTOP="sway"
+fi

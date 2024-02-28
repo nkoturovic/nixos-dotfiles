@@ -81,9 +81,9 @@
     nodejs_21
     cargo
     v4l-utils
-    pkgs-unstable.qtcreator
+    # pkgs-unstable.qtcreator
+    # clang-tools # clangd required for better diagnostics in qtcreator
     pkgs-unstable.neovim
-    clang-tools # clangd required for better diagnostics in qtcreator
     gdb
     cmake
     gnumake
