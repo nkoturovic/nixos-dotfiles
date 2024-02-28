@@ -190,7 +190,8 @@
         defaultBranch = "main";
       };
 
-      color.diff = false;
+      # Needed for basic nvim setup
+      # color.diff = false;
 
       # commit.gpgsign = "true";
       # gpg.program = "gpg2";
