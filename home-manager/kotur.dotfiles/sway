@@ -263,3 +263,6 @@ bindsym $mod+y exec clipman pick --tool=CUSTOM --tool-args="fuzzel --width 56 --
 
 # Required for zoom screen share
 exec dbus-update-activation-environment --systemd WAYLAND_DISPLAY XDG_CURRENT_DESKTOP=sway
+
+# Needed for gparted
+exec xhost +local: 
