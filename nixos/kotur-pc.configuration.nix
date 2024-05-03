@@ -65,6 +65,7 @@ in
   # tp-link archer t2u ac600
   boot.extraModulePackages = with config.boot.kernelPackages; [
     rtl88x2bu
+    rtl8188eus-aircrack
   ];
 
   networking.hostName = "kotur-pc"; # Define your hostname.
