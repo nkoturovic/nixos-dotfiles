@@ -24,3 +24,6 @@ export PATH=/home/kotur/.nix-profile/bin:/home/kotur/personal/DataGrip-2023.1/bi
 if [[ "$XDG_SESSION_DESKTOP" == "Sway" ]] ; then
     export XDG_CURRENT_DESKTOP="sway"
 fi
+
+# TODO(nkoturovic): Should remove it after update to ollama v0.1.29
+export HSA_OVERRIDE_GFX_VERSION=10.3.0

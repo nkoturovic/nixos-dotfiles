@@ -37,20 +37,16 @@ output HDMI-A-1 scale 0.85
 # You can get the names of your outputs by running: swaymsg -t get_outputs
 
 ### Idle configuration
-#
-# Example configuration:
-#
-# exec swayidle -w \
-#          timeout 300 'swaylock -f -c 000000' \
-#          timeout 600 'swaymsg "output * power off"' resume 'swaymsg "output * power on"' \
-#          before-sleep 'swaylock -f -c 000000'
-#
-
 exec swayidle -w \
-    timeout 600 'swaylock-fancy' \
-    timeout 900 'swaymsg "output * dpms off"' \
-        resume 'swaymsg "output * dpms on"' \
-    before-sleep 'swaylock-fancy'
+         timeout 300 '/home/kotur/.local/bin/lockscreen.sh' \
+         timeout 600 'swaymsg "output * power off"' resume 'swaymsg "output * power on"' \
+         before-sleep '/home/kotur/.local/bin/lockscreen.sh'
+
+# exec swayidle -w \
+#     timeout 600 'swaylock-fancy -f' \
+#     timeout 900 'swaymsg "output * power off"' \
+#         resume 'swaymsg "output * power on"' \
+#     before-sleep 'swaylock-fancy -f'
 
 # This will lock your screen after 300 seconds of inactivity, then turn off
 # your displays after another 300 seconds, and turn your screens back on when
