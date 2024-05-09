@@ -58,7 +58,7 @@
     gh
     fuzzel
     waybar
-    pcmanfm
+    # pcmanfm
     loupe
     swaynotificationcenter
     swaylock-fancy
