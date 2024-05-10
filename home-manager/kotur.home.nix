@@ -180,9 +180,7 @@
 
       color.diff = false;
       pager.branch = false;
-
-      # commit.gpgsign = "true";
-      # gpg.program = "gpg2";
+      commit.gpgsign = "true";
 
       # protocol.keybase.allow = "always";
       credential.helper = "!gh auth git-credential";
