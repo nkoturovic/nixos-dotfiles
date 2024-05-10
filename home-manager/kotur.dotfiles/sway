@@ -260,3 +260,6 @@ bindsym $mod+Shift+n exec swaync-client -t -sw
 set $clipboard "~/.local/share/clipman.json"
 exec wl-paste -t text --watch clipman store --max-items 1024
 bindsym $mod+y exec clipman pick --tool=CUSTOM --tool-args="fuzzel --width 56 --line-height 14 --background-color=#2b303bee -d"
+
+# lubuntu
+exec lxqt-policykit-agent
