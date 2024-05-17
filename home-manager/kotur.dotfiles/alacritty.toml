@@ -1,5 +1,6 @@
 [colors.primary]
-background = "0x1a202a"
+# background = "0x1a202a"
+background = "0x000000"
 
 [font]
 size = 9

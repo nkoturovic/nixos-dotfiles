@@ -6,6 +6,7 @@ alias vi=nvim
 alias vim=nvim
 alias la='ls -la'
 alias ll='ls -l'
+alias nsh=nix-shell . --command "zsh"
 set -o vi
 cdc () {
     cd $(ec)
