@@ -47,12 +47,13 @@
     # (pkgs.writeShellScriptBin "my-hello" ''
     #   echo "Hello, ${config.home.username}!"
     # '')
+    pkgs-unstable.alacritty
     zsh
     gcc
     binutils
     file
     trash-cli
-    neovim
+    pkgs-unstable.neovim
     inconsolata-nerdfont
     jetbrains-mono
     gh
