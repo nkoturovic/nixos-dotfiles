@@ -39,19 +39,19 @@ output HDMI-A-1 scale 0.85
 ### Idle configuration
 #
 # Example configuration:
-#
-# exec swayidle -w \
-#          timeout 300 'swaylock -f -c 000000' \
-#          timeout 600 'swaymsg "output * power off"' resume 'swaymsg "output * power on"' \
-#          before-sleep 'swaylock -f -c 000000'
-#
 
 exec swayidle -w \
-    timeout 600 'swaylock-fancy' \
-    timeout 900 'swaymsg "output * dpms off"' \
-        resume 'swaymsg "output * dpms on"' \
-    before-sleep 'swaylock-fancy'
+         timeout 300 'swaylock -f -c 000000' \
+         timeout 600 'swaymsg "output * power off"' resume 'swaymsg "output * power on"' \
+         before-sleep 'swaylock -f -c 000000'
 
+
+# exec swayidle -w \
+#     timeout 600 'swaylock-fancy' \
+#     timeout 900 'swaymsg "output * dpms off"' \
+#         resume 'swaymsg "output * dpms on"' \
+#     before-sleep 'swaylock-fancy'
+#
 # This will lock your screen after 300 seconds of inactivity, then turn off
 # your displays after another 300 seconds, and turn your screens back on when
 # resumed. It will also lock your screen before your computer goes to sleep.
@@ -232,7 +232,7 @@ bar {
     # }
 }
 
-# include /etc/sway/config.d/*
+include /etc/sway/config.d/*
 exec_always nm-applet --indicator
 exec_always blueman-applet
 
@@ -263,3 +263,6 @@ bindsym $mod+y exec clipman pick --tool=CUSTOM --tool-args="fuzzel --width 56 --
 
 # lubuntu
 exec lxqt-policykit-agent
+exec dbus-sway-environment
+exec configure-gtk
+exec dbus-update-activation-environment --systemd WAYLAND_DISPLAY XDG_CURRENT_DESKTOP=sway

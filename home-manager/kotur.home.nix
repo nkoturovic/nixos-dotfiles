@@ -77,6 +77,8 @@
     gnumake
     zsh-powerlevel10k
     zsh-fzf-history-search
+
+    keepassxc
   ];
 
   # You can import other home-manager modules here
