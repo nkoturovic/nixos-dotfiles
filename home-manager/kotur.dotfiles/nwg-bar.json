@@ -1,7 +1,7 @@
 [
   {
     "label": "Lock",
-    "exec": "swaylock-fancy",
+    "exec": "swaylock -c 000000",
     "icon": "/nix/store/xpr3ksbz9p7qr9ggp1vavya0mhk81jzx-nwg-bar-0.1.4/share/nwg-bar/images/system-lock-screen.svg"
 
   },

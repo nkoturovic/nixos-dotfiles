@@ -75,6 +75,7 @@ button:hover {
 }
 
 #clock,
+#custom-clock,
 #battery,
 #cpu,
 #memory,
@@ -110,6 +111,11 @@ button:hover {
 }
 
 #clock {
+    background-color: #64727D;
+}
+
+
+#custom-clock {
     background-color: #64727D;
 }
 
