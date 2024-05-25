@@ -78,6 +78,7 @@
     zsh-powerlevel10k
     zsh-fzf-history-search
 
+    slurp
     swayr
     keepassxc
     tmux
