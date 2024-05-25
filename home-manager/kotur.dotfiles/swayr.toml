@@ -1,0 +1,11 @@
+[menu]
+executable = '/home/kotur/.nix-profile/bin/fuzzel'
+args = [
+    '--dmenu',
+    '--width=30',
+    '--line-height=12',
+    '--background-color=#2b303bee',
+]
+
+[format]
+window_format = '{app_name} - {title} - Workspace: {workspace_name}'

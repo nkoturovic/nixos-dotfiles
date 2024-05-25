@@ -78,6 +78,7 @@
     zsh-powerlevel10k
     zsh-fzf-history-search
 
+    swayr
     keepassxc
     tmux
     scrcpy
@@ -139,6 +140,8 @@
     "Pictures/background.jpg".source = ./kotur.dotfiles/pexels-stevan-aksentijevic-3958744.jpg;
     ".config/nwg-bar/style.css".source = ./kotur.dotfiles/nwg-bar-style.css;
     ".config/nwg-bar/bar.json".source = ./kotur.dotfiles/nwg-bar.json;
+    ".config/swayr/config.toml".source = ./kotur.dotfiles/swayr.toml;
+    ".config/fuzzel/fuzzel.ini".source = ./kotur.dotfiles/fuzzel.ini;
   };
 
   # Home Manager can also manage your environment variables through

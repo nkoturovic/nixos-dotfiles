@@ -7,6 +7,7 @@
 #
 # Logo key. Use Mod1 for Alt.
 set $mod Mod1
+set $mod1 Mod4
 # Home row direction keys, like vim
 set $left h
 set $down j
@@ -40,7 +41,7 @@ bindsym $mod+Backspace exec swaymsg '[app_id="$ddterm-id"] scratchpad show' \
 # ^-- resize again, case moving to different output
 # End Drop-Down terminal
 
-set $menu fuzzel --width 20 --line-height 12 --font ":weight=bold" --background-color=#2b303bee # dmenu_path | dmenu | xargs swaymsg exec --
+set $menu fuzzel --width 25 # dmenu_path | dmenu | xargs swaymsg exec --
 
 # screenshots
 bindsym $mod+c exec grim -g "$(slurp)" /home/kotur/Pictures/Screenshot_$(date +'%y-%m-%d_%H:%M:%S.png')
@@ -279,10 +280,15 @@ exec swaync
 # Toggle control center
 bindsym $mod+Shift+n exec swaync-client -t -sw
 
+bindsym $mod1+tab workspace next_on_output 
+bindsym $mod1+Shift+tab workspace prev_on_output 
+bindsym $mod+Tab exec swayr switch-window
+bindsym $mod+Shift+Tab exec swayr switch-window
+
 # clipboard
 set $clipboard "~/.local/share/clipman.json"
 exec wl-paste -t text --watch clipman store --max-items 1024
-bindsym $mod+y exec clipman pick --tool=CUSTOM --tool-args="fuzzel --width 40 --line-height 10 --background-color=#2b303bee -d"
+bindsym $mod+y exec clipman pick --tool=CUSTOM --tool-args="fuzzel --width 30 -d"
 
 # lubuntu
 exec lxqt-policykit-agent
@@ -291,3 +297,6 @@ exec configure-gtk
 
 exec systemctl --user import-environment WAYLAND_DISPLAY XDG_CURRENT_DESKTOP
 exec dbus-update-activation-environment --systemd WAYLAND_DISPLAY XDG_CURRENT_DESKTOP=sway
+
+# Alt+Tab
+exec env RUST_BACKTRACE=1 RUST_LOG=swayr=debug swayrd > /tmp/swayrd.log 2>&1
