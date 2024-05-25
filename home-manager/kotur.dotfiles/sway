@@ -17,6 +17,29 @@ set $term alacritty
 # Your preferred application launcher
 # Note: pass the final command to swaymsg so that the resulting window can be opened
 # on the original workspace that the command was run on.
+#
+
+# Drop-Down terminal
+# Start with specific app_id/class
+set $ddterm-id dropdown-terminal
+set $ddterm $term --class $ddterm-id
+set $ddterm-resize resize set 50ppt 60ppt, move position 25ppt 20ppt
+
+# resize/move new dropdown terminal windows
+for_window [app_id="$ddterm-id"] {
+  floating enable
+  $ddterm-resize
+  move to scratchpad
+  scratchpad show
+}
+
+# show existing or start new dropdown terminal
+bindsym $mod+Backspace exec swaymsg '[app_id="$ddterm-id"] scratchpad show' \
+  || $ddterm \
+  && sleep .1 && swaymsg '[app_id="$ddterm-id"] $ddterm-resize'
+# ^-- resize again, case moving to different output
+# End Drop-Down terminal
+
 set $menu fuzzel --width 20 --line-height 12 --font ":weight=bold" --background-color=#2b303bee # dmenu_path | dmenu | xargs swaymsg exec --
 
 # screenshots

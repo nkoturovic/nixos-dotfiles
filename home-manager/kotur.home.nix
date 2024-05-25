@@ -79,6 +79,8 @@
     zsh-fzf-history-search
 
     keepassxc
+    tmux
+    scrcpy
   ];
 
   # You can import other home-manager modules here
