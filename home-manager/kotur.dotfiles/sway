@@ -58,9 +58,10 @@ output DP-3 {
 }
 
  output HEADLESS-1 {
-    pos 890,1620
-    # mode 1872x1404
-    mode 1152x864@45Hz
+    pos 840,1620
+    mode 1872x1404@45Hz
+    scale 1.6
+    # mode 1152x864@45Hz
     bg #ffffff solid_color
 } 
 
