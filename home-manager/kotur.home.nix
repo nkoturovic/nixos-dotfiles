@@ -137,6 +137,8 @@
     '';
     ".config/sway/config".source = ./kotur.dotfiles/sway;
     ".config/alacritty/alacritty.toml".source = ./kotur.dotfiles/alacritty.toml;
+    ".config/alacritty/themes/light.toml".source = ./kotur.dotfiles/alacritty-themes/light.toml;
+    ".config/alacritty/themes/dark.toml".source = ./kotur.dotfiles/alacritty-themes/dark.toml;
     ".config/waybar/style.css".source = ./kotur.dotfiles/waybar-style.css;
     ".config/waybar/config".source = ./kotur.dotfiles/waybar-config.json;
     "Pictures/background.jpg".source = ./kotur.dotfiles/pexels-stevan-aksentijevic-3958744.jpg;

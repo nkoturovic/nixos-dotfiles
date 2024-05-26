@@ -1,5 +1,7 @@
-[colors.primary]
-background = "0x1a202a"
+import = ["~/.config/alacritty/themes/active.toml"]
+
+# [colors.primary]
+# background = "0x1a202a"
 
 [font]
 size = 9
@@ -13,3 +15,4 @@ program = "/home/kotur/.nix-profile/bin/zsh"
 
 [env]
 WINIT_X11_SCALE_FACTOR = "1"
+ALACRITTY = "true"

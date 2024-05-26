@@ -10,3 +10,18 @@ set -o vi
 cdc () {
     cd $(ec)
 }
+
+# Alacritty theme switcher
+if [ "$ALACRITTY" = "true" ]
+then
+  theme() {
+    ln -sf $HOME/.config/alacritty/themes/$1.toml $HOME/.config/alacritty/active-theme.toml
+  }
+  local ALACRITTY_THEME=$(defaults read -g AppleInterfaceStyle 2>/dev/null || echo "Light")
+  if [ "$ALACRITTY_THEME" = "Dark" ]
+  then
+    theme "catppuccin-dark"
+  else
+    theme "gh-light-hc"
+  fi
+fi
