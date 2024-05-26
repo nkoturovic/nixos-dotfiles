@@ -50,9 +50,20 @@ bindsym $mod+c exec grim -g "$(slurp)" /home/kotur/Pictures/Screenshot_$(date +'
 #
 # Default wallpaper (more resolutions are available in /run/current-system/sw/share/backgrounds/sway/)
 output * bg /home/kotur/Pictures/background.jpg fill
-output DP-1 scale 1.33
-output DP-3 scale 1.33
 output HDMI-A-1 scale 0.85
+output DP-1 scale 1.33
+output DP-3 {
+    pos 0,0
+    scale 1.33
+}
+
+ output HEADLESS-1 {
+    pos 890,1620
+    # mode 1872x1404
+    mode 1152x864@45Hz
+    bg #ffffff solid_color
+} 
+
 #
 # Example configuration:
 #
