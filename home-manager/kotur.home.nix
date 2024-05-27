@@ -146,6 +146,10 @@
     ".config/nwg-bar/bar.json".source = ./kotur.dotfiles/nwg-bar.json;
     ".config/swayr/config.toml".source = ./kotur.dotfiles/swayr.toml;
     ".config/fuzzel/fuzzel.ini".source = ./kotur.dotfiles/fuzzel.ini;
+    # binaries
+    ".local/bin/yp".source = ./kotur.bin/yank-path.sh;
+    ".local/bin/ec".source = ./kotur.bin/echo-cliboard.sh;
+    ".local/bin/prepare-for-print".source = ./kotur.bin/prepare-for-print.py;
   };
 
   # Home Manager can also manage your environment variables through
