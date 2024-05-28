@@ -4,7 +4,7 @@ import = ["~/.config/alacritty/themes/active.toml"]
 # background = "0x1a202a"
 
 [font]
-size = 9
+size = 9.5
 
 [font.normal]
 family = "JetBrains Mono"
