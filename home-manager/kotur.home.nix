@@ -13,7 +13,7 @@
     homeDirectory = "/home/kotur";
   };
 
-  home.stateVersion = "23.11";
+  home.stateVersion = "24.05";
 
   nixpkgs = {
     # You can add overlays here
@@ -67,7 +67,7 @@
     fzf
     unzip
     ripgrep
-    nodejs_21
+    # nodejs
     cargo
     v4l-utils
     # pkgs-unstable.qtcreator
