@@ -136,7 +136,6 @@
 
       # Reverse tab cycle
       bindkey '^[[Z' reverse-menu-complete
-
     '';
     ".config/sway/config".source = ./kotur.dotfiles/sway;
     ".config/alacritty/alacritty.toml".source = ./kotur.dotfiles/alacritty.toml;
@@ -210,12 +209,18 @@
     enable = true;
     autosuggestion.enable = true;
     enableCompletion = true;
-    syntaxHighlighting.enable = true;
+    syntaxHighlighting = {
+      enable = true;
+      styles = { 
+        comment = "fg=blue"; 
+      };
+    };
     initExtra = ''
       ${builtins.readFile ./kotur.dotfiles/.zshrc}
       source ${pkgs.zsh-powerlevel10k}/share/zsh-powerlevel10k/powerlevel10k.zsh-theme  
       test -f ~/.config/zsh/.p10k.zsh && source ~/.config/zsh/.p10k.zsh  
       source ${pkgs.zsh-fzf-history-search}/share/zsh-fzf-history-search/zsh-fzf-history-search.plugin.zsh
+      # Fixes black comments on black background
     '';
 
     plugins = [
