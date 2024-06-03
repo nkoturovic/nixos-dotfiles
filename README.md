@@ -81,7 +81,7 @@ Enjoy!!
 * Follow the standalone install tutorial
 
 ```sh
-nix-channel --add https://github.com/nix-community/home-manager/archive/release-23.11.tar.gz home-manager
+nix-channel --add https://github.com/nix-community/home-manager/archive/release-24.05.tar.gz home-manager
 nix-channel --update
 ```
 
@@ -107,6 +107,12 @@ Removing old generations
 sudo nixos-collect-gabage [-d]
 nixos-collect-gabage [-d] # clean home-manager generations
 ```
+
+### Registry
+
+Be sure that you set correct version of nixpkgs in flake registry (user). 
+Global one can't be overrider, it comes from: https://github.com/NixOS/flake-registry
+You can either override system, or user.. This determines which version of nixpkgs is default for flakes
 
 ### TODO
 
