@@ -41,7 +41,7 @@ bindsym $mod+Backspace exec swaymsg '[app_id="$ddterm-id"] scratchpad show' \
 # ^-- resize again, case moving to different output
 # End Drop-Down terminal
 
-set $menu fuzzel --width 25 # dmenu_path | dmenu | xargs swaymsg exec --
+set $menu fuzzel --width 45 # dmenu_path | dmenu | xargs swaymsg exec --
 
 # screenshots
 bindsym $mod+c exec grim -g "$(slurp)" /home/kotur/Pictures/Screenshot_$(date +'%y-%m-%d_%H:%M:%S.png')
@@ -300,7 +300,7 @@ bindsym $mod+Shift+Tab exec swayr switch-window
 # clipboard
 set $clipboard "~/.local/share/clipman.json"
 exec wl-paste -t text --watch clipman store --max-items 1024
-bindsym $mod+y exec clipman pick --tool=CUSTOM --tool-args="fuzzel --width 30 -d"
+bindsym $mod+y exec clipman pick --tool=CUSTOM --tool-args="fuzzel --width 50 -d"
 
 # lubuntu
 exec lxqt-policykit-agent
