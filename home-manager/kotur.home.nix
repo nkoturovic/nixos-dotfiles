@@ -84,7 +84,6 @@
     keepassxc
     tmux
     scrcpy
-    docker
   ];
 
   # needed for making fonts accessible
