@@ -145,7 +145,29 @@
     ".config/waybar/config".source = ./kotur.dotfiles/waybar-config.json;
     "Pictures/background.jpg".source = ./kotur.dotfiles/pexels-stevan-aksentijevic-3958744.jpg;
     ".config/nwg-bar/style.css".source = ./kotur.dotfiles/nwg-bar-style.css;
-    ".config/nwg-bar/bar.json".source = ./kotur.dotfiles/nwg-bar.json;
+    ".config/nwg-bar/bar.json".text = builtins.toJSON [
+      {
+        label = "Lock";
+        exec = "swaylock -c 000000";
+        icon = "${pkgs.nwg-bar}/share/nwg-bar/images/system-lock-screen.svg";
+
+      }
+      {
+        label = "Logout";
+        exec = "swaymsg exit";
+        icon = "${pkgs.nwg-bar}/share/nwg-bar/images/system-log-out.svg";
+      }
+      {
+        label = "Reboot";
+        exec = "systemctl reboot";
+        icon = "${pkgs.nwg-bar}/share/nwg-bar/images/system-reboot.svg";
+      }
+      {
+        label = "Shutdown";
+        exec = "systemctl -i poweroff";
+        icon = "${pkgs.nwg-bar}/share/nwg-bar/images/system-shutdown.svg";
+      }
+    ];
     ".config/swayr/config.toml".source = ./kotur.dotfiles/swayr.toml;
     ".config/fuzzel/fuzzel.ini".source = ./kotur.dotfiles/fuzzel.ini;
     # binaries
