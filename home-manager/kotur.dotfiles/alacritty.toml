@@ -14,5 +14,5 @@ style = "Regular"
 program = "/home/kotur/.nix-profile/bin/zsh"
 
 [env]
-WINIT_X11_SCALE_FACTOR = "1"
+WINIT_X11_SCALE_FACTOR = "1.1"
 ALACRITTY = "true"

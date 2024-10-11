@@ -84,6 +84,7 @@
     keepassxc
     tmux
     scrcpy
+    devpod
   ];
 
   # needed for making fonts accessible
