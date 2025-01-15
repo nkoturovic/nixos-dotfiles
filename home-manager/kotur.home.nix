@@ -48,7 +48,7 @@
     #   echo "Hello, ${config.home.username}!"
     # '')
     zsh
-    gcc
+    # gcc
     binutils
     file
     trash-cli

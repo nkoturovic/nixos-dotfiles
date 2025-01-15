@@ -16,3 +16,4 @@ func alatheme() {
   ln -fs ~/.config/alacritty/themes/$1.toml ~/.config/alacritty/themes/active.toml
 }
 export GPG_TTY=$(tty)
+export PATH=$PATH:/opt/rocm-6.2.2/bin
