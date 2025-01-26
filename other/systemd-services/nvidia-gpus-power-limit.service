@@ -4,7 +4,7 @@ After=multi-user.target
 
 [Service]
 Type=oneshot
-ExecStart=/usr/local/bin/set-nvidia-gpus-power-limit -p 92
+ExecStart=/usr/local/bin/set-nvidia-gpus-power-limit -p 95
 StandardOutput=journal
 StandardError=journal
 

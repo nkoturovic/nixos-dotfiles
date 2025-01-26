@@ -114,6 +114,12 @@ Be sure that you set correct version of nixpkgs in flake registry (user).
 Global one can't be overrider, it comes from: https://github.com/NixOS/flake-registry
 You can either override system, or user.. This determines which version of nixpkgs is default for flakes
 
+### Nvidia FAN control software
+
+https://github.com/ZanMax/nvidia-fan-control
+
+Config can be found in other folder
+
 ### TODO
 
 * [x] Use flakes for building configuration.nix and home-manager
