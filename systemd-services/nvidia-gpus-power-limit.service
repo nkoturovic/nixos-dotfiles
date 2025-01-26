@@ -1,0 +1,12 @@
+[Unit]
+Description=Set NVIDIA GPU Power Limit
+After=multi-user.target
+
+[Service]
+Type=oneshot
+ExecStart=/usr/local/bin/set-nvidia-gpus-power-limit -p 92
+StandardOutput=journal
+StandardError=journal
+
+[Install]
+WantedBy=multi-user.target
