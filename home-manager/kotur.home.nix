@@ -117,7 +117,7 @@
     # Raw configuration files
     ".p10k.zsh".source = ./kotur.dotfiles/.p10k.zsh;
     ".commonrc".source = ./kotur.dotfiles/.commonrc;
-    ".profile".source = ./kotur.dotfiles/.profile;
+    # ".profile".source = ./kotur.dotfiles/.profile;
     ".zshenv".text = ''
       source ~/.profile
       source ~/.p10k.zsh
@@ -228,6 +228,16 @@
     };
   };
 
+  programs.bash = {
+    enable = true;
+    bashrcExtra = ''
+      ${builtins.readFile ./kotur.dotfiles/.bashrc}
+    '';
+    profileExtra = ''
+      ${builtins.readFile ./kotur.dotfiles/.profile}
+    '';
+  };
+
   programs.zsh = {
     enable = true;
     autosuggestion.enable = true;
@@ -268,6 +278,17 @@
         # { name = "Aloxaf/fzf-tab"; }
       ];
     };
+  };
+
+  programs.tmux = {
+    enable = true;
+    shell = "${pkgs.zsh}/bin/zsh";
+    plugins = with pkgs; [
+      tmuxPlugins.better-mouse-mode
+      tmuxPlugins.catppuccin
+      tmuxPlugins.sensible
+      tmuxPlugins.vim-tmux-navigator
+    ];
   };
 
   # Nicely reload system units when changing configs

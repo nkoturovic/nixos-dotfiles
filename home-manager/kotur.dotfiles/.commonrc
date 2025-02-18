@@ -10,7 +10,9 @@ set -o vi
 cdc () {
     cd $(ec)
 }
-
+alatheme() {
+  ln -fs ~/.config/alacritty/themes/$1.toml ~/.config/alacritty/themes/active.toml
+}
 # Alacritty theme switcher
 if [ "$ALACRITTY" = "true" ]
 then
@@ -24,4 +26,8 @@ then
   else
     theme "gh-light-hc"
   fi
+fi
+# Start tmux by default with ssh sessions
+if [[ $- =~ i ]] && [[ -z "$TMUX" ]] && [[ -n "$SSH_TTY" ]]; then
+  tmux attach-session -t ssh_tmux || tmux new-session -s ssh_tmux
 fi

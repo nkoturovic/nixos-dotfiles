@@ -12,9 +12,6 @@ PATH="/media/kotur/4054940b-6749-437e-98fd-3f34dccde050/Unreal_Projects/scripts:
 
 alias aladark="ln -fs ~/.config/alacritty/themes/dark.toml ~/.config/alacritty/themes/active.toml"
 alias alalight="ln -fs ~/.config/alacritty/themes/light.toml ~/.config/alacritty/themes/active.toml"
-func alatheme() {
-  ln -fs ~/.config/alacritty/themes/$1.toml ~/.config/alacritty/themes/active.toml
-}
 export GPG_TTY=$(tty)
 export PATH=$PATH:/opt/rocm-6.2.2/bin
 
