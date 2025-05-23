@@ -31,7 +31,8 @@ sudo ln -s /home/kotur/.nixos-dotfiles nixos
 sudo nixos-rebuild switch
 ```
 
-Home manager goes similar
+When updating, versions of nixpkgs for home manager, be sure to update versions in `flake.nix`.
+After manual update in file, run `nix flake update` to lock new versions in `flake.lock`.
 
 ```sh
 home-manager switch --flake .#kotur

@@ -53,7 +53,7 @@
     file
     trash-cli
     neovim
-    inconsolata-nerdfont
+    nerd-fonts.inconsolata
     jetbrains-mono
     gh
     fuzzel
@@ -248,7 +248,7 @@
         comment = "fg=blue"; 
       };
     };
-    initExtra = ''
+    initContent = ''
       ${builtins.readFile ./kotur.dotfiles/.zshrc}
       source ${pkgs.zsh-powerlevel10k}/share/zsh-powerlevel10k/powerlevel10k.zsh-theme  
       test -f ~/.config/zsh/.p10k.zsh && source ~/.config/zsh/.p10k.zsh  
@@ -289,6 +289,13 @@
       tmuxPlugins.sensible
       tmuxPlugins.vim-tmux-navigator
     ];
+  };
+
+  programs.vifm = {
+    enable = true;
+    extraConfig = ''
+      mark h ~/
+    '';
   };
 
   # Nicely reload system units when changing configs
