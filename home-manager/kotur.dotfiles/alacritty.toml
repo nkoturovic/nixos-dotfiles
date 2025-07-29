@@ -1,3 +1,4 @@
+[general]
 import = ["~/.config/alacritty/themes/active.toml"]
 
 # [colors.primary]
@@ -7,11 +8,11 @@ import = ["~/.config/alacritty/themes/active.toml"]
 size = 9.5
 
 [font.normal]
-family = "JetBrains Mono"
-style = "Regular"
+family = "JetBrains Mono Nerd Font Mono"
+style = "SemiBold"
 
-[shell]
-program = "/home/kotur/.nix-profile/bin/zsh"
+[terminal]
+shell = "/home/kotur/.nix-profile/bin/zsh"
 
 [env]
 WINIT_X11_SCALE_FACTOR = "1.1"

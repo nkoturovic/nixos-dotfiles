@@ -54,7 +54,8 @@
     trash-cli
     neovim
     nerd-fonts.inconsolata
-    jetbrains-mono
+    nerd-fonts.jetbrains-mono
+    # jetbrains-mono
     gh
     fuzzel
     waybar
@@ -65,6 +66,7 @@
     nwg-bar
     clipman
     fzf
+    fd
     unzip
     ripgrep
     # nodejs
@@ -115,9 +117,9 @@
     # '';o
 
     # Raw configuration files
-    ".p10k.zsh".source = ./kotur.dotfiles/.p10k.zsh;
-    ".commonrc".source = ./kotur.dotfiles/.commonrc;
-    # ".profile".source = ./kotur.dotfiles/.profile;
+    ".p10k.zsh".source = ./kotur.dotfiles/p10k.zsh;
+    ".commonrc".source = ./kotur.dotfiles/commonrc;
+    # ".profile".source = ./kotur.dotfiles/profile;
     ".zshenv".text = ''
       source ~/.profile
       source ~/.p10k.zsh
@@ -171,6 +173,9 @@
     ];
     ".config/swayr/config.toml".source = ./kotur.dotfiles/swayr.toml;
     ".config/fuzzel/fuzzel.ini".source = ./kotur.dotfiles/fuzzel.ini;
+    ".config/vifm/colors".source = ./kotur.dotfiles/vifm-colors;
+    ".config/vifm/favicons.vifm".source = ./kotur.dotfiles/favicons.vifm;
+
     # binaries
     ".local/bin/yp".source = ./kotur.bin/yank-path.sh;
     ".local/bin/ec".source = ./kotur.bin/echo-cliboard.sh;
@@ -231,10 +236,10 @@
   programs.bash = {
     enable = true;
     bashrcExtra = ''
-      ${builtins.readFile ./kotur.dotfiles/.bashrc}
+      ${builtins.readFile ./kotur.dotfiles/bashrc}
     '';
     profileExtra = ''
-      ${builtins.readFile ./kotur.dotfiles/.profile}
+      ${builtins.readFile ./kotur.dotfiles/profile}
     '';
   };
 
@@ -249,7 +254,7 @@
       };
     };
     initContent = ''
-      ${builtins.readFile ./kotur.dotfiles/.zshrc}
+      ${builtins.readFile ./kotur.dotfiles/zshrc}
       source ${pkgs.zsh-powerlevel10k}/share/zsh-powerlevel10k/powerlevel10k.zsh-theme  
       test -f ~/.config/zsh/.p10k.zsh && source ~/.config/zsh/.p10k.zsh  
       source ${pkgs.zsh-fzf-history-search}/share/zsh-fzf-history-search/zsh-fzf-history-search.plugin.zsh
@@ -294,7 +299,7 @@
   programs.vifm = {
     enable = true;
     extraConfig = ''
-      mark h ~/
+      ${builtins.readFile ./kotur.dotfiles/vifmrc}
     '';
   };
 
