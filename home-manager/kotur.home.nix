@@ -1,9 +1,6 @@
 # Use this to configure your home environment (it replaces ~/.config/nixpkgs/home.nix)
-{ inputs
-, lib
-, config
+{ inputs , lib , config
 , pkgs
-, pkgs-unstable
 , ...
 }: {
 
@@ -13,7 +10,7 @@
     homeDirectory = "/home/kotur";
   };
 
-  home.stateVersion = "24.05";
+  home.stateVersion = "25.05";
 
   nixpkgs = {
     # You can add overlays here
@@ -57,36 +54,23 @@
     nerd-fonts.jetbrains-mono
     # jetbrains-mono
     gh
-    fuzzel
-    waybar
     # pcmanfm
-    loupe
-    swaynotificationcenter
-    swaylock-fancy
-    nwg-bar
-    clipman
     fzf
     fd
     unzip
     ripgrep
     # nodejs
-    cargo
-    v4l-utils
-    # pkgs-unstable.qtcreator
-    clang-tools # clangd required for better diagnostics in qtcreator
+    # cargo
+    # clang-tools # clangd required for better diagnostics in qtcreator
     gdb
     cmake
     gnumake
     zsh-powerlevel10k
     zsh-fzf-history-search
-
-    gnirehtet
-    slurp
-    swayr
-    keepassxc
     tmux
-    scrcpy
-    devpod
+    # gnirehtet
+    # scrcpy
+    # devpod
   ];
 
   # needed for making fonts accessible
@@ -120,59 +104,9 @@
     ".p10k.zsh".source = ./kotur.dotfiles/p10k.zsh;
     ".commonrc".source = ./kotur.dotfiles/commonrc;
     # ".profile".source = ./kotur.dotfiles/profile;
-    ".zshenv".text = ''
-      source ~/.profile
-      source ~/.p10k.zsh
-      source ~/.commonrc
-
-      HISTSIZE=10000000
-      SAVEHIST=10000000
-      setopt HIST_EXPIRE_DUPS_FIRST
-      setopt HIST_IGNORE_DUPS
-      setopt HIST_IGNORE_ALL_DUPS
-      setopt HIST_IGNORE_SPACE
-      setopt HIST_FIND_NO_DUPS
-      setopt HIST_SAVE_NO_DUPS
-
-      ZSH_FZF_HISTORY_SEARCH_BIND='^f'
-      ZSH_FZF_HISTORY_SEARCH_REMOVE_DUPLICATES=1
-
-      # Reverse tab cycle
-      bindkey '^[[Z' reverse-menu-complete
-    '';
-    ".config/sway/config".source = ./kotur.dotfiles/sway;
     ".config/alacritty/alacritty.toml".source = ./kotur.dotfiles/alacritty.toml;
     ".config/alacritty/themes/light.toml".source = ./kotur.dotfiles/alacritty-themes/light.toml;
     ".config/alacritty/themes/dark.toml".source = ./kotur.dotfiles/alacritty-themes/dark.toml;
-    ".config/waybar/style.css".source = ./kotur.dotfiles/waybar-style.css;
-    ".config/waybar/config".source = ./kotur.dotfiles/waybar-config.json;
-    "Pictures/background.jpg".source = ./kotur.dotfiles/pexels-stevan-aksentijevic-3958744.jpg;
-    ".config/nwg-bar/style.css".source = ./kotur.dotfiles/nwg-bar-style.css;
-    ".config/nwg-bar/bar.json".text = builtins.toJSON [
-      {
-        label = "Lock";
-        exec = "swaylock -c 000000";
-        icon = "${pkgs.nwg-bar}/share/nwg-bar/images/system-lock-screen.svg";
-
-      }
-      {
-        label = "Logout";
-        exec = "swaymsg exit";
-        icon = "${pkgs.nwg-bar}/share/nwg-bar/images/system-log-out.svg";
-      }
-      {
-        label = "Reboot";
-        exec = "systemctl reboot";
-        icon = "${pkgs.nwg-bar}/share/nwg-bar/images/system-reboot.svg";
-      }
-      {
-        label = "Shutdown";
-        exec = "systemctl -i poweroff";
-        icon = "${pkgs.nwg-bar}/share/nwg-bar/images/system-shutdown.svg";
-      }
-    ];
-    ".config/swayr/config.toml".source = ./kotur.dotfiles/swayr.toml;
-    ".config/fuzzel/fuzzel.ini".source = ./kotur.dotfiles/fuzzel.ini;
     ".config/vifm/colors".source = ./kotur.dotfiles/vifm-colors;
     ".config/vifm/favicons.vifm".source = ./kotur.dotfiles/favicons.vifm;
 
@@ -202,17 +136,17 @@
 
   programs.git = {
     enable = true;
-    userName = "Nebojsa Koturovic";
-    userEmail = "contact@kotur.me";
-    aliases = {
-      st = "status";
-      dt = "!git difftool --dir-diff --no-symlinks -t meld";
-      hist = "!git --no-pager log --graph --pretty=format:'%C(green)%h%C(reset) - %C(italic)%C(cyan)%an%C(reset) (%C(yellow)%ar%C(reset))%n%C(bold)%s%C(reset)%n%b'";
-      lg = "!git --no-pager log --graph --pretty=format:'%C(green)%h%C(reset) - %C(italic)%C(cyan)%an%C(reset) (%C(yellow)%ar%C(reset)): %s'";
-    };
-
     # Global Git config
-    extraConfig = {
+    settings = {
+      user.name = "Nebojsa Koturovic";
+      user.email = "contact@kotur.me";
+      alias = {
+        st = "status";
+        dt = "!git difftool --dir-diff --no-symlinks -t meld";
+        hist = "!git --no-pager log --graph --pretty=format:'%C(green)%h%C(reset) - %C(italic)%C(cyan)%an%C(reset) (%C(yellow)%ar%C(reset))%n%C(bold)%s%C(reset)%n%b'";
+        lg = "!git --no-pager log --graph --pretty=format:'%C(green)%h%C(reset) - %C(italic)%C(cyan)%an%C(reset) (%C(yellow)%ar%C(reset)): %s'";
+      };
+
       core = {
         editor = "nvim";
         pager = "nvim";
@@ -230,7 +164,7 @@
       # protocol.keybase.allow = "always";
       credential.helper = "!gh auth git-credential";
       # pull.rebase = "false";
-    };
+      };
   };
 
   programs.bash = {
@@ -260,7 +194,26 @@
       source ${pkgs.zsh-fzf-history-search}/share/zsh-fzf-history-search/zsh-fzf-history-search.plugin.zsh
       # Fixes black comments on black background
     '';
+    envExtra = ''
+      source ~/.profile
+      source ~/.p10k.zsh
+      source ~/.commonrc
 
+      HISTSIZE=10000000
+      SAVEHIST=10000000
+      setopt HIST_EXPIRE_DUPS_FIRST
+      setopt HIST_IGNORE_DUPS
+      setopt HIST_IGNORE_ALL_DUPS
+      setopt HIST_IGNORE_SPACE
+      setopt HIST_FIND_NO_DUPS
+      setopt HIST_SAVE_NO_DUPS
+
+      ZSH_FZF_HISTORY_SEARCH_BIND='^f'
+      ZSH_FZF_HISTORY_SEARCH_REMOVE_DUPLICATES=1
+
+      # Reverse tab cycle
+      bindkey '^[[Z' reverse-menu-complete
+    '';
     plugins = [
       {
         name = "zsh-nix-shell";
