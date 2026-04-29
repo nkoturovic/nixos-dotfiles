@@ -1,3 +1,48 @@
+## Current workflow (Fedora + Home Manager)
+
+This machine is **Fedora** and uses **Home Manager standalone** for dotfiles and package binaries.
+
+### Apply current config
+
+```sh
+cd /home/kotur/personal/nixos-dotfiles
+home-manager switch --flake .#kotur
+```
+
+### Check config builds (without switching)
+
+```sh
+cd /home/kotur/personal/nixos-dotfiles
+home-manager build --flake .#kotur
+```
+
+### Refresh pinned sources (flake.lock)
+
+Update all inputs:
+
+```sh
+cd /home/kotur/personal/nixos-dotfiles
+nix flake update
+home-manager switch --flake .#kotur
+```
+
+Update only key inputs (recommended for controlled updates):
+
+```sh
+cd /home/kotur/personal/nixos-dotfiles
+nix flake lock --update-input nixpkgs --update-input home-manager
+home-manager switch --flake .#kotur
+```
+
+### If `home-manager` CLI is missing
+
+```sh
+nix shell nixpkgs#home-manager
+home-manager switch --flake .#kotur
+```
+
+---
+
 ## New instructions (flakes)
 
 Taken from: [github.com/Misterio77/nix-starter-configs](https://github.com/Misterio77/nix-starter-configs)
@@ -127,4 +172,3 @@ Config can be found in other folder
 * [ ] Consider adding home-manager as a nixos module
 * [ ] Move sway to home-manager
 * [ ] Fix lock screen and sleep
-

@@ -50,6 +50,7 @@
     file
     trash-cli
     neovim
+    obsidian
     nerd-fonts.inconsolata
     nerd-fonts.jetbrains-mono
     # jetbrains-mono
@@ -61,7 +62,7 @@
     ripgrep
     # nodejs
     # cargo
-    # clang-tools # clangd required for better diagnostics in qtcreator
+    clang-tools # clangd required for better diagnostics in qtcreator
     gdb
     cmake
     gnumake
@@ -70,6 +71,10 @@
     tmux
     # gnirehtet
     # scrcpy
+    go
+    gopls
+    wrk
+    tcpflow
     # devpod
   ];
 

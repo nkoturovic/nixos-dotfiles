@@ -10,5 +10,17 @@ if [ -d "$HOME/.cargo/bin" ] ; then
     PATH="$HOME/.cargo/bin:$PATH"
 fi
 
+if [ -d "$HOME/.opencode/bin" ] ; then
+    PATH="$HOME/.opencode/bin:$PATH"
+fi
+
 alias aladark="ln -fs ~/.config/alacritty/themes/dark.toml ~/.config/alacritty/themes/active.toml"
 alias alalight="ln -fs ~/.config/alacritty/themes/light.toml ~/.config/alacritty/themes/active.toml"
+
+
+if [ -d "$HOME/personal/LineageOS-MotoG200-5g-Setup/android-platform-tools/platform-tools" ] ; then
+ export PATH="$HOME/personal/LineageOS-MotoG200-5g-Setup/android-platform-tools/platform-tools:$PATH"
+fi
+
+# Source API keys and secrets (not tracked by home-manager/git)
+[ -f "$HOME/.config/secrets/env" ] && source "$HOME/.config/secrets/env"
