@@ -2,7 +2,37 @@
 { inputs , lib , config
 , pkgs
 , ...
-}: {
+}: let
+  cliProxyApi = inputs.llm-agents.packages.${pkgs.stdenv.hostPlatform.system}.cli-proxy-api.overrideAttrs (oldAttrs: {
+    patches = (oldAttrs.patches or [ ]) ++ [
+      ./cli-proxy-api-loopback-oauth.patch
+      ./cli-proxy-api-kimi-claude-compat.patch
+    ];
+  });
+
+  claudeMultiPlugin = pkgs.runCommand "claude-multi-plugin-1.2.9" { } ''
+    mkdir -p "$out"
+    cp -R ${./claude-multi-plugin}/. "$out/"
+  '';
+
+  claudeMultiLauncher = pkgs.writeShellApplication {
+    name = "claude-multi";
+    runtimeInputs = [ pkgs.coreutils pkgs.curl ];
+    text = builtins.replaceStrings
+      [ "@CLAUDE_MULTI_PLUGIN_DIR@" "@CLAUDE_MULTI_SETTINGS_FILE@" ]
+      [ "${claudeMultiPlugin}" "${./claude-multi-settings.json}" ]
+      (builtins.readFile ./kotur.bin/claude-multi.sh);
+  };
+
+  claudeMultiProxy = pkgs.writeShellApplication {
+    name = "claude-multi-proxy";
+    runtimeInputs = [ pkgs.coreutils pkgs.curl pkgs.gnugrep pkgs.openssl ];
+    text = builtins.replaceStrings
+      [ "@CLI_PROXY_API_BIN@" "@CLAUDE_MULTI_CONFIG_TEMPLATE@" ]
+      [ "${cliProxyApi}/bin/cli-proxy-api" "${./kotur.dotfiles/cli-proxy-api/config.template.yaml}" ]
+      (builtins.readFile ./kotur.bin/claude-multi-proxy.sh);
+  };
+in {
 
   # Home Manager needs a bit of information about you and the paths it should manage.
   home = {
@@ -76,6 +106,10 @@
     wrk
     tcpflow
     # devpod
+    zellij
+    cliProxyApi
+    claudeMultiLauncher
+    claudeMultiProxy
   ];
 
   # needed for making fonts accessible
@@ -164,7 +198,7 @@
 
       color.diff = false;
       pager.branch = false;
-      commit.gpgsign = "true";
+      # commit.gpgsign = "true";
 
       # protocol.keybase.allow = "always";
       credential.helper = "!gh auth git-credential";
@@ -263,6 +297,22 @@
 
   # Nicely reload system units when changing configs
   systemd.user.startServices = "sd-switch";
+
+  # claude-multi local model gateway (loopback-only, secrets rendered at runtime)
+  systemd.user.services.cli-proxy-api = {
+    Unit = {
+      Description = "claude-multi local model gateway";
+      After = [ "network-online.target" ];
+      Wants = [ "network-online.target" ];
+    };
+    Service = {
+      Type = "simple";
+      ExecStart = "${claudeMultiProxy}/bin/claude-multi-proxy run";
+      Restart = "on-failure";
+      RestartSec = "5s";
+    };
+    Install.WantedBy = [ "default.target" ];
+  };
 
   # https://nixos.wiki/wiki/FAQ/When_do_I_update_stateVersion
 }

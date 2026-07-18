@@ -1,0 +1,175 @@
+diff --git a/internal/config/config.go b/internal/config/config.go
+--- a/internal/config/config.go
++++ b/internal/config/config.go
+@@ -456,0 +457,4 @@ type ClaudeKey struct {
++
++	// AuthHeader selects the upstream authentication header. Empty preserves the default behavior.
++	// The supported override is "x-api-key".
++	AuthHeader string `yaml:"auth-header,omitempty" json:"auth-header,omitempty"`
+@@ -497,0 +502,9 @@ type ClaudeModel struct {
++
++	// OwnedBy optionally overrides the provider owner advertised to clients.
++	OwnedBy string `yaml:"owned-by,omitempty" json:"owned-by,omitempty"`
++
++	// ContextLength is the optional context window advertised to clients.
++	ContextLength int `yaml:"context-length,omitempty" json:"context-length,omitempty"`
++
++	// MaxCompletionTokens is the optional maximum output length advertised to clients.
++	MaxCompletionTokens int `yaml:"max-completion-tokens,omitempty" json:"max-completion-tokens,omitempty"`
+@@ -503,4 +516,7 @@
+-func (m ClaudeModel) GetName() string        { return m.Name }
+-func (m ClaudeModel) GetAlias() string       { return m.Alias }
+-func (m ClaudeModel) GetDisplayName() string { return m.DisplayName }
+-func (m ClaudeModel) GetForceMapping() bool  { return m.ForceMapping }
++func (m ClaudeModel) GetName() string                { return m.Name }
++func (m ClaudeModel) GetAlias() string               { return m.Alias }
++func (m ClaudeModel) GetDisplayName() string         { return m.DisplayName }
++func (m ClaudeModel) GetForceMapping() bool          { return m.ForceMapping }
++func (m ClaudeModel) GetOwnedBy() string             { return m.OwnedBy }
++func (m ClaudeModel) GetContextLength() int          { return m.ContextLength }
++func (m ClaudeModel) GetMaxCompletionTokens() int    { return m.MaxCompletionTokens }
+diff --git a/internal/watcher/synthesizer/config.go b/internal/watcher/synthesizer/config.go
+--- a/internal/watcher/synthesizer/config.go
++++ b/internal/watcher/synthesizer/config.go
+@@ -128,0 +129 @@ func (s *ConfigSynthesizer) synthesizeClaudeKeys(ctx *SynthesisContext) []*coreauth.Auth {
++		authHeader := strings.TrimSpace(ck.AuthHeader)
+@@ -133,0 +135,3 @@ func (s *ConfigSynthesizer) synthesizeClaudeKeys(ctx *SynthesisContext) []*coreauth.Auth {
++		if authHeader != "" {
++			attrs["auth_header"] = authHeader
++		}
+diff --git a/internal/runtime/executor/claude_executor.go b/internal/runtime/executor/claude_executor.go
+--- a/internal/runtime/executor/claude_executor.go
++++ b/internal/runtime/executor/claude_executor.go
+@@ -165,0 +166 @@ func (e *ClaudeExecutor) PrepareRequest(req *http.Request, auth *cliproxyauth.Auth) error {
++	useXAPIKey := claudeUsesXAPIKey(auth)
+@@ -167 +169 @@ func (e *ClaudeExecutor) PrepareRequest(req *http.Request, auth *cliproxyauth.Auth) error {
+-	if isAnthropicBase && useAPIKey {
++	if useXAPIKey || (isAnthropicBase && useAPIKey) {
+@@ -178,0 +181,4 @@ func (e *ClaudeExecutor) PrepareRequest(req *http.Request, auth *cliproxyauth.Auth) error {
++	if useXAPIKey {
++		req.Header.Del("Authorization")
++		req.Header.Set("x-api-key", apiKey)
++	}
+@@ -1066,0 +1071 @@ func applyClaudeHeaders(r *http.Request, auth *cliproxyauth.Auth, apiKey string, stream bool, extraBetas []string, cfg *config.Config) error {
++	useXAPIKey := claudeUsesXAPIKey(auth)
+@@ -1068 +1074 @@ func applyClaudeHeaders(r *http.Request, auth *cliproxyauth.Auth, apiKey string, stream bool, extraBetas []string, cfg *config.Config) error {
+-	if isAnthropicBase && useAPIKey {
++	if useXAPIKey || (isAnthropicBase && useAPIKey) {
+@@ -1164,0 +1171,4 @@ func applyClaudeHeaders(r *http.Request, auth *cliproxyauth.Auth, apiKey string, stream bool, extraBetas []string, cfg *config.Config) error {
++	if useXAPIKey {
++		r.Header.Del("Authorization")
++		r.Header.Set("x-api-key", apiKey)
++	}
+@@ -1172,0 +1184,7 @@ func applyClaudeHeaders(r *http.Request, auth *cliproxyauth.Auth, apiKey string, stream bool, extraBetas []string, cfg *config.Config) error {
++
++func claudeUsesXAPIKey(auth *cliproxyauth.Auth) bool {
++	if auth == nil || auth.Attributes == nil {
++		return false
++	}
++	return strings.EqualFold(strings.TrimSpace(auth.Attributes["auth_header"]), "x-api-key")
++}
+diff --git a/sdk/cliproxy/service.go b/sdk/cliproxy/service.go
+--- a/sdk/cliproxy/service.go
++++ b/sdk/cliproxy/service.go
+@@ -2498,0 +2499,9 @@ type modelEntry interface {
++
++type modelTokenLimits interface {
++	GetContextLength() int
++	GetMaxCompletionTokens() int
++}
++
++type modelOwner interface {
++	GetOwnedBy() string
++}
+@@ -2516,9 +2526,19 @@
+-	return &ModelInfo{
+-		ID:          alias,
+-		Object:      "model",
+-		Created:     created,
+-		OwnedBy:     ownedBy,
+-		Type:        modelType,
+-		DisplayName: displayName,
+-		UserDefined: userDefined,
+-	}
++	info := &ModelInfo{
++		ID:          alias,
++		Object:      "model",
++		Created:     created,
++		OwnedBy:     ownedBy,
++		Type:        modelType,
++		DisplayName: displayName,
++		UserDefined: userDefined,
++	}
++	if owner, ok := model.(modelOwner); ok {
++		if configuredOwner := strings.TrimSpace(owner.GetOwnedBy()); configuredOwner != "" {
++			info.OwnedBy = configuredOwner
++		}
++	}
++	if limits, ok := model.(modelTokenLimits); ok {
++		info.ContextLength = limits.GetContextLength()
++		info.MaxCompletionTokens = limits.GetMaxCompletionTokens()
++	}
++	return info
+diff --git a/sdk/cliproxy/service_oauth_model_alias_test.go b/sdk/cliproxy/service_oauth_model_alias_test.go
+--- a/sdk/cliproxy/service_oauth_model_alias_test.go
++++ b/sdk/cliproxy/service_oauth_model_alias_test.go
+@@ -5,0 +6 @@ import (
++	internalregistry "github.com/router-for-me/CLIProxyAPI/v7/internal/registry"
+@@ -154,0 +156,57 @@ func TestApplyOAuthModelAlias_PerAuthAlias(t *testing.T) {
++
++func TestApplyOAuthModelAlias_CodexSolPreservesTokenLimits(t *testing.T) {
++	const (
++		sourceID                = "gpt-5.6-sol"
++		wantContextLength       = 372000
++		wantMaxCompletionTokens = 128000
++	)
++
++	var source *ModelInfo
++	for _, model := range internalregistry.GetStaticModelDefinitionsByChannel("codex") {
++		if model != nil && model.ID == sourceID {
++			source = model
++			break
++		}
++	}
++	if source == nil {
++		t.Fatalf("expected Codex registry model %q", sourceID)
++	}
++	if source.ContextLength != wantContextLength {
++		t.Fatalf("source context length = %d, want %d", source.ContextLength, wantContextLength)
++	}
++	if source.MaxCompletionTokens != wantMaxCompletionTokens {
++		t.Fatalf("source max completion tokens = %d, want %d", source.MaxCompletionTokens, wantMaxCompletionTokens)
++	}
++
++	aliases := []string{
++		"claude-multi-sol-high",
++		"gpt-multi-sol-high",
++		"claude-multi-sol-xhigh",
++		"gpt-multi-sol-xhigh",
++	}
++	for _, alias := range aliases {
++		t.Run(alias, func(t *testing.T) {
++			cfg := &config.Config{
++				OAuthModelAlias: map[string][]config.OAuthModelAlias{
++					"codex": {
++						{Name: sourceID, Alias: alias, ForceMapping: true},
++					},
++				},
++			}
++
++			out := applyOAuthModelAlias(cfg, "codex", "oauth", []*ModelInfo{source})
++			if len(out) != 1 {
++				t.Fatalf("expected 1 aliased model, got %d", len(out))
++			}
++			if out[0].ID != alias {
++				t.Fatalf("alias model id = %q, want %q", out[0].ID, alias)
++			}
++			if out[0].ContextLength != wantContextLength {
++				t.Fatalf("alias context length = %d, want %d", out[0].ContextLength, wantContextLength)
++			}
++			if out[0].MaxCompletionTokens != wantMaxCompletionTokens {
++				t.Fatalf("alias max completion tokens = %d, want %d", out[0].MaxCompletionTokens, wantMaxCompletionTokens)
++			}
++		})
++	}
++}

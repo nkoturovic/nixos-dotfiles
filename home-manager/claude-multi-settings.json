@@ -1,0 +1,9 @@
+{
+  "disableWorkflows": false,
+  "workflowSizeGuideline": "medium",
+  "workflowKeywordTriggerEnabled": false,
+  "worktree": {
+    "baseRef": "head",
+    "bgIsolation": "worktree"
+  }
+}

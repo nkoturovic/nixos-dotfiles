@@ -9,6 +9,8 @@
     home-manager.url = "github:nix-community/home-manager";
     home-manager.inputs.nixpkgs.follows = "nixpkgs";
 
+    llm-agents.url = "github:numtide/llm-agents.nix/d78ee6245c944acc51dc2d4902953043432c2769";
+
     # NOTE: Add any other flake you might need
     # hardware.url = "github:nixos/nixos-hardware";
 
