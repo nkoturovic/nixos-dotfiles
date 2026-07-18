@@ -104,8 +104,17 @@ check("effort: max" in kimi_analyst, "Kimi analyst effort")
 check("isolation:" not in kimi_analyst, "Kimi analyst uses current working tree")
 for label, analyst in (("Sol explorer", sol_explorer), ("Kimi analyst", kimi_analyst)):
     analyst_normalized = re.sub(r"\s+", " ", analyst.lower())
-    check("read-only" in analyst_normalized, f"{label} is read-only")
-    check("never edit" in analyst_normalized, f"{label} cannot edit")
+    check("primarily read-only" in analyst_normalized, f"{label} is primarily read-only")
+    check("do not edit implementation files" in analyst_normalized, f"{label} prohibits implementation-file edits")
+    check("perform integration edits" in analyst_normalized, f"{label} prohibits integration edits")
+    check("commit/push" in analyst_normalized, f"{label} prohibits commit/push")
+    check(
+        "bounded, isolated report artifact" in analyst_normalized
+        and "explicitly asks" in analyst_normalized
+        and "create only that artifact" in analyst_normalized
+        and "otherwise do not edit files" in analyst_normalized,
+        f"{label} allows an explicitly requested bounded report artifact and otherwise does not edit files",
+    )
     check("shared total and concurrency budgets" in analyst_normalized, f"{label} shares delegation budgets")
     check("delegate distinct read-only subproblems" in analyst_normalized, f"{label} permits bounded read-only delegation")
 check("model: gpt-multi-gpt55-high" in gpt55_reviewer, "GPT-5.5 reviewer model")
