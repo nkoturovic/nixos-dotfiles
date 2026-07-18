@@ -1,3 +1,6 @@
+# Source API keys and secrets (not tracked by git/home-manager)
+[ -f "$HOME/.config/secrets/env" ] && source "$HOME/.config/secrets/env"
+
 alias ls='ls --color=auto'
 alias rm='echo "rm is disabled, use trash/trash-put/rmt for safe rm or remove (/bin/rm) for removing file."'
 alias remove='/bin/rm -irv'
