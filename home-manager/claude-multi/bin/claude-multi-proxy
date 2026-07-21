@@ -1,0 +1,14 @@
+#!/usr/bin/env python3
+"""claude-multi-proxy: runtime proxy control (init/status/run/logins)."""
+
+import os
+import sys
+
+sys.path.insert(
+    0, os.path.join(os.path.dirname(os.path.realpath(__file__)), "..", "src")
+)
+
+from claude_multi.proxy import main
+
+if __name__ == "__main__":
+    raise SystemExit(main(sys.argv[1:]))

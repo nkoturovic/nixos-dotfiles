@@ -1,0 +1,36 @@
+{
+  "version": 1,
+  "claude": {
+    "validated_version": "2.1.216",
+    "executable": {
+      "configured_path": "/home/kotur/.local/bin/claude",
+      "resolved_path": "/home/kotur/.local/share/claude/versions/2.1.216",
+      "sha256": "74deca45220b8080ec75ab099bd5a5980e41a2b5879846a008fb115d436de085",
+      "inspection": "Offline symlink/path resolution and SHA-256 file hashing only; Claude was not executed for this record; version read from the versioned install path.",
+      "inspected_at": "2026-07-21"
+    }
+  },
+  "effort_vocabulary": {
+    "values": ["high", "xhigh", "max", "ultracode"],
+    "status": "provisionally-trusted",
+    "evidence": "Client-accepted in ordinary v1 operation against the pinned installation (launcher profiles and agent definitions). Native acceptance per pinned version remains to be confirmed by the Phase 2 native-contract probe."
+  },
+  "acceptance": {
+    "same_launch_agents_and_agent_cm_lead": {
+      "status": "unverified",
+      "probe": "phase2-native-contract"
+    },
+    "fork_triple_flag": {
+      "status": "unverified",
+      "probe": "phase2-native-contract"
+    }
+  },
+  "lead_delivery": {
+    "mode": "same-launch-agent",
+    "status": "pending-probe",
+    "contingency": "main-thread-append-system-prompt-file",
+    "decision_gate": "P1"
+  },
+  "evidence_version": 1,
+  "recorded_at": "2026-07-21"
+}

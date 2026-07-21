@@ -1,0 +1,650 @@
+"""Offline disposable-proxy and proxy-control contract tests.
+
+Loopback only: the proxy loads the v2-rendered config and routes to a fake
+upstream; no external provider is ever contacted. Proxy-control tests use
+isolated homes and injected exec; the real binary is required only for the
+disposable rig, which skips with an explicit boundary when unavailable.
+"""
+
+from __future__ import annotations
+
+import io
+import json
+import os
+import shutil
+import socket
+import subprocess
+import tempfile
+import threading
+import time
+import unittest
+import urllib.error
+import urllib.parse
+import urllib.request
+from contextlib import redirect_stdout
+from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
+from pathlib import Path
+from unittest import mock
+
+from claude_multi import catalog, proxy, render, state
+from claude_multi.proxy import ProxyError
+
+
+CATALOG_ROOT = Path(__file__).resolve().parents[1]
+GATEWAY_TOKEN = "a" * 64
+DUMMY_KIMI = "dummy-kimi-key"
+
+
+def _find_binary() -> str | None:
+    for candidate in (
+        shutil.which("cli-proxy-api"),
+        "/home/kotur/.nix-profile/bin/cli-proxy-api",
+    ):
+        if candidate and Path(candidate).is_file():
+            return candidate
+    return None
+
+
+def _free_port() -> int:
+    with socket.socket() as probe:
+        probe.bind(("127.0.0.1", 0))
+        return probe.getsockname()[1]
+
+
+class _UpstreamCapture(BaseHTTPRequestHandler):
+    requests: list[dict] = []
+
+    def log_message(self, *_args) -> None:
+        return
+
+    def do_POST(self) -> None:
+        length = int(self.headers.get("Content-Length", 0))
+        body = self.rfile.read(length).decode("utf-8")
+        type(self).requests.append(
+            {
+                "path": self.path,
+                "x-api-key": self.headers.get("x-api-key"),
+                "authorization": self.headers.get("authorization"),
+                "body": body,
+            }
+        )
+        if '"trigger-error-400"' in body:
+            payload = {
+                "type": "error",
+                "error": {
+                    "type": "invalid_request_error",
+                    "message": "fake upstream rejection",
+                },
+            }
+            data = json.dumps(payload).encode("utf-8")
+            self.send_response(400)
+            self.send_header("Content-Type", "application/json")
+            self.send_header("Content-Length", str(len(data)))
+            self.end_headers()
+            self.wfile.write(data)
+            return
+        if '"stream": true' in body or '"stream":true' in body:
+            chunks = [
+                {"type": "message_start", "message": {"model": "k3"}},
+                {"type": "content_block_delta", "delta": {"text": "FAKE"}},
+                {"type": "content_block_delta", "delta": {"text": "_OK"}},
+                {"type": "message_stop"},
+            ]
+            self.send_response(200)
+            self.send_header("Content-Type", "text/event-stream")
+            self.send_header("Cache-Control", "no-cache")
+            self.end_headers()
+            for chunk in chunks:
+                self.wfile.write(f"data: {json.dumps(chunk)}\n\n".encode("utf-8"))
+                self.wfile.flush()
+            self.wfile.write(b"data: [DONE]\n\n")
+            self.wfile.flush()
+            return
+        payload = {
+            "id": "msg_fake",
+            "type": "message",
+            "role": "assistant",
+            "model": "k3",
+            "content": [{"type": "text", "text": "FAKE_OK"}],
+            "stop_reason": "end_turn",
+            "usage": {"input_tokens": 7, "output_tokens": 3},
+        }
+        data = json.dumps(payload).encode("utf-8")
+        self.send_response(200)
+        self.send_header("Content-Type", "application/json")
+        self.send_header("Content-Length", str(len(data)))
+        self.end_headers()
+        self.wfile.write(data)
+
+
+def _wait_ready(base_url: str, timeout: float = 10.0) -> None:
+    deadline = time.monotonic() + timeout
+    while time.monotonic() < deadline:
+        try:
+            request = urllib.request.Request(
+                base_url + "/healthz",
+                headers={"Authorization": f"Bearer {GATEWAY_TOKEN}"},
+            )
+            with urllib.request.urlopen(request, timeout=1) as response:
+                if response.status == 200:
+                    return
+        except Exception:
+            time.sleep(0.1)
+    raise RuntimeError("disposable proxy did not become ready")
+
+
+class DisposableProxyTests(unittest.TestCase):
+    def setUp(self) -> None:
+        self.binary = _find_binary()
+        if self.binary is None:
+            self.skipTest(
+                "boundary: pinned cli-proxy-api binary not available; "
+                "disposable proxy contract skipped"
+            )
+        self.root = Path(tempfile.mkdtemp(prefix="claude-multi-proxy-"))
+        self.addCleanup(self._cleanup)
+        self.process: subprocess.Popen | None = None
+        self.upstream: ThreadingHTTPServer | None = None
+        self.base_url: str | None = None
+
+    def _cleanup(self) -> None:
+        if self.process is not None and self.process.poll() is None:
+            self.process.terminate()
+            try:
+                self.process.wait(timeout=5)
+            except subprocess.TimeoutExpired:
+                self.process.kill()
+                self.process.wait(timeout=5)
+        if self.upstream is not None:
+            self.upstream.shutdown()
+            self.upstream.server_close()
+        shutil.rmtree(self.root, ignore_errors=True)
+
+    def _start_proxy(self) -> None:
+        _UpstreamCapture.requests = []
+        upstream_port = _free_port()
+        proxy_port = _free_port()
+        self.upstream = ThreadingHTTPServer(("127.0.0.1", upstream_port), _UpstreamCapture)
+        threading.Thread(target=self.upstream.serve_forever, daemon=True).start()
+
+        bundle = catalog.load_catalog(CATALOG_ROOT)
+        import copy
+
+        gateway = copy.deepcopy(bundle.docs["gateway"])
+        gateway["gateway"]["base_url"] = f"http://127.0.0.1:{proxy_port}"
+        providers = copy.deepcopy(bundle.docs["providers"]["providers"])
+        providers["kimi"]["transport"]["base_url"] = (
+            f"http://127.0.0.1:{upstream_port}/coding"
+        )
+        result = render.render_config(
+            gateway,
+            providers,
+            bundle.docs["models"]["models"],
+            home=self.root,
+            gateway_token=GATEWAY_TOKEN,
+            resolve_secret=lambda name: DUMMY_KIMI,
+        )
+        config_path = self.root / "config.yaml"
+        state.atomic_write(config_path, result.yaml.encode("utf-8"))
+
+        env = {
+            "HOME": str(self.root),
+            "PATH": "/usr/bin:/bin",
+        }
+        self.process = subprocess.Popen(
+            [self.binary, "--config", str(config_path), "--local-model"],
+            cwd=self.root,
+            env=env,
+            stdout=subprocess.DEVNULL,
+            stderr=subprocess.DEVNULL,
+        )
+        self.base_url = f"http://127.0.0.1:{proxy_port}"
+        _wait_ready(self.base_url)
+
+    def _request(self, base_url: str, path: str, payload: dict | None = None) -> dict:
+        data = None if payload is None else json.dumps(payload).encode("utf-8")
+        request = urllib.request.Request(
+            base_url + path,
+            data=data,
+            headers={
+                "Authorization": f"Bearer {GATEWAY_TOKEN}",
+                "Anthropic-Version": "2023-06-01",
+                "Content-Type": "application/json",
+                # CLIProxyAPI enriches model metadata only for Claude CLI clients.
+                "User-Agent": "claude-cli/2.1.216 (external, cli)",
+            },
+            method="POST" if payload is not None else "GET",
+        )
+        with urllib.request.urlopen(request, timeout=5) as response:
+            return json.loads(response.read().decode("utf-8"))
+
+    def test_rendered_config_contracts_with_fake_upstream(self) -> None:
+        self._start_proxy()
+        base_url = self.base_url
+
+        models = self._request(base_url, "/v1/models")
+        entries = {item.get("id"): item for item in models.get("data", [])}
+        self.assertIn("claude-multi-kimi-k3", entries)
+        self.assertEqual(entries["claude-multi-kimi-k3"].get("owned_by"), "moonshot")
+        self.assertEqual(
+            entries["claude-multi-kimi-k3"].get("max_input_tokens"), 1048576
+        )
+
+        message = self._request(
+            base_url,
+            "/v1/messages",
+            {
+                "model": "claude-multi-kimi-k3",
+                "max_tokens": 64,
+                "thinking": {"type": "enabled", "budget_tokens": 1024},
+                "messages": [{"role": "user", "content": "fake test"}],
+            },
+        )
+        self.assertTrue(message.get("content"), "response mapped")
+
+        kimi_hits = [
+            request
+            for request in _UpstreamCapture.requests
+            if urllib.parse.urlsplit(request["path"]).path == "/coding/v1/messages"
+        ]
+        self.assertTrue(kimi_hits, "upstream observed the kimi route")
+        self.assertEqual(kimi_hits[0]["x-api-key"], DUMMY_KIMI)
+        body = json.loads(kimi_hits[0]["body"])
+        self.assertNotIn("thinking", body, "payload filter strips top-level thinking")
+        self.assertEqual(body.get("model"), "k3", "wire model mapping")
+        self.assertEqual(body.get("output_config", {}).get("effort"), "max")
+
+        self.process.terminate()
+        self.process.wait(timeout=5)
+        self.assertIsNotNone(self.process.poll(), "no orphan proxy process")
+
+    def test_sse_streaming_passthrough(self) -> None:
+        self._start_proxy()
+        request = urllib.request.Request(
+            self.base_url + "/v1/messages",
+            data=json.dumps(
+                {
+                    "model": "claude-multi-kimi-k3",
+                    "max_tokens": 64,
+                    "stream": True,
+                    "messages": [{"role": "user", "content": "stream test"}],
+                }
+            ).encode("utf-8"),
+            headers={
+                "Authorization": f"Bearer {GATEWAY_TOKEN}",
+                "Anthropic-Version": "2023-06-01",
+                "Content-Type": "application/json",
+                "User-Agent": "claude-cli/2.1.216 (external, cli)",
+            },
+            method="POST",
+        )
+        with urllib.request.urlopen(request, timeout=10) as response:
+            content_type = response.headers.get("Content-Type", "")
+            body = response.read().decode("utf-8")
+        self.assertIn("text/event-stream", content_type)
+        self.assertIn('"FAKE"', body)
+        self.assertIn('"_OK"', body)
+        self.assertIn("[DONE]", body)
+
+    def test_upstream_error_mapping(self) -> None:
+        self._start_proxy()
+        request = urllib.request.Request(
+            self.base_url + "/v1/messages",
+            data=json.dumps(
+                {
+                    "model": "claude-multi-kimi-k3",
+                    "max_tokens": 64,
+                    "messages": [{"role": "user", "content": "trigger-error-400"}],
+                }
+            ).encode("utf-8"),
+            headers={
+                "Authorization": f"Bearer {GATEWAY_TOKEN}",
+                "Anthropic-Version": "2023-06-01",
+                "Content-Type": "application/json",
+                "User-Agent": "claude-cli/2.1.216 (external, cli)",
+            },
+            method="POST",
+        )
+        with self.assertRaises(urllib.error.HTTPError) as raised:
+            urllib.request.urlopen(request, timeout=10)
+        self.assertEqual(raised.exception.code, 400)
+        error_body = raised.exception.read().decode("utf-8")
+        raised.exception.close()
+        self.assertIn("invalid_request_error", error_body)
+        self.assertIn("fake upstream rejection", error_body)
+
+
+if __name__ == "__main__":
+    unittest.main()
+
+
+class ProxyControlTestCase(unittest.TestCase):
+    def setUp(self) -> None:
+        self.root = Path(tempfile.mkdtemp(prefix="claude-multi-proxyctl-"))
+        os.chmod(self.root, 0o700)
+        self.addCleanup(lambda: shutil.rmtree(self.root, ignore_errors=True))
+        self.home = self.root / "home"
+        self.home.mkdir()
+        os.chmod(self.home, 0o700)
+        self.secrets = self.root / "secrets"
+        state.ensure_private_dir(self.secrets)
+        self.secret_file = self.secrets / "claude.env"
+        self.environ = {
+            "HOME": str(self.home),
+            "CLAUDE_MULTI_SECRET_ENV": str(self.secret_file),
+            "CLAUDE_MULTI_ASSETS": str(CATALOG_ROOT),
+        }
+        self.binary = self.root / "bin" / "cli-proxy-api"
+        self.binary.parent.mkdir()
+        self.binary.write_bytes(b"#!/bin/fake\n")
+        self.binary.chmod(0o755)
+        self.environ["CLAUDE_MULTI_PROXY_BIN"] = str(self.binary)
+
+    def _write_secret(self, content: bytes = b"KIMI_CLAUDE_API_KEY=test-dummy-value-123\n"):
+        state.atomic_write(self.secret_file, content)
+
+    def _init(self) -> str:
+        buffer = io.StringIO()
+        with redirect_stdout(buffer):
+            code = proxy.cmd_init([], environ=self.environ)
+        self.assertEqual(code, 0)
+        return buffer.getvalue()
+
+
+class SecretParsingTests(ProxyControlTestCase):
+    def test_valid_assignments(self) -> None:
+        self._write_secret(b'KIMI_CLAUDE_API_KEY=abc-123_X.Y\nOTHER="quoted:value"\n')
+        values = proxy.parse_secret_env(self.secret_file)
+        self.assertEqual(values["KIMI_CLAUDE_API_KEY"], "abc-123_X.Y")
+        self.assertEqual(values["OTHER"], "quoted:value")
+
+    def test_export_prefix_and_single_quotes(self) -> None:
+        self._write_secret(b"export KIMI_CLAUDE_API_KEY='abc+def/ghi='\n")
+        values = proxy.parse_secret_env(self.secret_file)
+        self.assertEqual(values["KIMI_CLAUDE_API_KEY"], "abc+def/ghi=")
+
+    def test_duplicate_assignment_rejected(self) -> None:
+        self._write_secret(b"A=11111111\nA=22222222\n")
+        with self.assertRaisesRegex(ProxyError, "duplicate assignment"):
+            proxy.parse_secret_env(self.secret_file)
+
+    def test_malformed_line_rejected(self) -> None:
+        self._write_secret(b"this is not an assignment\n")
+        with self.assertRaisesRegex(ProxyError, "malformed assignment"):
+            proxy.parse_secret_env(self.secret_file)
+
+    def test_unsafe_characters_rejected(self) -> None:
+        self._write_secret(b"A=$(rm -rf /)\n")
+        with self.assertRaisesRegex(ProxyError, "unsupported characters"):
+            proxy.parse_secret_env(self.secret_file)
+
+    def test_symlink_secret_file_rejected(self) -> None:
+        self._write_secret()
+        link = self.secrets / "link.env"
+        link.symlink_to(self.secret_file)
+        with self.assertRaisesRegex(ProxyError, "unavailable or unsafe"):
+            proxy.parse_secret_env(link)
+
+    def test_group_readable_secret_file_rejected(self) -> None:
+        self._write_secret()
+        os.chmod(self.secret_file, 0o640)
+        with self.assertRaisesRegex(ProxyError, "unavailable or unsafe"):
+            proxy.parse_secret_env(self.secret_file)
+
+    def test_missing_secret_returns_none(self) -> None:
+        self.assertIsNone(proxy.resolve_secret("KIMI_CLAUDE_API_KEY", environ=self.environ))
+        self._write_secret(b"OTHER=value1234\n")
+        self.assertIsNone(proxy.resolve_secret("KIMI_CLAUDE_API_KEY", environ=self.environ))
+
+
+class InitRenderTests(ProxyControlTestCase):
+    def test_init_creates_dirs_token_config_idempotent(self) -> None:
+        self._write_secret()
+        first = self._init()
+        token_path = proxy.config_dir(self.home) / "api-key"
+        config_path = proxy.config_dir(self.home) / "config.yaml"
+        self.assertTrue(token_path.is_file())
+        token = token_path.read_text().strip()
+        self.assertRegex(token, r"^[0-9a-f]{64}$")
+        import stat as stat_mod
+
+        self.assertEqual(stat_mod.S_IMODE(os.lstat(token_path).st_mode), 0o600)
+        self.assertEqual(stat_mod.S_IMODE(os.lstat(config_path).st_mode), 0o600)
+        first_bytes = config_path.read_bytes()
+        second = self._init()
+        self.assertEqual(config_path.read_bytes(), first_bytes)
+        self.assertEqual(token_path.read_text().strip(), token)
+        self.assertIn("providers available", first)
+        self.assertIn("kimi", second)
+
+    def test_init_missing_secret_omits_provider_reports(self) -> None:
+        # no secret file at all → kimi omitted, OAuth providers remain
+        output = self._init()
+        self.assertIn("provider unavailable: kimi", output)
+        self.assertIn("anthropic", output)
+        self.assertIn("openai", output)
+        config = (proxy.config_dir(self.home) / "config.yaml").read_text()
+        self.assertNotIn("claude-multi-kimi-k3", config)
+        self.assertIn("gpt-multi-sol-high", config)
+
+    def test_no_secret_in_init_output_or_config_artifacts_except_resolved(self) -> None:
+        self._write_secret(b"KIMI_CLAUDE_API_KEY=supersecret-value-999\n")
+        output = self._init()
+        self.assertNotIn("supersecret-value-999", output)
+        # the resolved secret appears only inside the mode-0600 rendered config
+        config_path = proxy.config_dir(self.home) / "config.yaml"
+        self.assertIn("supersecret-value-999", config_path.read_text())
+        import stat as stat_mod
+
+        self.assertEqual(stat_mod.S_IMODE(os.lstat(config_path).st_mode), 0o600)
+
+    def test_auth_dir_preserved(self) -> None:
+        auth = proxy.state_dir(self.home) / "auth"
+        state.ensure_private_dir(auth)
+        marker = auth / "oauth-record.json"
+        state.atomic_write(marker, b"{}")
+        self._init()
+        self.assertTrue(marker.is_file())
+
+
+class StatusTests(ProxyControlTestCase):
+    def test_status_not_initialized(self) -> None:
+        buffer = io.StringIO()
+        with redirect_stdout(buffer):
+            code = proxy.cmd_status([], environ=self.environ)
+        self.assertEqual(code, 0)
+        self.assertIn("not initialized", buffer.getvalue())
+
+    def test_status_initialized_and_running(self) -> None:
+        self._init()
+        buffer = io.StringIO()
+        with redirect_stdout(buffer):
+            code = proxy.cmd_status(
+                [], environ=self.environ, health_get=lambda _b, _h: 200
+            )
+        self.assertEqual(code, 0)
+        self.assertIn("initialized", buffer.getvalue())
+        self.assertIn("running", buffer.getvalue())
+
+    def test_status_loopback_only_and_stopped(self) -> None:
+        self._init()
+        calls = []
+
+        def record_get(base, path):
+            calls.append((base, path))
+            raise OSError("refused")
+
+        buffer = io.StringIO()
+        with redirect_stdout(buffer):
+            proxy.cmd_status([], environ=self.environ, health_get=record_get)
+        self.assertIn("stopped", buffer.getvalue())
+        self.assertEqual(calls, [("http://127.0.0.1:8317", "/healthz")])
+
+    def test_status_redacts_secrets(self) -> None:
+        self._write_secret(b"KIMI_CLAUDE_API_KEY=supersecret-value-999\n")
+        self._init()
+        buffer = io.StringIO()
+        with redirect_stdout(buffer):
+            proxy.cmd_status([], environ=self.environ, health_get=lambda _b, _h: 200)
+        self.assertNotIn("supersecret-value-999", buffer.getvalue())
+        self.assertNotIn("a" * 64, buffer.getvalue())
+
+
+class RunLoginTests(ProxyControlTestCase):
+    def _capture_exec(self):
+        captured = {}
+
+        def fake_execve(executable, argv, env):
+            captured["executable"] = executable
+            captured["argv"] = argv
+            captured["env"] = env
+            return "EXECUTED"
+
+        return captured, fake_execve
+
+    def test_run_exact_execve_no_wrapper(self) -> None:
+        self._write_secret()
+        captured, fake = self._capture_exec()
+        outcome = proxy.cmd_run([], environ=self.environ, execve=fake)
+        self.assertEqual(outcome, "EXECUTED")
+        self.assertEqual(captured["executable"], str(self.binary))
+        self.assertEqual(captured["argv"][0], str(self.binary))
+        self.assertEqual(captured["argv"][1], "--config")
+        self.assertTrue(captured["argv"][2].endswith("config.yaml"))
+        self.assertEqual(captured["argv"][3], "--local-model")
+        self.assertEqual(len(captured["argv"]), 4)
+
+    def test_login_execve_exact(self) -> None:
+        for command, flag in (("claude-login", "--claude-login"), ("codex-device-login", "--codex-device-login")):
+            with self.subTest(command=command):
+                captured, fake = self._capture_exec()
+                outcome = proxy.cmd_login(command, [], environ=self.environ, execve=fake)
+                self.assertEqual(outcome, "EXECUTED")
+                self.assertEqual(captured["argv"][-1], flag)
+
+    def test_binary_resolution_failure(self) -> None:
+        environ = dict(self.environ)
+        environ["CLAUDE_MULTI_PROXY_BIN"] = str(self.root / "missing")
+        with self.assertRaisesRegex(ProxyError, "not an executable"):
+            proxy.resolve_proxy_binary(environ)
+
+    def test_no_secret_in_exec_argv_or_env(self) -> None:
+        self._write_secret(b"KIMI_CLAUDE_API_KEY=supersecret-value-999\n")
+        captured, fake = self._capture_exec()
+        proxy.cmd_run([], environ=self.environ, execve=fake)
+        argv_blob = " ".join(captured["argv"])
+        self.assertNotIn("supersecret-value-999", argv_blob)
+
+
+class SelectedSecretReadinessTests(ProxyControlTestCase):
+    def _resolved(self):
+        bundle = catalog.load_catalog(CATALOG_ROOT)
+        from claude_multi import composition
+
+        return bundle, composition.resolve(bundle.docs, bundle.default_composition)
+
+    def test_missing_file_blocks_selected_provider(self) -> None:
+        bundle, resolved = self._resolved()
+        problems = proxy.selected_secret_problems(
+            resolved,
+            bundle.docs["models"]["models"],
+            bundle.docs["providers"]["providers"],
+            environ=self.environ,
+        )
+        self.assertEqual(len(problems), 1)
+        self.assertIn("Kimi (kimi)", problems[0])
+        self.assertIn("env:KIMI_CLAUDE_API_KEY", problems[0])
+        self.assertIn("missing", problems[0])
+
+    def test_missing_variable_blocks(self) -> None:
+        self._write_secret(b"OTHER=value1234\n")
+        bundle, resolved = self._resolved()
+        problems = proxy.selected_secret_problems(
+            resolved,
+            bundle.docs["models"]["models"],
+            bundle.docs["providers"]["providers"],
+            environ=self.environ,
+        )
+        self.assertEqual(len(problems), 1)
+        self.assertIn("KIMI_CLAUDE_API_KEY", problems[0])
+        self.assertIn("missing from the secret env file", problems[0])
+
+    def test_unsafe_secret_file_blocks_redacted(self) -> None:
+        self._write_secret(b"not-an-assignment\n")
+        bundle, resolved = self._resolved()
+        problems = proxy.selected_secret_problems(
+            resolved,
+            bundle.docs["models"]["models"],
+            bundle.docs["providers"]["providers"],
+            environ=self.environ,
+        )
+        self.assertEqual(len(problems), 1)
+        self.assertIn("unsafe or malformed", problems[0])
+        self.assertNotIn("not-an-assignment", problems[0])
+
+    def test_symlink_secret_file_blocks(self) -> None:
+        self._write_secret()
+        link = self.secrets / "link.env"
+        link.symlink_to(self.secret_file)
+        environ = dict(self.environ)
+        environ["CLAUDE_MULTI_SECRET_ENV"] = str(link)
+        bundle, resolved = self._resolved()
+        problems = proxy.selected_secret_problems(
+            resolved,
+            bundle.docs["models"]["models"],
+            bundle.docs["providers"]["providers"],
+            environ=environ,
+        )
+        self.assertEqual(len(problems), 1)
+        self.assertIn("unsafe", problems[0])
+
+    def test_present_secret_passes_oauth_unaffected(self) -> None:
+        self._write_secret()
+        bundle, resolved = self._resolved()
+        problems = proxy.selected_secret_problems(
+            resolved,
+            bundle.docs["models"]["models"],
+            bundle.docs["providers"]["providers"],
+            environ=self.environ,
+        )
+        self.assertEqual(problems, [])
+
+    def test_unselected_direct_provider_not_checked(self) -> None:
+        # selector-only composition: no kimi selection → kimi secret irrelevant
+        bundle = catalog.load_catalog(CATALOG_ROOT)
+        import copy
+        from claude_multi import composition
+
+        document = copy.deepcopy(bundle.default_composition)
+        document["slots"] = [
+            {"role": "cm-lead", "model": "fable"},
+            {"role": "cm-analyst", "model": "sol", "preferred": True},
+        ]
+        resolved = composition.resolve(bundle.docs, document)
+        problems = proxy.selected_secret_problems(
+            resolved,
+            bundle.docs["models"]["models"],
+            bundle.docs["providers"]["providers"],
+            environ=self.environ,
+        )
+        self.assertEqual(problems, [])
+
+    def test_fake_environ_never_touches_real_secret_path(self) -> None:
+        # The fake secret file is malformed while the real one parses; any
+        # read of the real path would wrongly succeed. The fake must be used.
+        real_path = proxy.secret_env_path(None)
+        self.assertNotEqual(str(real_path), str(self.secret_file))
+        self._write_secret(b"this is malformed\n")
+        bundle, resolved = self._resolved()
+        with mock.patch.object(proxy.state, "read_private", wraps=proxy.state.read_private) as spy:
+            problems = proxy.selected_secret_problems(
+                resolved,
+                bundle.docs["models"]["models"],
+                bundle.docs["providers"]["providers"],
+                environ=self.environ,
+            )
+        self.assertEqual(len(problems), 1)
+        self.assertIn("malformed", problems[0])
+        touched = {call.args[0] for call in spy.call_args_list}
+        self.assertEqual(touched, {self.secret_file})
+        self.assertNotIn(real_path, touched)

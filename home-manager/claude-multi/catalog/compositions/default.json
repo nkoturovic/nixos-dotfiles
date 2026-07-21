@@ -1,0 +1,34 @@
+{
+  "version": 1,
+  "name": "default",
+  "description": "Balanced multi-provider composition",
+  "availability": {
+    "providers": {
+      "anthropic": "lead+agents",
+      "kimi": "lead+agents",
+      "openai": "lead+agents"
+    },
+    "models": {
+      "fable": "lead+agents",
+      "opus": "agents",
+      "kimi-k3": "lead+agents",
+      "sol": "lead+agents",
+      "gpt55": "agents"
+    }
+  },
+  "slots": [
+    { "role": "cm-lead", "model": "fable" },
+    { "role": "cm-analyst", "model": "sol", "preferred": true },
+    { "role": "cm-analyst", "model": "kimi-k3", "preferred": false },
+    { "role": "cm-implementer", "model": "sol", "preferred": true },
+    { "role": "cm-implementer", "model": "kimi-k3", "preferred": false },
+    { "role": "cm-reviewer", "model": "gpt55", "preferred": true },
+    { "role": "cm-reviewer", "model": "opus", "preferred": false }
+  ],
+  "native_agents": {
+    "explore": "replace",
+    "plan": "native",
+    "general_purpose": "off"
+  },
+  "seed": { "id": "default", "version": 1 }
+}

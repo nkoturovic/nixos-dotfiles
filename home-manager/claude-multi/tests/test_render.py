@@ -1,0 +1,178 @@
+"""Tests for the pure deterministic CLIProxyAPI renderer."""
+
+from __future__ import annotations
+
+import copy
+import os
+import unittest
+from pathlib import Path
+
+from claude_multi import catalog, render
+from claude_multi.render import RenderError
+
+
+CATALOG_ROOT = Path(__file__).resolve().parents[1]
+GOLDEN = CATALOG_ROOT / "tests" / "goldens" / "render" / "gateway-default.yaml"
+
+
+def _render(resolve_secret=None, models=None, providers=None):
+    bundle = catalog.load_catalog(CATALOG_ROOT)
+    return render.render_config(
+        bundle.docs["gateway"],
+        providers or bundle.docs["providers"]["providers"],
+        models or bundle.docs["models"]["models"],
+        home=Path("/home/test"),
+        gateway_token="a" * 64,
+        resolve_secret=resolve_secret or (lambda name: "dummy-kimi-key"),
+    )
+
+
+class GoldenTests(unittest.TestCase):
+    def test_default_render_matches_golden(self) -> None:
+        result = _render()
+        self.assertEqual(result.yaml.encode("utf-8"), GOLDEN.read_bytes())
+        self.assertTrue(result.yaml.endswith("\n"))
+
+    def test_render_deterministic(self) -> None:
+        self.assertEqual(_render().yaml, _render().yaml)
+
+    def test_v1_static_settings_preserved(self) -> None:
+        yaml = _render().yaml
+        for needle in (
+            'host: "127.0.0.1"',
+            "port: 8317",
+            "tls:",
+            "request-retry: 0",
+            "disable-cooling: true",
+            'strategy: "fill-first"',
+            "session-affinity: true",
+            "ws-auth: true",
+            "disable-control-panel: true",
+        ):
+            self.assertIn(needle, yaml)
+
+    def test_retained_and_removed_aliases(self) -> None:
+        yaml = _render().yaml
+        for retained in (
+            "claude-multi-kimi-k3",
+            "claude-multi-opus-4-8",
+            "gpt-multi-sol-high",
+            "gpt-multi-sol-xhigh",
+            "gpt-multi-gpt55-high",
+        ):
+            self.assertIn(retained, yaml)
+        for removed in (
+            "claude-multi-fable-5",
+            "claude-multi-sol-",
+            "claude-multi-gpt55",
+            "conserve-",
+        ):
+            self.assertNotIn(removed, yaml)
+
+    def test_kimi_metadata_and_contracts(self) -> None:
+        yaml = _render().yaml
+        self.assertIn('"output_config.effort": "max"', yaml)
+        self.assertIn('- "thinking"', yaml)
+        self.assertIn('"reasoning.effort": "high"', yaml)
+        self.assertIn('"reasoning.effort": "xhigh"', yaml)
+        self.assertIn('owned-by: "moonshot"', yaml)
+        self.assertIn("context-length: 1048576", yaml)
+        self.assertIn('auth-header: "x-api-key"', yaml)
+
+
+class ForkRuleTests(unittest.TestCase):
+    def test_validated_fork_routes_render_true(self) -> None:
+        yaml = _render().yaml
+        self.assertIn("fork: true", yaml)
+        # codex pool has no fork policy: aliases render fork: false
+        self.assertIn("fork: false", yaml)
+
+    def test_mutated_fork_false_renders_false(self) -> None:
+        bundle = catalog.load_catalog(CATALOG_ROOT)
+        providers = copy.deepcopy(bundle.docs["providers"]["providers"])
+        providers["anthropic"]["passthrough_routes"][0]["fork"] = False
+        yaml = _render(providers=providers).yaml
+        fable_block = yaml.split('alias: "claude-fable-5"')[1].split("- name:")[0]
+        self.assertIn("fork: false", fable_block)
+
+
+class DirectProviderLaneTests(unittest.TestCase):
+    def test_every_lane_selector_rendered_for_direct_provider(self) -> None:
+        bundle = catalog.load_catalog(CATALOG_ROOT)
+        models = copy.deepcopy(bundle.docs["models"]["models"])
+        models["kimi-k3"]["lanes"]["turbo"] = {
+            "client_selector": "claude-multi-kimi-k3-turbo[1m]",
+            "agent_effort": "max",
+            "proxy_effort_contract": "output-config-max",
+        }
+        yaml = _render(models=models).yaml
+        self.assertIn('alias: "claude-multi-kimi-k3"', yaml)
+        self.assertIn('alias: "claude-multi-kimi-k3-turbo"', yaml)
+
+    def test_kimi_output_single_lane_unchanged(self) -> None:
+        yaml = _render().yaml
+        self.assertEqual(yaml.count('alias: "claude-multi-kimi-k3"'), 1)
+
+
+class SecretBoundaryTests(unittest.TestCase):
+    def test_missing_secret_omits_provider_atomically(self) -> None:
+        def resolver(name: str):
+            assert name == "KIMI_CLAUDE_API_KEY"
+            return None
+
+        result = _render(resolve_secret=resolver)
+        self.assertEqual(result.available_providers, ("anthropic", "openai"))
+        self.assertEqual(len(result.unavailable), 1)
+        self.assertEqual(result.unavailable[0]["provider"], "kimi")
+        self.assertIn("env:KIMI_CLAUDE_API_KEY", result.unavailable[0]["reason"])
+        self.assertNotIn("claude-multi-kimi-k3", result.yaml)
+        self.assertNotIn("output_config.effort", result.yaml)
+        self.assertNotIn('"thinking"', result.yaml)
+        self.assertIn("gpt-multi-sol-high", result.yaml)
+        self.assertIn("claude-fable-5", result.yaml)
+
+    def test_renderer_never_reads_process_env(self) -> None:
+        os.environ["KIMI_CLAUDE_API_KEY"] = "env-value-must-be-ignored"
+        try:
+            result = _render(resolve_secret=lambda name: None)
+        finally:
+            del os.environ["KIMI_CLAUDE_API_KEY"]
+        self.assertNotIn("env-value-must-be-ignored", result.yaml)
+        self.assertEqual(result.available_providers, ("anthropic", "openai"))
+
+    def test_resolver_value_used_verbatim(self) -> None:
+        result = _render(resolve_secret=lambda name: "resolved-dummy-value")
+        self.assertIn('api-key: "resolved-dummy-value"', result.yaml)
+
+
+class EmitterTests(unittest.TestCase):
+    def test_special_characters_escaped(self) -> None:
+        bundle = catalog.load_catalog(CATALOG_ROOT)
+        models = copy.deepcopy(bundle.docs["models"]["models"])
+        models["kimi-k3"]["display"] = 'Quote "and" : colon # hash ünïcode'
+        yaml = _render(models=models).yaml
+        self.assertIn(
+            'display-name: "Quote \\"and\\" : colon # hash ünïcode"', yaml
+        )
+
+    def test_document_root_must_be_mapping(self) -> None:
+        with self.assertRaises(RenderError):
+            render.emit_yaml([1, 2])
+
+    def test_unknown_payload_contract_rejected(self) -> None:
+        bundle = catalog.load_catalog(CATALOG_ROOT)
+        providers = copy.deepcopy(bundle.docs["providers"]["providers"])
+        providers["kimi"]["payload_contracts"] = ["nonexistent-contract"]
+        with self.assertRaisesRegex(RenderError, "unknown payload contract"):
+            _render(providers=providers)
+
+    def test_unknown_adapter_has_no_contracts(self) -> None:
+        bundle = catalog.load_catalog(CATALOG_ROOT)
+        providers = copy.deepcopy(bundle.docs["providers"]["providers"])
+        providers["kimi"]["adapter"] = "cliproxy-unknown-v9"
+        with self.assertRaisesRegex(RenderError, "unknown payload contract"):
+            _render(providers=providers)
+
+
+if __name__ == "__main__":
+    unittest.main()

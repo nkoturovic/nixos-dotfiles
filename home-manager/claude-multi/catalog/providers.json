@@ -1,0 +1,52 @@
+{
+  "version": 1,
+  "providers": {
+    "anthropic": {
+      "display": "Anthropic",
+      "independence_family": "anthropic",
+      "support": "anthropic-supported",
+      "support_note": "First-party Anthropic models routed through the locally managed CLIProxyAPI OAuth gateway; this transport path is not officially supported by Anthropic.",
+      "adapter": "cliproxy-oauth-claude-v1",
+      "transport": {
+        "kind": "oauth-pool",
+        "pool": "claude"
+      },
+      "passthrough_routes": [
+        { "name": "claude-fable-5", "fork": true },
+        { "name": "claude-opus-4-8", "fork": true }
+      ],
+      "payload_contracts": []
+    },
+    "kimi": {
+      "display": "Kimi",
+      "independence_family": "moonshot",
+      "support": "locally-validated-experimental",
+      "support_note": "Third-party Claude-compatible route through the local gateway; locally validated experimental transport, not officially supported by Anthropic.",
+      "adapter": "cliproxy-claude-compatible-v1",
+      "transport": {
+        "kind": "direct",
+        "base_url": "https://api.kimi.com/coding",
+        "auth": {
+          "kind": "header",
+          "header": "x-api-key",
+          "secret_ref": "env:KIMI_CLAUDE_API_KEY"
+        }
+      },
+      "passthrough_routes": [],
+      "payload_contracts": ["output-config-max", "filter-thinking"]
+    },
+    "openai": {
+      "display": "OpenAI",
+      "independence_family": "openai",
+      "support": "locally-validated-experimental",
+      "support_note": "Third-party Codex route through the local OAuth gateway; locally validated experimental transport, not officially supported by Anthropic or OpenAI.",
+      "adapter": "cliproxy-oauth-codex-v1",
+      "transport": {
+        "kind": "oauth-pool",
+        "pool": "codex"
+      },
+      "passthrough_routes": [],
+      "payload_contracts": ["reasoning-effort-high", "reasoning-effort-xhigh"]
+    }
+  }
+}

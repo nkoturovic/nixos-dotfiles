@@ -1,0 +1,82 @@
+{
+  "version": 1,
+  "type": "object",
+  "required": ["version", "claude", "effort_vocabulary", "acceptance", "lead_delivery", "evidence_version", "recorded_at"],
+  "additionalProperties": false,
+  "properties": {
+    "version": { "const": 1 },
+    "claude": {
+      "type": "object",
+      "required": ["validated_version", "executable"],
+      "additionalProperties": false,
+      "properties": {
+        "validated_version": { "type": "string", "pattern": "^[0-9]+\\.[0-9]+\\.[0-9]+$" },
+        "executable": {
+          "type": "object",
+          "required": ["configured_path", "resolved_path", "sha256", "inspection", "inspected_at"],
+          "additionalProperties": false,
+          "properties": {
+            "configured_path": { "type": "string", "pattern": "^/[a-z0-9._/-]+$" },
+            "resolved_path": { "type": "string", "pattern": "^/[a-z0-9._/-]+$" },
+            "sha256": { "type": "string", "pattern": "^[0-9a-f]{64}$" },
+            "inspection": { "type": "string", "minLength": 1, "maxLength": 256 },
+            "inspected_at": { "type": "string", "pattern": "^[0-9]{4}-[0-9]{2}-[0-9]{2}$" }
+          }
+        }
+      }
+    },
+    "effort_vocabulary": {
+      "type": "object",
+      "required": ["values", "status", "evidence"],
+      "additionalProperties": false,
+      "properties": {
+        "values": {
+          "type": "array",
+          "minItems": 1,
+          "uniqueItems": true,
+          "items": { "type": "string", "pattern": "^[a-z][a-z0-9-]*$" }
+        },
+        "status": { "enum": ["provisionally-trusted", "verified", "unverified"] },
+        "evidence": { "type": "string", "minLength": 1, "maxLength": 512 }
+      }
+    },
+    "acceptance": {
+      "type": "object",
+      "required": ["same_launch_agents_and_agent_cm_lead", "fork_triple_flag"],
+      "additionalProperties": false,
+      "properties": {
+        "same_launch_agents_and_agent_cm_lead": {
+          "type": "object",
+          "required": ["status", "probe"],
+          "additionalProperties": false,
+          "properties": {
+            "status": { "enum": ["unverified", "verified", "failed"] },
+            "probe": { "type": "string", "pattern": "^[a-z0-9-]+$" }
+          }
+        },
+        "fork_triple_flag": {
+          "type": "object",
+          "required": ["status", "probe"],
+          "additionalProperties": false,
+          "properties": {
+            "status": { "enum": ["unverified", "verified", "failed"] },
+            "probe": { "type": "string", "pattern": "^[a-z0-9-]+$" }
+          }
+        }
+      }
+    },
+    "lead_delivery": {
+      "type": "object",
+      "required": ["mode", "status", "contingency", "decision_gate"],
+      "additionalProperties": false,
+      "properties": {
+        "mode": { "enum": ["same-launch-agent", "main-thread-append-system-prompt-file"] },
+        "status": { "enum": ["pending-probe", "verified", "contingency-selected"] },
+        "contingency": { "const": "main-thread-append-system-prompt-file" },
+        "decision_gate": { "const": "P1" }
+      }
+    },
+    "evidence_version": { "type": "integer", "minimum": 1 },
+    "recorded_at": { "type": "string", "pattern": "^[0-9]{4}-[0-9]{2}-[0-9]{2}$" }
+  }
+}

@@ -1,0 +1,100 @@
+{
+  "version": 1,
+  "type": "object",
+  "required": ["version", "models"],
+  "additionalProperties": false,
+  "properties": {
+    "version": { "const": 1 },
+    "models": {
+      "type": "object",
+      "minItems": 1,
+      "additionalProperties": {
+        "type": "object",
+        "required": ["provider", "display", "client_selector", "wire_model", "capabilities", "compatible_roles", "context", "lanes", "default_lane", "lead", "routing_note", "role_hints", "minimum_tested"],
+        "additionalProperties": false,
+        "properties": {
+          "provider": { "type": "string", "pattern": "^[a-z][a-z0-9-]*$" },
+          "display": { "type": "string", "minLength": 1, "maxLength": 96 },
+          "client_selector": { "type": "string", "pattern": "^[a-z0-9][a-z0-9._-]*(\\[1m\\])?$" },
+          "wire_model": { "type": "string", "pattern": "^[a-z0-9][a-z0-9._-]*$" },
+          "capabilities": {
+            "type": "array",
+            "minItems": 1,
+            "uniqueItems": true,
+            "items": { "enum": ["lead", "agents"] }
+          },
+          "compatible_roles": {
+            "type": "array",
+            "minItems": 1,
+            "uniqueItems": true,
+            "items": { "type": "string", "pattern": "^cm-[a-z][a-z0-9-]*$" }
+          },
+          "context": {
+            "type": "object",
+            "required": ["kind", "declared_tokens", "validated_tokens", "qualification"],
+            "additionalProperties": false,
+            "properties": {
+              "kind": { "enum": ["selector-1m", "scalar"] },
+              "declared_tokens": { "type": "integer", "minimum": 1 },
+              "validated_tokens": { "type": "integer", "minimum": 1 },
+              "provider_stated_limit_tokens": { "type": "integer", "minimum": 1 },
+              "user_reported_tokens": { "type": "integer", "minimum": 1 },
+              "qualification": { "type": "string", "minLength": 1, "maxLength": 640 }
+            }
+          },
+          "lanes": {
+            "type": "object",
+            "minItems": 1,
+            "additionalProperties": {
+              "type": "object",
+              "required": ["client_selector", "agent_effort", "proxy_effort_contract"],
+              "additionalProperties": false,
+              "properties": {
+                "client_selector": { "type": "string", "pattern": "^[a-z0-9][a-z0-9._-]*(\\[1m\\])?$" },
+                "agent_effort": { "type": "string", "pattern": "^[a-z][a-z0-9-]*$" },
+                "proxy_effort_contract": {
+                  "oneOf": [
+                    { "type": "string", "pattern": "^[a-z0-9-]+$" },
+                    { "type": "null" }
+                  ]
+                }
+              }
+            }
+          },
+          "default_lane": { "type": "string", "pattern": "^[a-z][a-z0-9-]*$" },
+          "lead": {
+            "oneOf": [
+              {
+                "type": "object",
+                "required": ["effort", "env"],
+                "additionalProperties": false,
+                "properties": {
+                  "effort": { "type": "string", "pattern": "^[a-z][a-z0-9-]*$" },
+                  "env": {
+                    "type": "object",
+                    "additionalProperties": { "type": "string", "pattern": "^[0-9]+$" }
+                  }
+                }
+              },
+              { "type": "null" }
+            ]
+          },
+          "routing_note": { "type": "string", "minLength": 1, "maxLength": 256 },
+          "role_hints": {
+            "type": "object",
+            "additionalProperties": { "type": "string", "minLength": 1, "maxLength": 256 }
+          },
+          "minimum_tested": {
+            "type": "object",
+            "required": ["claude_code", "cliproxyapi"],
+            "additionalProperties": false,
+            "properties": {
+              "claude_code": { "type": "string", "pattern": "^[0-9]+\\.[0-9]+\\.[0-9]+$" },
+              "cliproxyapi": { "type": "string", "pattern": "^[0-9]+\\.[0-9]+\\.[0-9]+$" }
+            }
+          }
+        }
+      }
+    }
+  }
+}

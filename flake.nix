@@ -52,5 +52,14 @@
         modules = [./home-manager/kotur.home.nix];
       };
     };
+
+    # Offline checks; the v2 suite runs in a Nix sandbox from the same
+    # derivation used by the standalone candidate gates.
+    checks = {
+      x86_64-linux.claude-multi =
+        import ./home-manager/claude-multi/tests/default.nix {
+          pkgs = nixpkgs.legacyPackages.x86_64-linux;
+        };
+    };
   };
 }

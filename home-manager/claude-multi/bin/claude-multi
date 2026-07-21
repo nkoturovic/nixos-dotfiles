@@ -1,0 +1,8 @@
+#!/usr/bin/env python3
+"""Source entrypoint; Phase 5 supplies the pinned Nix wrapper."""
+
+from claude_multi.cli import main
+
+
+if __name__ == "__main__":
+    raise SystemExit(main())

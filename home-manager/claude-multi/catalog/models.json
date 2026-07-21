@@ -1,0 +1,166 @@
+{
+  "version": 1,
+  "models": {
+    "fable": {
+      "provider": "anthropic",
+      "display": "Fable 5 · 1M selector",
+      "client_selector": "claude-fable-5[1m]",
+      "wire_model": "claude-fable-5",
+      "capabilities": ["lead", "agents"],
+      "compatible_roles": ["cm-lead", "cm-analyst", "cm-reviewer", "cm-implementer"],
+      "context": {
+        "kind": "selector-1m",
+        "declared_tokens": 1048576,
+        "validated_tokens": 1000000,
+        "qualification": "Selector-classified 1M in daily ordinary operation through the gateway; canonical first-party selector retained for the native refusal fallback."
+      },
+      "lanes": {
+        "max": {
+          "client_selector": "claude-fable-5[1m]",
+          "agent_effort": "max",
+          "proxy_effort_contract": null
+        }
+      },
+      "default_lane": "max",
+      "lead": {
+        "effort": "ultracode",
+        "env": {}
+      },
+      "routing_note": "Sustained long-horizon, high-complexity synthesis and coordination.",
+      "role_hints": {
+        "cm-implementer": "Use for exceptional end-to-end scope requiring sustained coordination."
+      },
+      "minimum_tested": { "claude_code": "2.1.216", "cliproxyapi": "7.2.80" }
+    },
+    "opus": {
+      "provider": "anthropic",
+      "display": "Opus 4.8 · 1M selector",
+      "client_selector": "claude-multi-opus-4-8[1m]",
+      "wire_model": "claude-opus-4-8",
+      "capabilities": ["lead", "agents"],
+      "compatible_roles": ["cm-lead", "cm-reviewer"],
+      "context": {
+        "kind": "selector-1m",
+        "declared_tokens": 1048576,
+        "validated_tokens": 1000000,
+        "qualification": "Selector-classified 1M in ordinary operation; canonical refusal fallback target for Fable-led sessions."
+      },
+      "lanes": {
+        "xhigh": {
+          "client_selector": "claude-multi-opus-4-8[1m]",
+          "agent_effort": "xhigh",
+          "proxy_effort_contract": null
+        }
+      },
+      "default_lane": "xhigh",
+      "lead": {
+        "effort": "ultracode",
+        "env": {}
+      },
+      "routing_note": "Claude-native independent check for high-risk review.",
+      "role_hints": {
+        "cm-reviewer": "Use for the optional Claude-native independent verdict."
+      },
+      "minimum_tested": { "claude_code": "2.1.216", "cliproxyapi": "7.2.80" }
+    },
+    "kimi-k3": {
+      "provider": "kimi",
+      "display": "Kimi K3 · 1M selector",
+      "client_selector": "claude-multi-kimi-k3[1m]",
+      "wire_model": "k3",
+      "capabilities": ["lead", "agents"],
+      "compatible_roles": ["cm-lead", "cm-analyst", "cm-implementer"],
+      "context": {
+        "kind": "selector-1m",
+        "declared_tokens": 1048576,
+        "validated_tokens": 208034,
+        "provider_stated_limit_tokens": 262144,
+        "user_reported_tokens": 1000000,
+        "qualification": "Client [1m] selector self-classifies extended context and Claude Code clamps it to 1,000,000; the proxy route declares 1,048,576. Direct local benchmark: largest located success 208,034 tokens; two ~373K attempts failed HTTP 400 with a provider-stated 262,144 limit on the pre-canonical-wire route. The user reports full 1M working in ordinary operation (2026-07-21); acceptance above the provider-stated limit remains user-attested, not benchmark-verified."
+      },
+      "lanes": {
+        "max": {
+          "client_selector": "claude-multi-kimi-k3[1m]",
+          "agent_effort": "max",
+          "proxy_effort_contract": "output-config-max"
+        }
+      },
+      "default_lane": "max",
+      "lead": {
+        "effort": "ultracode",
+        "env": { "CLAUDE_CODE_AUTO_COMPACT_WINDOW": "1048576" }
+      },
+      "routing_note": "Broad-context analysis and coordinated multi-file implementation.",
+      "role_hints": {
+        "cm-analyst": "Use for broad architecture, security, or repository-wide synthesis.",
+        "cm-implementer": "Use when implementation requires broad context across many files."
+      },
+      "minimum_tested": { "claude_code": "2.1.216", "cliproxyapi": "7.2.80" }
+    },
+    "sol": {
+      "provider": "openai",
+      "display": "GPT-5.6 Sol",
+      "client_selector": "gpt-multi-sol-high",
+      "wire_model": "gpt-5.6-sol",
+      "capabilities": ["lead", "agents"],
+      "compatible_roles": ["cm-lead", "cm-analyst", "cm-implementer"],
+      "context": {
+        "kind": "scalar",
+        "declared_tokens": 372000,
+        "validated_tokens": 372000,
+        "qualification": "Configured 372K OAuth context window in ordinary v1 operation; per-request output cap follows Claude Code's derived behavior."
+      },
+      "lanes": {
+        "high": {
+          "client_selector": "gpt-multi-sol-high",
+          "agent_effort": "high",
+          "proxy_effort_contract": "reasoning-effort-high"
+        },
+        "xhigh": {
+          "client_selector": "gpt-multi-sol-xhigh",
+          "agent_effort": "xhigh",
+          "proxy_effort_contract": "reasoning-effort-xhigh"
+        }
+      },
+      "default_lane": "high",
+      "lead": {
+        "effort": "ultracode",
+        "env": {}
+      },
+      "routing_note": "Main implementation and bounded-reasoning workhorse.",
+      "role_hints": {
+        "cm-analyst": "Use for routine reconnaissance and bounded reasoning.",
+        "cm-implementer": "Use for bounded implementation in an isolated worktree."
+      },
+      "minimum_tested": { "claude_code": "2.1.216", "cliproxyapi": "7.2.80" }
+    },
+    "gpt55": {
+      "provider": "openai",
+      "display": "GPT-5.5",
+      "client_selector": "gpt-multi-gpt55-high",
+      "wire_model": "gpt-5.5",
+      "capabilities": ["agents"],
+      "compatible_roles": ["cm-reviewer"],
+      "context": {
+        "kind": "scalar",
+        "declared_tokens": 272000,
+        "validated_tokens": 272000,
+        "qualification": "Configured 272K subscription context fallback in ordinary v1 operation."
+      },
+      "lanes": {
+        "high": {
+          "client_selector": "gpt-multi-gpt55-high",
+          "agent_effort": "high",
+          "proxy_effort_contract": "reasoning-effort-high"
+        }
+      },
+      "default_lane": "high",
+      "lead": null,
+      "routing_note": "Routine bounded independent review and tie-breaking.",
+      "role_hints": {
+        "cm-reviewer": "Use for routine bounded review."
+      },
+      "minimum_tested": { "claude_code": "2.1.216", "cliproxyapi": "7.2.80" }
+    }
+  }
+}
