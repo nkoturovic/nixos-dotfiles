@@ -1058,11 +1058,45 @@ def handle_command(
     raise CLIError(f"unsupported command {args.command!r}")
 
 
-def _open_tty() -> TextIO:
+def _stdio_streams_are_ttys() -> bool:
+    """Probe stdio TTY-ness, failing closed on missing/closed/broken streams."""
+
     try:
-        return open("/dev/tty", "r+", encoding="utf-8", buffering=1)
+        return bool(
+            sys.stdin is not None
+            and sys.stdout is not None
+            and sys.stdin.isatty()
+            and sys.stdout.isatty()
+        )
+    except (AttributeError, ValueError, OSError):
+        return False
+
+
+def _open_tty_streams() -> tuple[TextIO, TextIO]:
+    """Open the interactive (input, output) stream pair, preferring /dev/tty.
+
+    /dev/tty is non-seekable and cannot be opened in update mode under
+    supported Python, so separate read/write handles are opened. When
+    /dev/tty cannot be opened (no controlling terminal), fall back to the
+    standard streams only when both probe as real TTYs; otherwise fail closed
+    for noninteractive handling. Only /dev/tty handles are caller-owned; the
+    standard streams are never closed by the caller.
+    """
+
+    try:
+        tty_in = open("/dev/tty", "r", encoding="utf-8", buffering=1)
+        try:
+            tty_out = open("/dev/tty", "w", encoding="utf-8", buffering=1)
+        except OSError:
+            tty_in.close()
+            raise
+        return tty_in, tty_out
     except OSError as exc:
-        raise CLIError("no interactive terminal; use --composition NAME for noninteractive launch") from exc
+        if _stdio_streams_are_ttys():
+            return sys.stdin, sys.stdout
+        raise CLIError(
+            "no interactive terminal; use --composition NAME for noninteractive launch"
+        ) from exc
 
 
 def _validate_uuid(value: str) -> str:
@@ -1088,19 +1122,23 @@ def main(
 
     runtime = runtime or Runtime(asset_root=default_asset_root())
     output = output_stream or sys.stdout
-    owned_tty: TextIO | None = None
+    owned_tty: tuple[TextIO, TextIO] | None = None
+    tty_in: TextIO | None = None
+    tty_out: TextIO | None = None
     try:
         if interactive is None:
             if input_stream is not None:
                 interactive = True
             else:
                 try:
-                    owned_tty = _open_tty()
+                    tty_in, tty_out = _open_tty_streams()
+                    if tty_in is not sys.stdin:
+                        owned_tty = (tty_in, tty_out)
                     interactive = True
                 except CLIError:
                     interactive = False
-        inp = input_stream or owned_tty or sys.stdin
-        tty_output = output_stream or owned_tty or output
+        inp = input_stream or tty_in or sys.stdin
+        tty_output = output_stream or tty_out or output
 
         if args.command is not None:
             if passthrough:
@@ -1175,7 +1213,8 @@ def main(
         return 2
     finally:
         if owned_tty is not None:
-            owned_tty.close()
+            for handle in owned_tty:
+                handle.close()
 
 
 if __name__ == "__main__":

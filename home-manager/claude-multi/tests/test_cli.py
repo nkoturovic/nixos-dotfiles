@@ -808,3 +808,97 @@ class SecretReadinessSurfaceTests(CLITestCase):
         self.assertEqual(code, 0)
         self.assertIn("unsafe or malformed", output)
         self.assertNotIn("not-an-assignment", output)
+
+
+class BareLaunchStreamTests(unittest.TestCase):
+    """_open_tty_streams resolution: prefer /dev/tty, fall back to real TTYs."""
+
+    def test_prefers_dev_tty_with_read_write_handles(self) -> None:
+        opened: list[tuple] = []
+
+        def fake_open(path, mode, **kwargs):
+            opened.append((path, mode))
+            return object() if mode == "r" else object()
+
+        with mock.patch("builtins.open", side_effect=fake_open):
+            inp, out = cli._open_tty_streams()
+        self.assertEqual(
+            opened,
+            [("/dev/tty", "r"), ("/dev/tty", "w")],
+        )
+        self.assertIsNot(inp, out)
+
+    def test_output_handle_failure_closes_input_and_falls_back(self) -> None:
+        closed = []
+
+        class Handle:
+            def close(self):
+                closed.append(True)
+
+        def fake_open(path, mode, **kwargs):
+            if mode == "w":
+                raise OSError("cannot open for writing")
+            return Handle()
+
+        with mock.patch("builtins.open", side_effect=fake_open):
+            with mock.patch.object(cli, "_stdio_streams_are_ttys", return_value=True):
+                inp, out = cli._open_tty_streams()
+        self.assertEqual(closed, [True])
+        self.assertIs(inp, cli.sys.stdin)
+
+    def test_falls_back_to_stdio_when_both_are_ttys(self) -> None:
+        with mock.patch("builtins.open", side_effect=OSError("ENXIO")):
+            with mock.patch("sys.stdin") as fake_in, mock.patch("sys.stdout") as fake_out:
+                fake_in.isatty.return_value = True
+                fake_out.isatty.return_value = True
+                inp, out = cli._open_tty_streams()
+        self.assertIs(inp, fake_in)
+        self.assertIs(out, fake_out)
+
+    def test_fails_closed_when_stdout_not_tty(self) -> None:
+        with mock.patch("builtins.open", side_effect=OSError("ENXIO")):
+            with mock.patch("sys.stdin") as fake_in, mock.patch("sys.stdout") as fake_out:
+                fake_in.isatty.return_value = True
+                fake_out.isatty.return_value = False
+                with self.assertRaisesRegex(cli.CLIError, "no interactive terminal"):
+                    cli._open_tty_streams()
+
+    def test_fails_closed_when_stdin_not_tty(self) -> None:
+        with mock.patch("builtins.open", side_effect=OSError("ENXIO")):
+            with mock.patch("sys.stdin") as fake_in, mock.patch("sys.stdout") as fake_out:
+                fake_in.isatty.return_value = False
+                fake_out.isatty.return_value = True
+                with self.assertRaisesRegex(cli.CLIError, "no interactive terminal"):
+                    cli._open_tty_streams()
+
+
+class StdioProbeTests(unittest.TestCase):
+    def test_none_streams_fail_closed(self) -> None:
+        with mock.patch("builtins.open", side_effect=OSError("ENXIO")):
+            with mock.patch.object(cli.sys, "stdin", None), mock.patch.object(
+                cli.sys, "stdout", None
+            ):
+                with self.assertRaisesRegex(cli.CLIError, "no interactive terminal"):
+                    cli._open_tty_streams()
+
+    def test_closed_stream_probe_fails_closed(self) -> None:
+        with mock.patch("builtins.open", side_effect=OSError("ENXIO")):
+            with mock.patch("sys.stdin") as fake_in, mock.patch("sys.stdout") as fake_out:
+                fake_in.isatty.side_effect = ValueError("I/O operation on closed file")
+                with self.assertRaisesRegex(cli.CLIError, "no interactive terminal"):
+                    cli._open_tty_streams()
+
+    def test_probe_oserror_fails_closed(self) -> None:
+        with mock.patch("builtins.open", side_effect=OSError("ENXIO")):
+            with mock.patch("sys.stdin") as fake_in, mock.patch("sys.stdout") as fake_out:
+                fake_in.isatty.side_effect = OSError("inappropriate ioctl")
+                with self.assertRaisesRegex(cli.CLIError, "no interactive terminal"):
+                    cli._open_tty_streams()
+
+    def test_probe_attribute_error_fails_closed(self) -> None:
+        with mock.patch("builtins.open", side_effect=OSError("ENXIO")):
+            with mock.patch.object(cli.sys, "stdin", object()), mock.patch.object(
+                cli.sys, "stdout", object()
+            ):
+                with self.assertRaisesRegex(cli.CLIError, "no interactive terminal"):
+                    cli._open_tty_streams()

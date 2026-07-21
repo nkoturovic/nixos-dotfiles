@@ -94,31 +94,27 @@ generation and does not block rollback.
   `claude-multi-gpt55-*` require a fresh handoff or rollback to the prior Home
   Manager generation; v2 intentionally does not retain those compatibility aliases.
 
-## Live smoke status — user-led acceptance testing in progress
+## Live smoke status — user-led acceptance: PASSED (2026-07-21)
 
-Activation and local smoke have passed: generation 73 is active, the v2
-proxy is active, all three providers are configured, and `claude-multi
-doctor` plus `claude-multi show default` report Ready. However, the
-implementation workflow made **no provider request and no real Claude
-launch**. The user has explicitly elected to perform the first real
-Claude/provider session as the live user-acceptance smoke test.
+Activation and local smoke passed (generation 73 active, v2 proxy active,
+all three providers configured, doctor/default Ready). The user-led first
+real Claude/provider session then **passed**: the bare launch initially
+exposed a no-controlling-terminal bug, fixed by preferring real `/dev/tty`
+via separate read/write handles with a TTY stdin/stdout fallback (437 tests
+pass, 1 skip). The corrected package
+`/nix/store/fxapndpszjxdxz61jm5m12q1ngw014i4-claude-multi-2.0.0` (444 tests,
+1 skip) was activated with doctor/proxy Ready. The user subsequently created
+and live-validated the `kimi-sol` composition: Kimi K3 lead; Sol-high
+preferred analyst/implementer with Kimi-max alternates; Sol-xhigh preferred
+reviewer for focused bounded small-to-medium review; Kimi-max alternate
+reviewer for architecture/plan validation, security, broad cross-cutting,
+complex, high-risk, or large-context review; generated cross-family rules
+route Sol-authored work to Kimi review and Kimi-authored work to Sol review;
+Anthropic/GPT-5.5 off; scalar 372000. The trusted default composition remains
+unchanged.
 
-**Status: IN PROGRESS / awaiting user result** — not passed, not skipped.
-
-Acceptance checklist for that first session:
-
-1. Launch `claude-multi` and complete the default quick-confirm (Enter).
-2. Complete one normal turn.
-3. Observe at least one delegated agent path when naturally useful.
-4. Confirm no unexpected fallback or model substitution.
-5. Exit and verify `claude-multi -c` managed resume if a managed session
-   was created.
-
-Do not force unnecessary provider/model calls solely for testing.
-
-A separate automated `claude-multi-dev smoke-test ... --allow-provider-call`
-is **not required** while this user-led acceptance test is underway; retain
-it only as a fallback diagnostic if the live session reveals uncertainty.
+No full automated provider smoke was run; `claude-multi-dev smoke-test
+MODEL --allow-provider-call` remains only a fallback diagnostic.
 
 ## Provider smoke boundary
 

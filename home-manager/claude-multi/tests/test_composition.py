@@ -89,6 +89,113 @@ class ResolutionTests(unittest.TestCase):
         self.assertEqual(first, second)
 
 
+class SolReviewerTests(unittest.TestCase):
+    def _sol_reviewer_doc(self, lanes=("high", "xhigh")):
+        bundle = _bundle()
+        document = copy.deepcopy(bundle.default_composition)
+        slots = [
+            {"role": "cm-lead", "model": "fable"},
+            {"role": "cm-analyst", "model": "sol", "preferred": True},
+        ]
+        for index, lane in enumerate(lanes):
+            slots.append(
+                {
+                    "role": "cm-reviewer",
+                    "model": "sol",
+                    "lane": lane,
+                    "preferred": index == 0,
+                }
+            )
+        document["slots"] = slots
+        return bundle, document
+
+    def test_both_sol_lanes_resolve_as_reviewer_variants(self) -> None:
+        bundle, document = self._sol_reviewer_doc()
+        resolved = composition.resolve(bundle.docs, document)
+        by_id = {variant.id: variant for variant in resolved.variants}
+        self.assertEqual(by_id["cm-reviewer-sol-high"].client_selector, "gpt-multi-sol-high")
+        self.assertEqual(by_id["cm-reviewer-sol-high"].agent_effort, "high")
+        self.assertEqual(by_id["cm-reviewer-sol-xhigh"].client_selector, "gpt-multi-sol-xhigh")
+        self.assertEqual(by_id["cm-reviewer-sol-xhigh"].agent_effort, "xhigh")
+        self.assertEqual(by_id["cm-reviewer-sol-xhigh"].role, "cm-reviewer")
+        self.assertEqual(
+            by_id["cm-reviewer-sol-xhigh"].routing_hint,
+            "Use for focused review of bounded small-to-medium changes; prefer xhigh for deeper review within bounded scope.",
+        )
+        self.assertTrue(by_id["cm-reviewer-sol-high"].preferred)
+        self.assertFalse(by_id["cm-reviewer-sol-xhigh"].preferred)
+
+    def test_sol_xhigh_as_sole_preferred_reviewer(self) -> None:
+        bundle, document = self._sol_reviewer_doc(lanes=("xhigh",))
+        resolved = composition.resolve(bundle.docs, document)
+        reviewers = [v for v in resolved.variants if v.role == "cm-reviewer"]
+        self.assertEqual(len(reviewers), 1)
+        self.assertEqual(reviewers[0].id, "cm-reviewer-sol-xhigh")
+        self.assertEqual(reviewers[0].client_selector, "gpt-multi-sol-xhigh")
+        self.assertEqual(reviewers[0].agent_effort, "xhigh")
+        self.assertTrue(reviewers[0].preferred)
+
+    def test_scalar_372k_when_gpt55_absent(self) -> None:
+        bundle, document = self._sol_reviewer_doc(lanes=("xhigh",))
+        resolved = composition.resolve(bundle.docs, document)
+        self.assertNotIn("gpt55", {v.model for v in resolved.variants})
+        self.assertEqual(resolved.scalar_context_tokens, 372000)
+
+
+class KimiReviewerTests(unittest.TestCase):
+    def _kimi_reviewer_doc(self):
+        bundle = _bundle()
+        document = copy.deepcopy(bundle.default_composition)
+        document["slots"] = [
+            {"role": "cm-lead", "model": "fable"},
+            {"role": "cm-analyst", "model": "sol", "preferred": True},
+            {"role": "cm-reviewer", "model": "sol", "lane": "xhigh", "preferred": True},
+            {"role": "cm-reviewer", "model": "kimi-k3", "preferred": False},
+        ]
+        return bundle, document
+
+    def test_kimi_max_reviewer_exact_variant(self) -> None:
+        bundle, document = self._kimi_reviewer_doc()
+        resolved = composition.resolve(bundle.docs, document)
+        by_id = {variant.id: variant for variant in resolved.variants}
+        kimi = by_id["cm-reviewer-kimi-k3-max"]
+        self.assertEqual(kimi.role, "cm-reviewer")
+        self.assertEqual(kimi.client_selector, "claude-multi-kimi-k3[1m]")
+        self.assertEqual(kimi.agent_effort, "max")
+        self.assertEqual(kimi.lane, "max")
+        self.assertEqual(
+            kimi.routing_hint,
+            "Use for architecture/plan validation, security review, and broad cross-cutting, complex, high-risk, or large-context changes.",
+        )
+        self.assertFalse(kimi.preferred)
+
+    def test_coexistence_with_preferred_sol_xhigh(self) -> None:
+        bundle, document = self._kimi_reviewer_doc()
+        resolved = composition.resolve(bundle.docs, document)
+        reviewers = {v.id: v for v in resolved.variants if v.role == "cm-reviewer"}
+        self.assertEqual(set(reviewers), {"cm-reviewer-sol-xhigh", "cm-reviewer-kimi-k3-max"})
+        self.assertTrue(reviewers["cm-reviewer-sol-xhigh"].preferred)
+        self.assertFalse(reviewers["cm-reviewer-kimi-k3-max"].preferred)
+
+    def test_scalar_bound_remains_372k(self) -> None:
+        bundle, document = self._kimi_reviewer_doc()
+        resolved = composition.resolve(bundle.docs, document)
+        # selector-1m (Fable, Kimi) never reduces the scalar; only Sol counts.
+        self.assertEqual(resolved.scalar_context_tokens, 372000)
+
+    def test_independence_rules_cover_both_reviewer_families(self) -> None:
+        from claude_multi import compiler
+
+        bundle, document = self._kimi_reviewer_doc()
+        resolved = composition.resolve(bundle.docs, document)
+        appendix = compiler.generate_lead_appendix(
+            resolved, bundle.docs["providers"]["providers"]
+        )
+        self.assertIn("openai-family variant while a reviewer from moonshot", appendix)
+        self.assertIn("moonshot-family variant while a reviewer from openai", appendix)
+        self.assertIn("Enabled provider families: anthropic, moonshot, openai.", appendix)
+
+
 class ConflictAggregationTests(unittest.TestCase):
     def test_multiple_conflicts_all_reported(self) -> None:
         bundle = _bundle()

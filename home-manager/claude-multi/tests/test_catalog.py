@@ -420,7 +420,7 @@ class CompositionViolationTests(unittest.TestCase):
     def test_role_incompatible_slot_blocked(self) -> None:
         composition = self._composition()
         composition["slots"].append(
-            {"role": "cm-reviewer", "model": "kimi-k3", "preferred": False}
+            {"role": "cm-analyst", "model": "opus", "preferred": False}
         )
         errors = self._validate(composition)
         self.assertTrue(any("not compatible" in error for error in errors))

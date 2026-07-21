@@ -69,7 +69,7 @@
       "client_selector": "claude-multi-kimi-k3[1m]",
       "wire_model": "k3",
       "capabilities": ["lead", "agents"],
-      "compatible_roles": ["cm-lead", "cm-analyst", "cm-implementer"],
+      "compatible_roles": ["cm-lead", "cm-analyst", "cm-implementer", "cm-reviewer"],
       "context": {
         "kind": "selector-1m",
         "declared_tokens": 1048576,
@@ -93,7 +93,8 @@
       "routing_note": "Broad-context analysis and coordinated multi-file implementation.",
       "role_hints": {
         "cm-analyst": "Use for broad architecture, security, or repository-wide synthesis.",
-        "cm-implementer": "Use when implementation requires broad context across many files."
+        "cm-implementer": "Use when implementation requires broad context across many files.",
+        "cm-reviewer": "Use for architecture/plan validation, security review, and broad cross-cutting, complex, high-risk, or large-context changes."
       },
       "minimum_tested": { "claude_code": "2.1.216", "cliproxyapi": "7.2.80" }
     },
@@ -103,7 +104,7 @@
       "client_selector": "gpt-multi-sol-high",
       "wire_model": "gpt-5.6-sol",
       "capabilities": ["lead", "agents"],
-      "compatible_roles": ["cm-lead", "cm-analyst", "cm-implementer"],
+      "compatible_roles": ["cm-lead", "cm-analyst", "cm-implementer", "cm-reviewer"],
       "context": {
         "kind": "scalar",
         "declared_tokens": 372000,
@@ -130,7 +131,8 @@
       "routing_note": "Main implementation and bounded-reasoning workhorse.",
       "role_hints": {
         "cm-analyst": "Use for routine reconnaissance and bounded reasoning.",
-        "cm-implementer": "Use for bounded implementation in an isolated worktree."
+        "cm-implementer": "Use for bounded implementation in an isolated worktree.",
+        "cm-reviewer": "Use for focused review of bounded small-to-medium changes; prefer xhigh for deeper review within bounded scope."
       },
       "minimum_tested": { "claude_code": "2.1.216", "cliproxyapi": "7.2.80" }
     },
