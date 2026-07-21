@@ -57,6 +57,12 @@ claude-multi-dev check|review|promote developer onboarding (no provider calls)
 claude-multi-proxy init|status|run    gateway control (loopback only)
 ```
 
+Session transitions across provider families currently have a verified
+in-place workaround but an intentionally blocked, unverified fork path. See
+[`../../docs/claude-multi-session-transitions.md`](../../docs/claude-multi-session-transitions.md)
+for the observed failures, exact recovery, safety requirements, and remediation
+plan.
+
 ## Local-only verification
 
 ```bash

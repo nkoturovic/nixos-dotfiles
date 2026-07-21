@@ -94,6 +94,11 @@ generation and does not block rollback.
   `claude-multi-gpt55-*` require a fresh handoff or rollback to the prior Home
   Manager generation; v2 intentionally does not retain those compatibility aliases.
 
+Cross-provider resume and fork limitations, the observed dangling-link failure,
+the current exact-ID in-place workaround, and the verification-first remediation
+plan are documented in
+[`claude-multi-session-transitions.md`](./claude-multi-session-transitions.md).
+
 ## Live smoke status — user-led acceptance: PASSED (2026-07-21)
 
 Activation and local smoke passed (generation 73 active, v2 proxy active,
