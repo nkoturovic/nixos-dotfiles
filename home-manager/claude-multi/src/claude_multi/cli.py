@@ -2633,6 +2633,44 @@ def _validate_uuid(value: str) -> str:
     return value
 
 
+def _resolve_resume_target(runtime: Runtime, value: str) -> str:
+    """Resolve a resume argument to a managed session UUID.
+
+    Native Claude's exit hint prints ``claude --resume "cm:<composition>"``
+    (the display name, not the UUID). Accept that form here: an exact UUIDv4
+    resumes as before; otherwise the value (with an optional ``cm:`` prefix)
+    matches managed sessions by composition name — exactly one match resumes,
+    several list the candidates with their UUIDs, none fails with a pointer
+    to ``claude-multi sessions list``.
+    """
+
+    if sessions.UUID4.fullmatch(value):
+        return value
+    name = value.removeprefix("cm:")
+    matches = [
+        record
+        for record in _session_records(runtime)
+        if record["composition_name"] == name
+    ]
+    if len(matches) == 1:
+        return matches[0]["session_id"]
+    if matches:
+        lines = [
+            f"resume name {value!r} matches {len(matches)} managed sessions; "
+            "resume an exact UUID instead:"
+        ]
+        for record in matches:
+            lines.append(
+                f"  {record['session_id']}  {record['composition_name']}  "
+                f"{record['created_at']}  {record['cwd']}"
+            )
+        raise CLIError("\n".join(lines))
+    raise CLIError(
+        f"resume ID {value!r} is not a UUIDv4 and matches no managed session "
+        "name; run `claude-multi sessions list` for resumable sessions and UUIDs"
+    )
+
+
 def _refuse_resume_override(
     composition_name: str | None, record: dict[str, Any]
 ) -> None:
@@ -2704,7 +2742,7 @@ def main(
             )
 
         if args.resume:
-            session_id = _validate_uuid(args.resume)
+            session_id = _resolve_resume_target(runtime, args.resume)
             record = runtime.session_store.load(session_id)
             _refuse_resume_override(args.composition, record)
             plan = managed_plan(runtime, record)

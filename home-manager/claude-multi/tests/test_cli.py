@@ -2746,3 +2746,50 @@ class TerminalInjectionTests(CLITestCase):
         self.assertEqual(code, 0, output)
         self.assertNotIn("\x1b", output)
         self.assertIn("high^[", output)
+
+
+class ResumeNameResolutionTests(CLITestCase):
+    """-r accepts exact UUIDs and composition names (native exit-hint form)."""
+
+    OTHER_ID = "97a6194a-1111-4222-8333-444455556666"
+
+    def test_uuid_still_resumes_exact(self) -> None:
+        self.save_session()
+        self.assertEqual(
+            cli._resolve_resume_target(self.runtime, FIXED_ID), FIXED_ID
+        )
+
+    def test_unique_composition_name_resolves(self) -> None:
+        self.save_session()
+        self.assertEqual(
+            cli._resolve_resume_target(self.runtime, "default"), FIXED_ID
+        )
+
+    def test_cm_prefixed_name_resolves(self) -> None:
+        self.save_session()
+        self.assertEqual(
+            cli._resolve_resume_target(self.runtime, "cm:default"), FIXED_ID
+        )
+
+    def test_ambiguous_name_lists_candidates(self) -> None:
+        self.save_session(session_id=FIXED_ID)
+        self.save_session(session_id=self.OTHER_ID)
+        with self.assertRaises(cli.CLIError) as ctx:
+            cli._resolve_resume_target(self.runtime, "default")
+        text = str(ctx.exception)
+        self.assertIn("matches 2 managed sessions", text)
+        self.assertIn(FIXED_ID, text)
+        self.assertIn(self.OTHER_ID, text)
+
+    def test_unknown_name_points_at_sessions_list(self) -> None:
+        with self.assertRaises(cli.CLIError) as ctx:
+            cli._resolve_resume_target(self.runtime, "cm:no-such-thing")
+        self.assertIn("claude-multi sessions list", str(ctx.exception))
+
+    def test_resume_by_name_end_to_end(self) -> None:
+        self.save_session()
+        code, _out = self.run_cli(["-r", "cm:default"], "\n", interactive=True)
+        self.assertEqual(code, 0)
+        self.assertEqual(
+            self.launches[0].record["session_id"], FIXED_ID
+        )
