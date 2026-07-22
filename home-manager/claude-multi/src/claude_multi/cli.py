@@ -18,6 +18,7 @@ import stat
 import sys
 import textwrap
 from dataclasses import dataclass, field
+from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Callable, TextIO
 
@@ -430,10 +431,11 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--composition", metavar="NAME", help="use a named composition")
     session_group = parser.add_mutually_exclusive_group()
     session_group.add_argument("-c", "--continue", dest="continue_last", action="store_true", help="continue the last managed session in this directory")
-    session_group.add_argument("-r", "--resume", metavar="UUID", help="resume an exact managed session")
+    session_group.add_argument("-r", "--resume", nargs="?", const="", metavar="UUID", help="resume a managed session (exact UUID or name; no value opens the sessions picker)")
     parser.add_argument("--line", action="store_true", help="force the line-based UI (no full-screen curses interface)")
     parser.add_argument("--no-color", action="store_true", help="disable all color output (the NO_COLOR environment variable is also honored)")
     parser.add_argument("--legacy", action="store_true", help="launch with the pre-durable argv form (compatibility hatch; agents may vanish on supervisor restart)")
+    parser.add_argument("--print-launch", action="store_true", help="print the exact Claude argv and env summary instead of launching (the gateway token is never shown)")
     parser.add_argument("--version", action="version", version="claude-multi 2.1.0")
 
     commands = parser.add_subparsers(dest="command")
@@ -904,6 +906,33 @@ def _role_label(role_id: str) -> str:
     return role_id.removeprefix("cm-").replace("-", " ").title()
 
 
+def _toggle_workflows(runtime: Runtime, plan: QuickPlan) -> QuickPlan:
+    """Flip workflows native<->off on a fresh plan (the `w` key).
+
+    Same spirit as preset cycling: the composition document is updated in
+    memory and the plan rebuilt — the editor stays the place for structural
+    edits. Managed plans stay recorded-only (R1 P1). ``native`` removes the
+    key so documents stay byte-minimal (mirrors composition.snapshot).
+    """
+
+    if plan.record is not None or plan.action != "fresh":
+        return plan
+    document = copy.deepcopy(plan.document)
+    current = document.get("workflows", "native")
+    if current == "off":
+        document.pop("workflows", None)
+    else:
+        document["workflows"] = "off"
+    toggled = build_quick_plan(
+        runtime,
+        document,
+        action="fresh",
+        source=plan.source,
+    )
+    toggled.legacy_requested = plan.legacy_requested
+    return toggled
+
+
 def _cycle_preset(
     runtime: Runtime, plan: QuickPlan, delta: int
 ) -> QuickPlan:
@@ -976,7 +1005,7 @@ def quick_footer(plan: QuickPlan) -> tuple[str, ...]:
         primary = "Enter launch" if plan.ready else "Enter transition hint"
         return (f"{primary} · D details · S sessions · ? workflows · Q cancel",)
     primary = "Enter launch" if plan.ready else "Enter edit"
-    return (f"{primary} · E edit · D details · S sessions · ? workflows · P preset · Q cancel",)
+    return (f"{primary} · E edit · D details · S sessions · ? workflows · P preset · W wf on/off · Q cancel",)
 
 
 def validate_quick_passthrough(
@@ -1395,6 +1424,7 @@ class _QuickConfirmScreen:
             bindings = [primary, ("E", "edit")]
             if len(self.runtime.compositions.names()) > 1:
                 bindings.append(("Tab", "preset"))
+            bindings.append(("W", "wf on/off"))
         bindings.extend((("D", "details"), ("S", "sessions"), ("?", "workflows"), ("Q", "cancel")))
         return tui.KeyBar(bindings)
 
@@ -1508,6 +1538,9 @@ class _QuickConfirmScreen:
             preset_delta = _cycle_key_delta(key.kind)
             if preset_delta is not None:
                 self.plan = _cycle_preset(self.runtime, self.plan, preset_delta)
+                continue
+            if key.kind == "char" and key.ch == "w":
+                self.plan = _toggle_workflows(self.runtime, self.plan)
                 continue
             if key.kind == "char" and key.ch == "?":
                 mode = (
@@ -1680,6 +1713,16 @@ def _line_quick_confirm(
                 continue
             plan = cycled
             continue
+        if key == "w":
+            toggled = _toggle_workflows(runtime, plan)
+            if toggled is plan:
+                output_stream.write(
+                    "workflow toggle applies to fresh plans; a managed resume "
+                    "keeps the recorded composition.\n"
+                )
+                continue
+            plan = toggled
+            continue
         if plan.record is not None and key in ("r", "c"):
             # R1 P1: the recorded/current switch is gone; resume always uses
             # the recorded composition. Name the one path to change it.
@@ -1773,6 +1816,28 @@ TRANSITION_MODAL_BODY = (
 )
 
 
+def _record_age(record: dict[str, Any], *, now: datetime | None = None) -> str:
+    """Relative session age for display ("2h ago"); ISO string on parse failure."""
+
+    try:
+        created = datetime.strptime(record["created_at"], "%Y-%m-%dT%H:%M:%SZ").replace(
+            tzinfo=timezone.utc
+        )
+    except (KeyError, ValueError):
+        return str(record.get("created_at", "?"))
+    current = now or datetime.now(timezone.utc)
+    seconds = max(0, int((current - created).total_seconds()))
+    if seconds < 90:
+        return "just now"
+    minutes = seconds // 60
+    if minutes < 90:
+        return f"{minutes}m ago"
+    hours = minutes // 60
+    if hours < 48:
+        return f"{hours}h ago"
+    return f"{hours // 24}d ago"
+
+
 class _SessionsScreen:
     """UX section 4 sessions Table: mode column + Modal-confirmed row actions.
 
@@ -1795,7 +1860,7 @@ class _SessionsScreen:
                 f"cm:{record['composition_name']}",
                 _record_mode_label(record),
                 record["cwd"],
-                record["created_at"],
+                _record_age(record),
             ]
             for record in self.records
         ]
@@ -2113,6 +2178,29 @@ def _transition_preflight_problems(runtime: Runtime) -> list[str]:
         except launch.LaunchError as exc:
             problems.append(f"local gateway: {exc}")
     return problems
+
+
+def _print_launch_plan(prepared: PreparedLaunch, output_stream: TextIO) -> None:
+    """--print-launch: exact argv + env summary; the token is never shown."""
+
+    result = prepared.result
+    output_stream.write("claude argv (after the verified executable):\n")
+    for token in result.argv:
+        output_stream.write(f"  {tui.visible_text(token)}\n")
+    output_stream.write("environment (effective at exec):\n")
+    for key in sorted(result.env_set):
+        output_stream.write(f"  set {key}\n")
+    for key in result.env_unset:
+        output_stream.write(f"  unset {key}\n")
+    output_stream.write(
+        "  set ANTHROPIC_AUTH_TOKEN (from the private gateway key file; "
+        "value never shown)\n"
+    )
+    output_stream.write(
+        f"mode: {prepared.record['mode']} · composition "
+        f"{tui.visible_text(prepared.record['composition_name'])} · session "
+        f"{prepared.record['session_id']}\n"
+    )
 
 
 def _print_sessions_listing(runtime: Runtime, output_stream: TextIO) -> None:
@@ -2680,6 +2768,22 @@ def _doctor_prune(runtime: Runtime, output_stream: TextIO) -> int:
             elif sessions.UUID4.fullmatch(name) and not store.exists(name):
                 scope_mod.remove_scope(store.root, name)
                 removed.append(f"scope for forgotten session {name}")
+    # Generated per-session files outside scopes/ follow the same rule:
+    # pruned only when their record is gone (never a living session's).
+    for entry in sorted(store.root.glob("lead-prompt-*-*.md")):
+        stem = entry.name.removeprefix("lead-prompt-").removesuffix(".md")
+        # lead-prompt-<digest16>-<uuid>: the UUID is the LAST 36 chars.
+        session_id = stem[-36:]
+        if sessions.UUID4.fullmatch(session_id) and not store.exists(session_id):
+            state.remove_private(entry)
+            removed.append(f"lead prompt for forgotten session {session_id}")
+    locks_dir = store.root / "locks"
+    if locks_dir.is_dir():
+        for entry in sorted(locks_dir.glob("*.lifecycle.lock")):
+            session_id = entry.name.removesuffix(".lifecycle.lock")
+            if sessions.UUID4.fullmatch(session_id) and not store.exists(session_id):
+                state.remove_private(entry)
+                removed.append(f"lifecycle lock for forgotten session {session_id}")
     if not removed:
         output_stream.write(
             "Prune: nothing stale; every scope has a living record.\n"
@@ -2790,6 +2894,7 @@ def _resolve_resume_target(runtime: Runtime, value: str) -> str:
             lines.append(
                 f"  {record['session_id']}  "
                 f"{tui.visible_text(record['composition_name'])}  "
+                f"{_record_mode_label(record)}  "
                 f"{record['created_at']}  {tui.visible_text(record['cwd'])}"
             )
         raise CLIError("\n".join(lines))
@@ -2864,6 +2969,29 @@ def main(
                 no_color=args.no_color,
             )
 
+        if args.resume == "":
+            # Bare -r: open the sessions picker (or print it when piped).
+            namespace = argparse.Namespace(line=args.line)
+            if (
+                interactive
+                and not args.line
+                and tui.streams_curses_capable(inp, tty_output)
+            ):
+                try:
+                    return _sessions_list_tui(
+                        runtime,
+                        namespace,
+                        input_stream=inp,
+                        output_stream=tty_output,
+                        no_color=args.no_color,
+                    )
+                except KeyboardInterrupt:
+                    return 0
+                except (curses.error, OSError):
+                    pass
+            _print_sessions_listing(runtime, tty_output)
+            return 0
+
         if not interactive and args.composition is None:
             raise CLIError(
                 "noninteractive launch requires --composition NAME; no default was selected"
@@ -2893,6 +3021,19 @@ def main(
                 document, source = remembered_document(runtime)
             plan = build_quick_plan(runtime, document, action="fresh", source=source)
             plan.legacy_requested = args.legacy
+
+        if args.print_launch:
+            if not plan.ready:
+                raise CLIError("composition is blocked: " + "; ".join(plan.errors))
+            prepared = runtime.prepare(
+                plan.document,
+                action=plan.action,
+                passthrough=passthrough,
+                session_id=plan.record["session_id"] if plan.record else None,
+                legacy_requested=plan.legacy_requested,
+            )
+            _print_launch_plan(prepared, tty_output)
+            return 0
 
         if not interactive:
             if not plan.ready:

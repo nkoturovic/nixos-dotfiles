@@ -2912,3 +2912,100 @@ class PresetCycleTests(CLITestCase):
         code, out = self.run_cli([], "p\nq\n", interactive=True)
         self.assertEqual(code, 0)
         self.assertIn("Composition    second · Selected preset 2/2", out)
+
+
+class PolishBatchTests(CLITestCase):
+    """M5.1 polish batch: w toggle, bare -r, --print-launch, candidate modes,
+    relative age, prune coverage."""
+
+    # A: workflow toggle --------------------------------------------------
+    def test_w_toggles_workflows_off_and_back(self) -> None:
+        document = self.runtime.compositions.load("default")
+        plan = cli.build_quick_plan(self.runtime, document, action="fresh", source="t")
+        off = cli._toggle_workflows(self.runtime, plan)
+        self.assertEqual(off.document.get("workflows"), "off")
+        self.assertEqual(off.resolved.workflows, "off")
+        back = cli._toggle_workflows(self.runtime, off)
+        self.assertNotIn("workflows", back.document)
+
+    def test_w_managed_plan_is_noop(self) -> None:
+        self.save_session()
+        record = self.runtime.session_store.load(FIXED_ID)
+        plan = cli.managed_plan(self.runtime, record)
+        self.assertIs(cli._toggle_workflows(self.runtime, plan), plan)
+
+    # B: bare -r ----------------------------------------------------------
+    def test_bare_resume_prints_listing_when_piped(self) -> None:
+        self.save_session()
+        code, out = self.run_cli(["-r"], interactive=False)
+        self.assertEqual(code, 0)
+        self.assertIn(FIXED_ID, out)
+        self.assertIn("sessions", out)
+
+    # C: --print-launch ----------------------------------------------------
+    def test_print_launch_shows_argv_without_token(self) -> None:
+        code, out = self.run_cli(
+            ["--composition", "default", "--print-launch"], interactive=False
+        )
+        self.assertEqual(code, 0)
+        self.assertIn("--add-dir", out)
+        self.assertIn("--settings", out)
+        self.assertIn("ANTHROPIC_AUTH_TOKEN", out)
+        self.assertIn("value never shown", out)
+        self.assertEqual(len(self.launches), 0)
+
+    # D: ambiguous candidates carry the mode column ------------------------
+    def test_ambiguous_candidates_show_mode(self) -> None:
+        self.save_session(session_id=FIXED_ID, mode="durable", scope_generation=2)
+        self.save_session(
+            session_id="97a6194a-1111-4222-8333-444455556666", mode="legacy"
+        )
+        with self.assertRaises(cli.CLIError) as ctx:
+            cli._resolve_resume_target(self.runtime, "default")
+        text = str(ctx.exception)
+        self.assertIn("durable(g2)", text)
+        self.assertIn("legacy", text)
+
+    # E: relative age -------------------------------------------------------
+    def test_record_age_buckets(self) -> None:
+        from datetime import datetime, timezone, timedelta
+
+        now = datetime(2026, 7, 22, 22, 0, 0, tzinfo=timezone.utc)
+        def record_age_at(hours, minutes=0):
+            stamp = (now - timedelta(hours=hours, minutes=minutes)).strftime(
+                "%Y-%m-%dT%H:%M:%SZ"
+            )
+            return cli._record_age({"created_at": stamp}, now=now)
+
+        self.assertEqual(record_age_at(0, 0), "just now")
+        self.assertEqual(record_age_at(0, 45), "45m ago")
+        self.assertEqual(record_age_at(5), "5h ago")
+        self.assertEqual(record_age_at(96), "4d ago")
+        self.assertEqual(
+            cli._record_age({"created_at": "bogus"}, now=now), "bogus"
+        )
+
+    # F: prune covers lead prompts and locks --------------------------------
+    def test_prune_removes_generated_files_of_forgotten_sessions(self) -> None:
+        store = self.runtime.session_store
+        gone = "9bc5fd42-d428-4545-97af-3eefcb05b9f2"
+        alive = FIXED_ID
+        self.save_session(session_id=alive)
+        prompt_gone = store.root / f"lead-prompt-abcdef1234567890-{gone}.md"
+        prompt_alive = store.root / f"lead-prompt-abcdef1234567890-{alive}.md"
+        state.atomic_write(prompt_gone, b"x")
+        state.atomic_write(prompt_alive, b"x")
+        lock_gone = store.lifecycle_lock(gone)
+        lock_gone.acquire(blocking=False)
+        lock_gone.release()
+        lock_alive = store.lifecycle_lock(alive)
+        lock_alive.acquire(blocking=False)
+        lock_alive.release()
+        import io as _io
+
+        code = cli._doctor_prune(self.runtime, _io.StringIO())
+        self.assertEqual(code, 0)
+        self.assertFalse(prompt_gone.exists())
+        self.assertTrue(prompt_alive.exists())
+        self.assertFalse(lock_gone.lock_path.exists())
+        self.assertTrue(lock_alive.lock_path.exists())
