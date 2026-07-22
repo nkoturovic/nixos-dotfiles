@@ -48,8 +48,19 @@ Also: deny merge precedence downgraded to U9; wrong-composition rollback row
 corrected. Verdict after revision: architecture stands (Option 1), proceed to
 M1. No second loop per REVIEW-STRATEGY (no architecture change).
 
-**Next**: user acceptance (VERIFICATION §5 L0–L7), starting with a fresh
-durable session + the kill-resume proof.
+**Next**: user acceptance continues (L1 kill-resume, L2 takeover at next
+upgrade). First acceptance friction fixed same-day below.
+
+## 2026-07-22 — acceptance fix: name-based resume (`2dbbd1c`, activated)
+
+User acceptance hit a dead end: native Claude's exit hint prints
+`claude --resume "cm:<composition>"` (display name), while `-r` required a
+UUIDv4. Fixed: `-r` accepts UUIDs, composition names, and `cm:`-prefixed
+forms — unique match resumes, several list candidates with UUIDs (verified
+live: 8 kimi-sol sessions listed with timestamps/cwds), none errors with a
+`claude-multi sessions list` pointer. 984 tests green; new generation
+active (`/nix/store/4pdik20isyfyb2g7f9pyjl9racrfwdvr-claude-multi-2.1.0`).
+User already has 5 durable(g1) sessions from first launches.
 
 ## 2026-07-22 — M5 boundary: COMMITTED + ACTIVATED
 
