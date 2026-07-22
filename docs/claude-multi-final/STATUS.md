@@ -48,9 +48,19 @@ Also: deny merge precedence downgraded to U9; wrong-composition rollback row
 corrected. Verdict after revision: architecture stands (Option 1), proceed to
 M1. No second loop per REVIEW-STRATEGY (no architecture change).
 
-**Next**: Qwen live verification call (user-approved boundary), then
-qwen-sol daily use; U1 takeover proof expected naturally (Claude 2.1.218
-just appeared — the doctor's advisory shows the symlink moved).
+**Next**: qwen-sol daily use (user); U1 takeover proof expected naturally
+(Claude 2.1.218 appeared — the doctor's advisory shows the symlink moved).
+
+## 2026-07-23 — Qwen live verification: PASSED
+
+Single consent-gated call through the gateway (`POST /v1/messages`,
+model `claude-multi-qwen38-max`, one real provider request, user-approved):
+wire model + alias accepted, bearer auth works against the Token Plan
+endpoint, native thinking block returned (always-on reasoning, no filter),
+clean completion with usage fields. Full chain catalog → render → gateway →
+Qwen proven. Note: `claude-multi-dev smoke-test` has no provider transport
+wired (M3 removed the dead branch) — the direct gateway call is the
+verification path; a bounded transport may be added later if wanted.
 
 ## 2026-07-23 — Qwen Cloud provider integration (`c0cb1b3`, activated)
 
@@ -229,3 +239,4 @@ workflow `model` override (gpt-multi-sol-xhigh) since cm-* types are gone.
 | M3.5 | TUI rework (user-requested) | **done** | 928 tests OK; editor.py −1,130 lines |
 | M4 | integrated verification | **done** | 978 host + 978 sandbox green; package 2.1.0 builds |
 | M5 | boundary: commit/activation/acceptance | **committed+activated** | gen 77; doctor Ready; acceptance pending user |
+| + | Qwen Cloud integration | **done** | 1006 tests OK; pipeline promote; live call PASSED |

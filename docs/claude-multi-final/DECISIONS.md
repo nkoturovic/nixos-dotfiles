@@ -132,6 +132,21 @@ added for transparency; it is not a second operating mode.
 6. **One visible-text sanitizer** for all external filesystem/user-derived
    strings at render points (terminal-escape injection closed).
 
+**D21 — Qwen Cloud integration parameters are doc-derived, not Kimi-derived.**
+The Qwen Token Plan endpoint differs from Kimi in every transport detail:
+bearer auth (new `bearer` auth kind; Kimi's `x-api-key` override does not
+apply), `reasoning_effort: xhigh` as the effort knob (provider maximum;
+options xhigh/high/low — NOT `output_config.effort`), native always-on
+thinking (no filter), context 983616 (official Claude Code doc's own
+`CLAUDE_CODE_MAX_CONTEXT_TOKENS` recommendation). Selector
+(`claude-multi-qwen38-max`) and model id (`qwen38`) are preview-free by
+design. **Lifecycle note**: when the production `qwen3.8-max` ships, revise
+in order: (1) `wire_model`; (2) context bound re-verification; (3)
+`reasoning_effort` tier check (any level above xhigh?); (4) one live
+verification call; (5) display name drop of "· Preview". Recorded here and
+in the model's `routing_note` so the future edit is deliberate, small, and
+localized.
+
 ## User decision summary (what you're approving by accepting this design)
 
 1. Selected agents become **real files** in a per-session scope; the failure

@@ -229,7 +229,7 @@
       "context": {
         "declared_tokens": 983616,
         "kind": "scalar",
-        "qualification": "Official Token Plan Claude Code documentation recommends CLAUDE_CODE_MAX_CONTEXT_TOKENS=983616 for qwen3.8-max-preview; adopted as the declared and provisional validated bound pending the first real verification call.",
+        "qualification": "Provider-documented bound: the official Token Plan Claude Code doc recommends CLAUDE_CODE_MAX_CONTEXT_TOKENS=983616 for qwen3.8-max-preview, adopted as the declared and provisional validated bound. Transport/auth/wire-model/thinking verified by one ordinary live call (2026-07-23); near-limit context behavior remains unverified.",
         "validated_tokens": 983616
       },
       "default_lane": "max",
@@ -257,7 +257,7 @@
         "cm-implementer": "Use when implementation requires broad context across many files.",
         "cm-reviewer": "Use for architecture/plan validation, security review, and broad cross-cutting, complex, high-risk, or large-context changes."
       },
-      "routing_note": "Qwen flagship preview for direct consultation and broad reasoning; thinking is always enabled (reasoning_effort pinned xhigh, the provider maximum).",
+      "routing_note": "Qwen flagship preview; thinking always on (reasoning_effort pinned xhigh, provider max). PREVIEW: on production release revise wire_model, context, effort tiers, display; one live call. Checklist in DECISIONS D21.",
       "wire_model": "qwen3.8-max-preview"
     }
   },

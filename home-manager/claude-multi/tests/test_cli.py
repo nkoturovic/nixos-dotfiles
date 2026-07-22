@@ -3009,3 +3009,51 @@ class PolishBatchTests(CLITestCase):
         self.assertTrue(prompt_alive.exists())
         self.assertFalse(lock_gone.lock_path.exists())
         self.assertTrue(lock_alive.lock_path.exists())
+
+
+class PickerIntentThreadingTests(CLITestCase):
+    def test_print_launch_reports_launch_mode_separately(self) -> None:
+        self.save_session(mode="durable", scope_generation=2)
+        code, out = self.run_cli(
+            ["-r", FIXED_ID, "--legacy", "--print-launch"], "\n", interactive=True
+        )
+        self.assertEqual(code, 0)
+        self.assertIn("launch mode: legacy argv", out)
+        self.assertIn("record mode: durable", out)
+
+    def test_picker_resume_threads_legacy_and_passthrough(self) -> None:
+        import io as _io
+
+        self.save_session(mode="durable", scope_generation=1)
+        performed = []
+
+        class FakeScreen:
+            def __init__(self, runtime, *, palette):
+                pass
+
+            def run(self, win):
+                return ("resume", self_record)
+
+        self_record = self.runtime.session_store.load(FIXED_ID)
+        original_screen = cli._SessionsScreen
+        original_runner = cli.tui.run_curses_on_streams
+        cli._SessionsScreen = FakeScreen
+        cli.tui.run_curses_on_streams = lambda fn, i, o, palette: fn(None)
+        try:
+            code = cli._sessions_list_tui(
+                self.runtime,
+                None,
+                input_stream=_io.StringIO(),
+                output_stream=_io.StringIO(),
+                no_color=True,
+                passthrough=["--verbose"],
+                legacy_requested=True,
+            )
+        finally:
+            cli._SessionsScreen = original_screen
+            cli.tui.run_curses_on_streams = original_runner
+        self.assertEqual(code, 0)
+        self.assertEqual(len(self.launches), 1)
+        prepared = self.launches[0]
+        self.assertIn("--verbose", prepared.result.argv)
+        self.assertFalse(prepared.result.durable)

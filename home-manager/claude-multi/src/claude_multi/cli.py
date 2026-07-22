@@ -1475,7 +1475,7 @@ class _QuickConfirmScreen:
             prepared = self.runtime.prepare(
                 plan.document,
                 action="resume",
-                passthrough=[],
+                passthrough=self.passthrough,
                 session_id=record["session_id"],
                 legacy_requested=self.plan.legacy_requested,
             )
@@ -2102,9 +2102,17 @@ def _sessions_list_tui(
     input_stream: TextIO,
     output_stream: TextIO,
     no_color: bool,
+    passthrough: list[str] | None = None,
+    legacy_requested: bool = False,
 ) -> int:
-    """Interactive sessions screen; actions reuse the command flows verbatim."""
+    """Interactive sessions screen; actions reuse the command flows verbatim.
 
+    Launch intent threads through: ``passthrough`` (claude-side tail args)
+    and ``legacy_requested`` follow the resume the user picks here, the same
+    as if they had typed ``-r <uuid>`` directly.
+    """
+
+    passthrough = passthrough if passthrough is not None else []
     palette = tui.detect_palette(
         no_color=no_color, tty_in=input_stream, tty_out=output_stream
     )
@@ -2128,8 +2136,9 @@ def _sessions_list_tui(
         prepared = runtime.prepare(
             plan.document,
             action="resume",
-            passthrough=[],
+            passthrough=passthrough,
             session_id=record["session_id"],
+            legacy_requested=legacy_requested,
         )
         return runtime.perform(prepared)
     if result[0] == "transition":
@@ -2225,7 +2234,8 @@ def _print_launch_plan(prepared: PreparedLaunch, output_stream: TextIO) -> None:
         "value never shown)\n"
     )
     output_stream.write(
-        f"mode: {prepared.record['mode']} · composition "
+        f"launch mode: {'durable' if result.durable else 'legacy argv'} · "
+        f"record mode: {prepared.record['mode']} · composition "
         f"{tui.visible_text(prepared.record['composition_name'])} · session "
         f"{prepared.record['session_id']}\n"
     )
@@ -3016,6 +3026,8 @@ def main(
                         input_stream=inp,
                         output_stream=tty_output,
                         no_color=args.no_color,
+                        passthrough=passthrough,
+                        legacy_requested=args.legacy,
                     )
                 except KeyboardInterrupt:
                     return 0

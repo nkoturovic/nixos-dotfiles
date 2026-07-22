@@ -25,7 +25,9 @@ scopes/<uuid>/
 ```
 
 The lead appendix remains `<state_root>/lead-prompt-<digest16>-<uuid>.md`
-(existing scheme; per-session, never pruned by design).
+(per-session; retained while the session record lives, and pruned by
+`doctor --prune` only when the record is gone — a forgotten session's
+appendix can never be needed again).
 
 ### 2.1 Agent files
 
