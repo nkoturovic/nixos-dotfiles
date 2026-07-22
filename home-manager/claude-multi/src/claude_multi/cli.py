@@ -931,9 +931,9 @@ def quick_footer(plan: QuickPlan) -> tuple[str, ...]:
 
     if plan.record is not None:
         primary = "Enter launch" if plan.ready else "Enter transition hint"
-        return (f"{primary} · D details · ? workflows · Q cancel",)
+        return (f"{primary} · D details · S sessions · ? workflows · Q cancel",)
     primary = "Enter launch" if plan.ready else "Enter edit"
-    return (f"{primary} · E edit · D details · ? workflows · Q cancel",)
+    return (f"{primary} · E edit · D details · S sessions · ? workflows · Q cancel",)
 
 
 def validate_quick_passthrough(
@@ -1349,8 +1349,41 @@ class _QuickConfirmScreen:
         else:
             primary = ("Enter", "launch") if self.plan.ready else ("Enter", "edit")
             bindings = [primary, ("E", "edit")]
-        bindings.extend((("D", "details"), ("?", "workflows"), ("Q", "cancel")))
+        bindings.extend((("D", "details"), ("S", "sessions"), ("?", "workflows"), ("Q", "cancel")))
         return tui.KeyBar(bindings)
+
+    # -- sessions picker ----------------------------------------------------
+
+    def _open_sessions(self, win: Any) -> tuple[str, Any] | None:
+        """Open the sessions picker in place; None means stay on the card.
+
+        Resume maps to ("perform", PreparedLaunch) so the outer launcher
+        tears down curses before exec, exactly like Enter. A transition
+        request returns ("transition", record, composition_name) for the
+        caller to run after teardown. The picker's ``legacy_requested`` flag
+        follows the originating plan.
+        """
+
+        result = _SessionsScreen(self.runtime, palette=self.palette).run(win)
+        if result is None:
+            return None
+        if result[0] == "resume":
+            record = result[1]
+            plan = managed_plan(self.runtime, record)
+            if not plan.ready:
+                self.plan.errors.extend(plan.errors)
+                return None
+            prepared = self.runtime.prepare(
+                plan.document,
+                action="resume",
+                passthrough=[],
+                session_id=record["session_id"],
+                legacy_requested=self.plan.legacy_requested,
+            )
+            return ("perform", prepared)
+        if result[0] == "transition":
+            return result
+        return None
 
     # -- editor -------------------------------------------------------------
 
@@ -1421,6 +1454,11 @@ class _QuickConfirmScreen:
             if key.kind == "char" and key.ch == "d":
                 self.details = not self.details
                 continue
+            if key.kind == "char" and key.ch == "s":
+                outcome = self._open_sessions(win)
+                if outcome is None:
+                    continue
+                return outcome
             if key.kind == "char" and key.ch == "?":
                 mode = (
                     self.plan.resolved.workflows
@@ -1484,6 +1522,21 @@ def _curses_quick_confirm(
     )
     if result is None:
         return 0
+    if result[0] == "transition":
+        _, record, name = result
+        namespace = argparse.Namespace(
+            uuid=record["session_id"],
+            transition_composition=name,
+            its_exited=False,
+        )
+        return _sessions_transition(
+            runtime,
+            namespace,
+            input_stream=input_stream,
+            output_stream=output_stream,
+            interactive=True,
+            no_color=no_color,
+        )
     _action, prepared = result
     return runtime.perform(prepared)
 
@@ -1559,6 +1612,13 @@ def _line_quick_confirm(
                 else plan.document.get("workflows", "native")
             )
             output_stream.write(workflow_guarantee_panel(mode) + "\n")
+            continue
+        if key == "s":
+            _print_sessions_listing(runtime, output_stream)
+            output_stream.write(
+                "resume with `claude-multi -r <uuid>` (or a name), or press S "
+                "in the curses UI to pick interactively.\n"
+            )
             continue
         if plan.record is not None and key in ("r", "c"):
             # R1 P1: the recorded/current switch is gone; resume always uses
@@ -1995,6 +2055,33 @@ def _transition_preflight_problems(runtime: Runtime) -> list[str]:
     return problems
 
 
+def _print_sessions_listing(runtime: Runtime, output_stream: TextIO) -> None:
+    """The text sessions listing (line-mode fallback + quick-confirm S key)."""
+
+    records = _session_records(runtime)
+    output_stream.write("sessions\n")
+    output_stream.write("----------------------------------------\n")
+    for record in records:
+        # Record fields (cwd, composition_name) are external text;
+        # the whole row is sanitized single-line output.
+        output_stream.write(
+            tui.visible_text(
+                f"{record['session_id']}  cm:{record['composition_name']}  "
+                f"{_record_mode_label(record)}  {record['cwd']}  "
+                f"{record['created_at']}  {_record_actions_label(record)}"
+            )
+            + "\n"
+        )
+    if not records:
+        output_stream.write("(no recorded sessions)\n")
+    output_stream.write(
+        "actions: [r]esume `claude-multi -r <uuid>` · "
+        "[t]ransition `claude-multi sessions transition <uuid> --composition <name>` · "
+        "[f]orget `claude-multi sessions forget <uuid>` "
+        "(deletes the record + generated scope; transcripts are never touched)\n"
+    )
+
+
 def _sessions_transition(
     runtime: Runtime,
     args: argparse.Namespace,
@@ -2210,28 +2297,7 @@ def handle_command(
                     return 0
                 except (curses.error, OSError):
                     pass  # fall back to the text listing below
-            records = _session_records(runtime)
-            output_stream.write("sessions\n")
-            output_stream.write("----------------------------------------\n")
-            for record in records:
-                # Record fields (cwd, composition_name) are external text;
-                # the whole row is sanitized single-line output.
-                output_stream.write(
-                    tui.visible_text(
-                        f"{record['session_id']}  cm:{record['composition_name']}  "
-                        f"{_record_mode_label(record)}  {record['cwd']}  "
-                        f"{record['created_at']}  {_record_actions_label(record)}"
-                    )
-                    + "\n"
-                )
-            if not records:
-                output_stream.write("(no recorded sessions)\n")
-            output_stream.write(
-                "actions: [r]esume `claude-multi -r <uuid>` · "
-                "[t]ransition `claude-multi sessions transition <uuid> --composition <name>` · "
-                "[f]orget `claude-multi sessions forget <uuid>` "
-                "(deletes the record + generated scope; transcripts are never touched)\n"
-            )
+            _print_sessions_listing(runtime, output_stream)
             return 0
         if command == "show":
             record = runtime.session_store.load(args.uuid)

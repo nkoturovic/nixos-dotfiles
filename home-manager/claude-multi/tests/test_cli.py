@@ -174,7 +174,7 @@ class QuickConfirmTests(CLITestCase):
         self.assertEqual(
             cli.quick_footer(plan),
             (
-                "Enter launch · D details · ? workflows · Q cancel",
+                "Enter launch · D details · S sessions · ? workflows · Q cancel",
             ),
         )
 
@@ -187,7 +187,7 @@ class QuickConfirmTests(CLITestCase):
         self.assertEqual(
             cli.quick_footer(plan),
             (
-                "Enter transition hint · D details · ? workflows · Q cancel",
+                "Enter transition hint · D details · S sessions · ? workflows · Q cancel",
             ),
         )
         self.assertNotIn("Enter launch", "\n".join(cli.quick_footer(plan)))
@@ -2813,3 +2813,60 @@ class VisibleMessageTests(CLITestCase):
         hostile = "line one\x1b]0;pwned\x07\nline two"
         rendered = cli.tui.visible_message(hostile)
         self.assertEqual(rendered, "line one^[]0;pwned^G\nline two")
+
+
+class QuickConfirmSessionsKeyTests(CLITestCase):
+    def test_line_mode_s_prints_sessions_and_hint(self) -> None:
+        self.save_session()
+        code, out = self.run_cli(
+            ["-r", FIXED_ID], "s\nq\n", interactive=True
+        )
+        self.assertEqual(code, 0)
+        self.assertIn(FIXED_ID, out)
+        self.assertIn("claude-multi -r <uuid>", out)
+
+    def test_curses_open_sessions_cancel_stays(self) -> None:
+        self.save_session()
+        palette = cli.tui.Palette("mono", False)
+        plan = cli.managed_plan(
+            self.runtime, self.runtime.session_store.load(FIXED_ID)
+        )
+        screen = cli._QuickConfirmScreen(self.runtime, plan, passthrough=[], palette=palette)
+
+        class FakeSessions:
+            def __init__(self, runtime, *, palette):
+                pass
+
+            def run(self, win):
+                return None
+
+        original = cli._SessionsScreen
+        cli._SessionsScreen = FakeSessions
+        try:
+            self.assertIsNone(screen._open_sessions(None))
+        finally:
+            cli._SessionsScreen = original
+
+    def test_curses_open_sessions_resume_returns_perform(self) -> None:
+        self.save_session()
+        palette = cli.tui.Palette("mono", False)
+        record = self.runtime.session_store.load(FIXED_ID)
+        plan = cli.managed_plan(self.runtime, record)
+        screen = cli._QuickConfirmScreen(self.runtime, plan, passthrough=[], palette=palette)
+
+        class FakeSessions:
+            def __init__(self, runtime, *, palette):
+                pass
+
+            def run(self, win):
+                return ("resume", record)
+
+        original = cli._SessionsScreen
+        cli._SessionsScreen = FakeSessions
+        try:
+            outcome = screen._open_sessions(None)
+        finally:
+            cli._SessionsScreen = original
+        self.assertIsNotNone(outcome)
+        self.assertEqual(outcome[0], "perform")
+        self.assertEqual(outcome[1].record["session_id"], FIXED_ID)
