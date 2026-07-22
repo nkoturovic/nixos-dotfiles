@@ -48,7 +48,24 @@ Also: deny merge precedence downgraded to U9; wrong-composition rollback row
 corrected. Verdict after revision: architecture stands (Option 1), proceed to
 M1. No second loop per REVIEW-STRATEGY (no architecture change).
 
-**Next**: THE BOUNDARY — commit + Home Manager activation (user approval asked once).
+**Next**: user acceptance (VERIFICATION §5 L0–L7), starting with a fresh
+durable session + the kill-resume proof.
+
+## 2026-07-22 — M5 boundary: COMMITTED + ACTIVATED
+
+- Commits: `7df42e2` (source, 56 files, +17,211/−1,809), `7253e85` (docs,
+  36 files). Branch `feature/term-only`, tree clean.
+- Flake eval: exit 0. **HM generation 77** active:
+  `/nix/store/375i78cr7dqdh2gssphlhqk3xlixhxji-home-manager-generation`
+  (rollback: generation 76).
+- Package: `/nix/store/9qg71y5b111v0kdhjifqvmkicaybkjb0-claude-multi-2.1.0`.
+  One environment fix required: a stale **direct nix-profile entry**
+  (claude-multi 2.0.0, installed out-of-band earlier) shadowed HM's 2.1.0 —
+  removed via `nix profile remove claude-multi`; resolution now 2.1.0.
+- Post-activation `claude-multi doctor`: **Ready** — binary 2.1.217 verified,
+  symlink matches, gateway valid, 6 recorded sessions (all legacy, incl. the
+  rethink session itself), no collisions, U1 evidence line honest.
+- Gateway restarted by activation without issue.
 
 ## 2026-07-22 — R1 remediation + delta confirmation: ALL-RESOLVED
 
@@ -177,4 +194,4 @@ workflow `model` override (gpt-multi-sol-xhigh) since cm-* types are gone.
 | M3 | deletions + catalog | **done** | 809 tests OK; −3,100 net lines; lazy probe |
 | M3.5 | TUI rework (user-requested) | **done** | 928 tests OK; editor.py −1,130 lines |
 | M4 | integrated verification | **done** | 978 host + 978 sandbox green; package 2.1.0 builds |
-| M5 | boundary: commit/activation/acceptance | **at the gate** | 978 host+sandbox; R1 all-resolved 9/9 |
+| M5 | boundary: commit/activation/acceptance | **committed+activated** | gen 77; doctor Ready; acceptance pending user |
