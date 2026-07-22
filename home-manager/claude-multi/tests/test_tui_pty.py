@@ -273,7 +273,7 @@ env = {{'HOME': str(base/'home'), 'XDG_CONFIG_HOME': str(base/'config'), 'XDG_ST
 def fake(prepared):
     print('FAKE_LAUNCH=' + prepared.result.session_action.kind, flush=True)
     return 0
-runtime = Runtime(asset_root=root, environ=env, cwd=base/'project', launch_callback=fake)
+runtime = Runtime(asset_root=root, environ=env, cwd=base/'project', launch_callback=fake, doctor_binary_callback=lambda contract: ([], ['fixture binary verified.']), doctor_callback=lambda _runtime: [])
 raise SystemExit(main([], runtime=runtime, input_stream=sys.stdin, output_stream=sys.stdout, interactive=True))
 """
 
@@ -300,7 +300,7 @@ env = {{'HOME': str(base/'home'), 'XDG_CONFIG_HOME': str(base/'config'), 'XDG_ST
 def fake(prepared):
     print('FAKE_LAUNCH=' + prepared.result.session_action.kind, flush=True)
     return 0
-runtime = Runtime(asset_root=root, environ=env, cwd=base/'project', launch_callback=fake)
+runtime = Runtime(asset_root=root, environ=env, cwd=base/'project', launch_callback=fake, doctor_binary_callback=lambda contract: ([], ['fixture binary verified.']), doctor_callback=lambda _runtime: [])
 raise SystemExit(main([], runtime=runtime, input_stream=sys.stdin, output_stream=sys.stdout, interactive=True))
 """
         child = PTYProcess(code, extra_env={"TERM": "dumb"})
@@ -374,7 +374,7 @@ env = {{'HOME': str(base/'home'), 'XDG_CONFIG_HOME': str(base/'config'), 'XDG_ST
 def fake(prepared):
     print('FAKE_LAUNCH=' + prepared.result.session_action.kind, flush=True)
     return 0
-runtime = Runtime(asset_root=root, environ=env, cwd=base/'project', launch_callback=fake)
+runtime = Runtime(asset_root=root, environ=env, cwd=base/'project', launch_callback=fake, doctor_binary_callback=lambda contract: ([], ['fixture binary verified.']), doctor_callback=lambda _runtime: [])
 raise SystemExit(main([], runtime=runtime))
 """
 
@@ -583,7 +583,7 @@ env = {{'HOME': str(base/'home'), 'XDG_CONFIG_HOME': str(base/'config'), 'XDG_ST
 def fake(prepared):
     print('FAKE_LAUNCH=' + prepared.result.session_action.kind, flush=True)
     return 0
-runtime = Runtime(asset_root=root, environ=env, cwd=base/'project', launch_callback=fake)
+runtime = Runtime(asset_root=root, environ=env, cwd=base/'project', launch_callback=fake, doctor_binary_callback=lambda contract: ([], ['fixture binary verified.']), doctor_callback=lambda _runtime: [])
 document = runtime.compositions.load('default')
 resolved = runtime.resolve_document(document)
 record = sessions.make_record(

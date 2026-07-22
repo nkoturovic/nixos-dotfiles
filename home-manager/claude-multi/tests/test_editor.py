@@ -287,7 +287,7 @@ class LeadNativeAndActionTests(unittest.TestCase):
 class FormEditorRenderTests(unittest.TestCase):
     def test_card_renders_sections_status_and_keybar(self) -> None:
         state = make_state()
-        _, win, _ = run_form(state, [ESC])
+        _, win, _ = run_form(state, [ESC], height=36)
         text = win.text()
         self.assertIn("claude-multi / Edit default", text)
         for section in ("General", "Lead", "Availability", "Roles", "Native agents", "Actions"):
@@ -298,6 +298,8 @@ class FormEditorRenderTests(unittest.TestCase):
         self.assertIn("[ ] general-purpose agent\n", text)
         self.assertIn("[x] native workflows (ultracode)\n", text)
         self.assertIn("[x] native workflows (ultracode)", text)
+        self.assertIn("Qwen", text)
+        self.assertIn("off · New · Off", text)
 
     def test_modified_marker_and_blocked_status(self) -> None:
         document = copy.deepcopy(make_state().document)

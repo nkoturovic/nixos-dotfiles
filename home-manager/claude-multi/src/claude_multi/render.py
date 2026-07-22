@@ -47,6 +47,11 @@ ADAPTER_PAYLOAD_CONTRACTS: dict[str, dict[str, dict[str, Any]]] = {
             "protocol": "claude",
             "params": {"output_config.effort": "max"},
         },
+        "reasoning-effort-xhigh": {
+            "kind": "override",
+            "protocol": "claude",
+            "params": {"reasoning_effort": "xhigh"},
+        },
         "filter-thinking": {
             "kind": "filter",
             "protocol": "claude",
@@ -318,15 +323,18 @@ def build_config_document(
                         "force-mapping": True,
                     }
                 )
-        direct_sections.append(
-            {
-                "api-key": resolved_secrets[provider_id],
-                "base-url": transport["base_url"],
-                "auth-header": transport["auth"]["header"],
-                "cloak": {"mode": "never"},
-                "models": section_models,
-            }
-        )
+        section: dict[str, Any] = {
+            "api-key": resolved_secrets[provider_id],
+            "base-url": transport["base_url"],
+        }
+        # Header-style auth (e.g. Kimi's x-api-key) emits the override in its
+        # documented position; bearer auth leaves the adapter's default
+        # Authorization behavior.
+        if transport["auth"]["kind"] == "header":
+            section["auth-header"] = transport["auth"]["header"]
+        section["cloak"] = {"mode": "never"}
+        section["models"] = section_models
+        direct_sections.append(section)
     document["claude-api-key"] = direct_sections
 
     overrides: list[dict[str, Any]] = []

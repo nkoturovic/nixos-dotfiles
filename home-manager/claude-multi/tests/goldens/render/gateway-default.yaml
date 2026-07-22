@@ -79,6 +79,17 @@ claude-api-key:
         owned-by: "moonshot"
         context-length: 1048576
         force-mapping: true
+  - api-key: "dummy-kimi-key"
+    base-url: "https://token-plan.ap-southeast-1.maas.aliyuncs.com/apps/anthropic"
+    cloak:
+      mode: "never"
+    models:
+      - name: "qwen3.8-max-preview"
+        alias: "claude-multi-qwen38-max"
+        display-name: "Qwen3.8 Max · Preview"
+        owned-by: "alibaba"
+        context-length: 983616
+        force-mapping: true
 payload:
   override:
     - models:
@@ -98,6 +109,11 @@ payload:
           protocol: "codex"
       params:
         "reasoning.effort": "xhigh"
+    - models:
+        - name: "claude-multi-qwen38-max"
+          protocol: "claude"
+      params:
+        reasoning_effort: "xhigh"
   filter:
     - models:
         - name: "claude-multi-kimi-k3"

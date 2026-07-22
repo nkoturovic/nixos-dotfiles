@@ -24,6 +24,7 @@ RETAINED_SELECTOR_BASES = {
     "gpt-multi-sol-high",
     "gpt-multi-sol-xhigh",
     "gpt-multi-gpt55-high",
+    "claude-multi-qwen38-max",
 }
 REMOVED_PATTERNS = (
     "claude-multi-fable-5",
@@ -59,10 +60,10 @@ class SeedLoadTests(unittest.TestCase):
     def test_seed_loads_clean(self) -> None:
         bundle = catalog.load_catalog(CATALOG_ROOT)
         self.assertEqual(
-            set(bundle.providers), {"anthropic", "kimi", "openai"}
+            set(bundle.providers), {"anthropic", "kimi", "openai", "qwen"}
         )
         self.assertEqual(
-            set(bundle.models), {"fable", "opus", "kimi-k3", "sol", "gpt55"}
+            set(bundle.models), {"fable", "opus", "kimi-k3", "sol", "gpt55", "qwen38"}
         )
         self.assertEqual(
             set(bundle.roles), {"cm-lead", "cm-analyst", "cm-reviewer", "cm-implementer"}

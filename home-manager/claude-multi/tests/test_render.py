@@ -117,16 +117,19 @@ class DirectProviderLaneTests(unittest.TestCase):
 class SecretBoundaryTests(unittest.TestCase):
     def test_missing_secret_omits_provider_atomically(self) -> None:
         def resolver(name: str):
-            assert name == "KIMI_CLAUDE_API_KEY"
+            assert name in ("KIMI_CLAUDE_API_KEY", "QWEN_CLAUDE_API_KEY")
             return None
 
         result = _render(resolve_secret=resolver)
         self.assertEqual(result.available_providers, ("anthropic", "openai"))
-        self.assertEqual(len(result.unavailable), 1)
-        self.assertEqual(result.unavailable[0]["provider"], "kimi")
-        self.assertIn("env:KIMI_CLAUDE_API_KEY", result.unavailable[0]["reason"])
+        self.assertEqual(len(result.unavailable), 2)
+        self.assertEqual(
+            {entry["provider"] for entry in result.unavailable}, {"kimi", "qwen"}
+        )
         self.assertNotIn("claude-multi-kimi-k3", result.yaml)
+        self.assertNotIn("claude-multi-qwen38-max", result.yaml)
         self.assertNotIn("output_config.effort", result.yaml)
+        self.assertNotIn("reasoning_effort", result.yaml)
         self.assertNotIn('"thinking"', result.yaml)
         self.assertIn("gpt-multi-sol-high", result.yaml)
         self.assertIn("claude-fable-5", result.yaml)
@@ -176,3 +179,42 @@ class EmitterTests(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class BearerAuthAndReasoningContractTests(unittest.TestCase):
+    def test_bearer_auth_omits_auth_header_field(self) -> None:
+        bundle = catalog.load_catalog(CATALOG_ROOT)
+        providers = copy.deepcopy(bundle.docs["providers"]["providers"])
+        providers["qwen"] = {
+            "display": "Qwen",
+            "independence_family": "alibaba",
+            "support": "locally-validated-experimental",
+            "support_note": "test",
+            "adapter": "cliproxy-claude-compatible-v1",
+            "transport": {
+                "kind": "direct",
+                "base_url": "https://token-plan.example.com/apps/anthropic",
+                "auth": {"kind": "bearer", "secret_ref": "env:QWEN_CLAUDE_API_KEY"},
+            },
+            "passthrough_routes": [],
+            "payload_contracts": ["reasoning-effort-xhigh"],
+        }
+        yaml = _render(
+            providers=providers,
+            resolve_secret=lambda name: "dummy" if name == "QWEN_CLAUDE_API_KEY" else None,
+        ).yaml
+        self.assertIn("token-plan.example.com", yaml)
+        self.assertNotIn("auth-header", yaml)
+
+    def test_header_auth_still_emits_auth_header(self) -> None:
+        self.assertIn('auth-header: "x-api-key"', _render().yaml)
+
+    def test_reasoning_effort_contract_rendered_for_declaring_lanes(self) -> None:
+        bundle = catalog.load_catalog(CATALOG_ROOT)
+        models = copy.deepcopy(bundle.docs["models"]["models"])
+        models["kimi-k3"]["lanes"]["max"]["proxy_effort_contract"] = "reasoning-effort-xhigh"
+        providers = copy.deepcopy(bundle.docs["providers"]["providers"])
+        providers["kimi"]["payload_contracts"] = ["reasoning-effort-xhigh"]
+        yaml = _render(models=models, providers=providers).yaml
+        self.assertIn("reasoning_effort", yaml)
+        self.assertIn("xhigh", yaml)

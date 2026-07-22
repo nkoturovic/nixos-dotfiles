@@ -259,6 +259,7 @@ class CompileScopeSettingsTests(unittest.TestCase):
                 "claude-fable-5[1m]",
                 "claude-multi-kimi-k3[1m]",
                 "claude-multi-opus-4-8[1m]",
+                "claude-multi-qwen38-max",
                 "gpt-multi-gpt55-high",
                 "gpt-multi-sol-high",
                 "gpt-multi-sol-xhigh",
