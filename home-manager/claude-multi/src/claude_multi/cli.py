@@ -463,7 +463,7 @@ def build_parser() -> argparse.ArgumentParser:
         item = session_commands.add_parser(action, help=f"{action} a managed session")
         item.add_argument("uuid")
     link = session_commands.add_parser("link", help="adopt a native session without inspecting Claude state")
-    link.add_argument("uuid")
+    link.add_argument("uuid", nargs="?")
     link.add_argument("--composition", dest="link_composition")
     transition_parser = session_commands.add_parser(
         "transition",
@@ -2270,6 +2270,11 @@ def _print_sessions_listing(runtime: Runtime, output_stream: TextIO) -> None:
         "[f]orget `claude-multi sessions forget <uuid>` "
         "(deletes the record + generated scope; transcripts are never touched)\n"
     )
+    output_stream.write(
+        "not seeing a session? only managed (launcher-started or adopted) sessions "
+        "are listed — adopt native ones with `claude-multi sessions link <uuid>` "
+        "(run it bare for the discovery guide)\n"
+    )
 
 
 def _sessions_transition(
@@ -2521,6 +2526,17 @@ def handle_command(
                 no_color=no_color,
             )
         if command == "link":
+            if args.uuid is None:
+                output_stream.write(
+                    "Only sessions launched through claude-multi (or adopted) appear in\n"
+                    "the sessions list. To adopt a native/plain-Claude session:\n"
+                    "  1. find its UUID natively — `claude --resume` picker or the\n"
+                    "     `claude agents` view shows every session with its id\n"
+                    "  2. adopt it: claude-multi sessions link <uuid> [--composition NAME]\n"
+                    "     (defaults to this directory's remembered composition)\n"
+                    "Then `claude-multi -r <uuid>` resumes it managed (durable upgrade).\n"
+                )
+                return 0
             if not sessions.UUID4.fullmatch(args.uuid):
                 raise CLIError(f"{args.uuid!r} is not a UUIDv4")
             name = args.link_composition
