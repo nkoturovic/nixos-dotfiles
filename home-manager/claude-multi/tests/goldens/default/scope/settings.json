@@ -1,0 +1,1 @@
+{"availableModels":["claude-fable-5[1m]","claude-multi-kimi-k3[1m]","claude-multi-opus-4-8[1m]","gpt-multi-gpt55-high","gpt-multi-sol-high","gpt-multi-sol-xhigh"],"disableWorkflows":false,"permissions":{"deny":["Agent(Explore)","Agent(general-purpose)","Agent(claude)"]},"workflowKeywordTriggerEnabled":false,"workflowSizeGuideline":"medium","worktree":{"baseRef":"head"}}

@@ -1,13 +1,13 @@
 {
   "version": 1,
   "claude": {
-    "validated_version": "2.1.216",
+    "validated_version": "2.1.217",
     "executable": {
       "configured_path": "/home/kotur/.local/bin/claude",
-      "resolved_path": "/home/kotur/.local/share/claude/versions/2.1.216",
-      "sha256": "74deca45220b8080ec75ab099bd5a5980e41a2b5879846a008fb115d436de085",
-      "inspection": "Offline symlink/path resolution and SHA-256 file hashing only; Claude was not executed for this record; version read from the versioned install path.",
-      "inspected_at": "2026-07-21"
+      "resolved_path": "/home/kotur/.local/share/claude/versions/2.1.217",
+      "sha256": "2630fc5dc6db61bc03f86b95daf47766e5ed5b61873f7bb7cfea764c5ac5a9ba",
+      "inspection": "Offline symlink/path resolution and SHA-256 file hashing; local execution of the pinned 2.1.217 binary limited to --version and --help (no prompt, no provider request, no daemon contact).",
+      "inspected_at": "2026-07-22"
     }
   },
   "effort_vocabulary": {
@@ -15,22 +15,56 @@
     "status": "provisionally-trusted",
     "evidence": "Client-accepted in ordinary v1 operation against the pinned installation (launcher profiles and agent definitions). Native acceptance per pinned version remains to be confirmed by the Phase 2 native-contract probe."
   },
-  "acceptance": {
-    "same_launch_agents_and_agent_cm_lead": {
-      "status": "unverified",
-      "probe": "phase2-native-contract"
+  "generic_agent_aliases": {
+    "values": ["claude"],
+    "status": "provisionally-trusted",
+    "evidence": "Static strings in the inspected 2.1.217 binary name the generic native agent alias 'claude'; recorded per inspected version for policy compilation (Agent(claude) deny). Static presence is not functional verification; deny acceptance remains Phase-1 G1/P2 probe scope."
+  },
+  "capabilities": {
+    "root_agent_discovery": { "status": "pending" },
+    "persistent_denies": { "status": "pending" },
+    "onboarding_trust": { "status": "pending" },
+    "transcript_location_exact_resume": { "status": "pending" },
+    "selectors_effort_tools_worktree": { "status": "pending" },
+    "background_supervisor_lifecycle": { "status": "pending" },
+    "root_memory_reinjection": { "status": "pending" },
+    "project_agent_collision": { "status": "pending" }
+  },
+  "nested_subagents": {
+    "decision": "pending",
+    "depth_key": {
+      "name": "CLAUDE_CODE_MAX_SUBAGENT_SPAWN_DEPTH",
+      "status": "unverified"
     },
-    "fork_triple_flag": {
+    "concurrency_key": {
+      "name": "CLAUDE_CODE_MAX_CONCURRENT_SUBAGENTS",
+      "status": "unverified"
+    },
+    "probe": "g1-p-bg",
+    "evidence": "Static strings in the inspected 2.1.217 binary name both keys; static presence is not functional verification. 2.1.217 disables nested spawning by default. Decision chain: G1 positive/negative controls, then Phase 2C compiles verified keys or amends canonical prompts."
+  },
+  "acceptance": {
+    "U1": {
       "status": "unverified",
-      "probe": "phase2-native-contract"
+      "note": "Supervisor-takeover respawn re-supplying --add-dir is binary-consistent and documented for backgrounding; takeover itself is unverified headlessly and moves to user acceptance."
+    },
+    "U2": {
+      "status": "unverified",
+      "note": "--append-system-prompt-file is stored in the binary session-config bag with agent/agents; takeover survival rests on the belt-and-braces prompt-file floor plus acceptance."
+    },
+    "U5": {
+      "status": "unverified",
+      "note": "availableModels is compiled into scope settings as the per-invocation model fence; native acceptance of the fence is pending."
+    },
+    "U6": {
+      "status": "unverified",
+      "note": "Nested spawning is documented on for 2.1.217 (depth 5 fixed) and prompts allow bounded delegation; spawn env keys stay unset pending acceptance."
     }
   },
-  "lead_delivery": {
-    "mode": "same-launch-agent",
-    "status": "pending-probe",
-    "contingency": "main-thread-append-system-prompt-file",
-    "decision_gate": "P1"
+  "lifecycle_evidence": {
+    "inspected_version": "2.1.217",
+    "evidence_id": "deepwork-claude-multi-durable-session-config-phase0-2.1.217"
   },
-  "evidence_version": 1,
-  "recorded_at": "2026-07-21"
+  "evidence_version": 2,
+  "recorded_at": "2026-07-22"
 }

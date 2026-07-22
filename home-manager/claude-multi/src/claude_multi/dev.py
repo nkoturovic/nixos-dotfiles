@@ -5,13 +5,20 @@ trusted repository JSON only: it never builds, activates, stages, commits,
 restarts services, resolves real secrets, or contacts a provider. Dummy
 secrets are used for every check/review render. The pre/post-image hash
 contract fails closed on any source drift.
+
+This entrypoint also hosts the explicitly gated Phase-1B disposable probe
+harness: `probe init --allow-local-claude --fixture-root PATH` and
+`probe run --allow-local-claude --fixture-root PATH --native-contract FILE
+[--allow-real-execution] [-- args]`; both consent flags are presence-based
+(their values are ignored and never relax any other check). It never
+touches live Claude config, provider credentials, real providers, user
+transcripts, or the live shared daemon.
 """
 
 from __future__ import annotations
 
 import difflib
 import os
-import re
 import shutil
 import stat
 import subprocess
@@ -32,11 +39,6 @@ class DevError(RuntimeError):
 
 
 REPO_MARKERS = ("flake.nix", "home-manager/kotur.home.nix")
-ADAPTER_IDS = (
-    "cliproxy-oauth-claude-v1",
-    "cliproxy-claude-compatible-v1",
-    "cliproxy-oauth-codex-v1",
-)
 V2_ROOT = Path("home-manager/claude-multi")
 
 _DUMMY_SECRET = "dummy-onboarding-secret"
@@ -793,16 +795,12 @@ def promote_patch_output(
 
 # -------------------------------------------------------------- smoke test
 
-SMOKE_PROMPT = "Reply with exactly: OK"
+def smoke_test(model: str, *, allow_provider_call: bool) -> dict[str, Any]:
+    """Consent-gated live smoke. Without consent: zero requests, guidance only.
 
-
-def smoke_test(
-    model: str,
-    *,
-    allow_provider_call: bool,
-    poster: Callable[[dict[str, Any]], Any] | None = None,
-) -> dict[str, Any]:
-    """Consent-gated live smoke. Without consent: zero requests, guidance only."""
+    No provider transport is wired in this workflow, so consenting calls
+    fail closed instead of touching a network.
+    """
 
     if not allow_provider_call:
         return {
@@ -813,15 +811,7 @@ def smoke_test(
                 "no external request was made"
             ),
         }
-    request = {
-        "model": model,
-        "max_tokens": 16,
-        "messages": [{"role": "user", "content": SMOKE_PROMPT}],
-    }
-    if poster is None:
-        raise DevError("no provider transport is wired in this workflow")
-    response = poster(request)
-    return {"status": "called", "requests": 1, "request": request, "response": response}
+    raise DevError("no provider transport is wired in this workflow")
 
 
 # -------------------------------------------------------------------- CLI
@@ -849,20 +839,33 @@ def _parse_flags(args: list[str]) -> tuple[list[str], dict[str, Any]]:
     return positionals, flags
 
 
+def _draft_store() -> DraftStore:
+    return DraftStore(
+        Path(os.environ.get("XDG_STATE_HOME", str(Path.home() / ".local" / "state")))
+        / "claude-multi"
+        / "drafts"
+    )
+
+
 def main(argv: list[str]) -> int:
     if not argv:
         print(__doc__)
         return 2
     command, rest = argv[0], argv[1:]
+    if command == "probe":
+        # Lazy: a tracked module must not hard-import the dev-only probe
+        # harness at top level (G0 REWRITE verdict).
+        from . import probe as probe_mod
+
+        head = rest[: rest.index("--")] if "--" in rest else rest
+        tail = rest[rest.index("--") + 1:] if "--" in rest else []
+        positionals, flags = _parse_flags(head)
+        return probe_mod.probe_cli(positionals, flags, tail)
     positionals, flags = _parse_flags(rest)
     repo = Path(flags.get("repo", ".")) if "repo" in flags else None
-    drafts = DraftStore(
-        Path(os.environ.get("XDG_STATE_HOME", str(Path.home() / ".local" / "state")))
-        / "claude-multi"
-        / "drafts"
-    )
     try:
         if command in ("model", "provider") and positionals[:1] == ["add"]:
+            drafts = _draft_store()
             kind = command
             if "from-json" not in flags:
                 raise DevError(f"{kind} add requires --from-json FILE")
@@ -901,6 +904,7 @@ def main(argv: list[str]) -> int:
             print(f"draft saved: {path}")
             return 0
         if command == "check":
+            drafts = _draft_store()
             if not positionals:
                 raise DevError("check requires a DRAFT name")
             draft = _validate_draft(drafts.load(positionals[0]), _load_draft_schema(
@@ -912,6 +916,7 @@ def main(argv: list[str]) -> int:
                 print(f"  build: {build.get('cmd', ['?'])[-1]} -> {build.get('returncode', build.get('skipped'))}")
             return 0
         if command == "review":
+            drafts = _draft_store()
             if not positionals:
                 raise DevError("review requires a DRAFT name")
             verified = verify_repo(repo or Path("."))
@@ -925,6 +930,7 @@ def main(argv: list[str]) -> int:
             print(record["results"]["diff"])
             return 0
         if command == "promote":
+            drafts = _draft_store()
             if not positionals:
                 raise DevError("promote requires a DRAFT name")
             mode = resolve_promote_mode(

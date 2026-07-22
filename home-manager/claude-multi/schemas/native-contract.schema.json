@@ -1,7 +1,7 @@
 {
   "version": 1,
   "type": "object",
-  "required": ["version", "claude", "effort_vocabulary", "acceptance", "lead_delivery", "evidence_version", "recorded_at"],
+  "required": ["version", "claude", "effort_vocabulary", "generic_agent_aliases", "capabilities", "nested_subagents", "acceptance", "lifecycle_evidence", "evidence_version", "recorded_at"],
   "additionalProperties": false,
   "properties": {
     "version": { "const": 1 },
@@ -40,40 +40,80 @@
         "evidence": { "type": "string", "minLength": 1, "maxLength": 512 }
       }
     },
-    "acceptance": {
+    "generic_agent_aliases": {
       "type": "object",
-      "required": ["same_launch_agents_and_agent_cm_lead", "fork_triple_flag"],
+      "required": ["values", "status", "evidence"],
       "additionalProperties": false,
       "properties": {
-        "same_launch_agents_and_agent_cm_lead": {
-          "type": "object",
-          "required": ["status", "probe"],
-          "additionalProperties": false,
-          "properties": {
-            "status": { "enum": ["unverified", "verified", "failed"] },
-            "probe": { "type": "string", "pattern": "^[a-z0-9-]+$" }
-          }
+        "values": {
+          "type": "array",
+          "minItems": 1,
+          "uniqueItems": true,
+          "items": { "type": "string", "pattern": "^[a-z][a-z0-9-]*$" }
         },
-        "fork_triple_flag": {
-          "type": "object",
-          "required": ["status", "probe"],
-          "additionalProperties": false,
-          "properties": {
-            "status": { "enum": ["unverified", "verified", "failed"] },
-            "probe": { "type": "string", "pattern": "^[a-z0-9-]+$" }
-          }
+        "status": { "enum": ["provisionally-trusted", "verified", "unverified"] },
+        "evidence": { "type": "string", "minLength": 1, "maxLength": 512 }
+      }
+    },
+    "capabilities": {
+      "type": "object",
+      "additionalProperties": {
+        "type": "object",
+        "required": ["status"],
+        "additionalProperties": false,
+        "properties": {
+          "status": { "enum": ["pending", "verified", "failed"] },
+          "note": { "type": "string", "minLength": 1, "maxLength": 512 }
         }
       }
     },
-    "lead_delivery": {
+    "nested_subagents": {
       "type": "object",
-      "required": ["mode", "status", "contingency", "decision_gate"],
+      "required": ["decision", "depth_key", "concurrency_key", "probe", "evidence"],
       "additionalProperties": false,
       "properties": {
-        "mode": { "enum": ["same-launch-agent", "main-thread-append-system-prompt-file"] },
-        "status": { "enum": ["pending-probe", "verified", "contingency-selected"] },
-        "contingency": { "const": "main-thread-append-system-prompt-file" },
-        "decision_gate": { "const": "P1" }
+        "decision": { "enum": ["pending", "compile-verified-keys", "amend-prompts"] },
+        "depth_key": {
+          "type": "object",
+          "required": ["name", "status"],
+          "additionalProperties": false,
+          "properties": {
+            "name": { "const": "CLAUDE_CODE_MAX_SUBAGENT_SPAWN_DEPTH" },
+            "status": { "enum": ["unverified", "verified", "failed"] }
+          }
+        },
+        "concurrency_key": {
+          "type": "object",
+          "required": ["name", "status"],
+          "additionalProperties": false,
+          "properties": {
+            "name": { "const": "CLAUDE_CODE_MAX_CONCURRENT_SUBAGENTS" },
+            "status": { "enum": ["unverified", "verified", "failed"] }
+          }
+        },
+        "probe": { "type": "string", "pattern": "^[a-z0-9-]+$" },
+        "evidence": { "type": "string", "minLength": 1, "maxLength": 512 }
+      }
+    },
+    "acceptance": {
+      "type": "object",
+      "additionalProperties": {
+        "type": "object",
+        "required": ["status"],
+        "additionalProperties": false,
+        "properties": {
+          "status": { "enum": ["unverified", "verified", "failed"] },
+          "note": { "type": "string", "minLength": 1, "maxLength": 512 }
+        }
+      }
+    },
+    "lifecycle_evidence": {
+      "type": "object",
+      "required": ["inspected_version", "evidence_id"],
+      "additionalProperties": false,
+      "properties": {
+        "inspected_version": { "type": "string", "pattern": "^[0-9]+\\.[0-9]+\\.[0-9]+$" },
+        "evidence_id": { "type": "string", "minLength": 1, "maxLength": 128, "pattern": "^[a-z0-9][a-z0-9.-]*$" }
       }
     },
     "evidence_version": { "type": "integer", "minimum": 1 },

@@ -26,10 +26,23 @@ PROMPT_KEYWORDS = {
         "model override",
         "One writer",
         "independence",
+        "Nested delegation",
     ),
-    "cm-analyst": ("read-mostly", "report artifact", "evidence"),
-    "cm-reviewer": ("severity", "verdict", "independent"),
-    "cm-implementer": ("bounded", "worktree", "commit", "validate"),
+    "cm-analyst": ("read-mostly", "report artifact", "evidence", "may delegate"),
+    "cm-reviewer": (
+        "severity",
+        "verdict",
+        "independent",
+        "Finisher",
+        "report every edit",
+    ),
+    "cm-implementer": (
+        "bounded",
+        "worktree",
+        "commit",
+        "validate",
+        "Descendants share these same boundaries",
+    ),
 }
 
 
@@ -54,19 +67,13 @@ class RoleContractTests(unittest.TestCase):
         for role_id in ("cm-lead", "cm-analyst", "cm-reviewer"):
             self.assertIsNone(self.bundle.roles[role_id]["isolation"])
 
-    def test_report_artifact_contracts(self) -> None:
-        analyst = self.bundle.roles["cm-analyst"]["mutation_contract"]
-        reviewer = self.bundle.roles["cm-reviewer"]["mutation_contract"]
-        self.assertIn("report artifacts", analyst)
-        self.assertIn("review artifacts", reviewer)
-        self.assertIn("No implementation", analyst)
-        self.assertIn("No implementation", reviewer)
-
-    def test_lead_contracts(self) -> None:
-        lead = self.bundle.roles["cm-lead"]
-        self.assertIn("trivial", lead["mutation_contract"])
-        self.assertIn("exact ID", lead["delegation_contract"])
-        self.assertIn("without per-invocation model overrides", lead["delegation_contract"])
+    def test_contract_strings_dropped_prompts_canonical(self) -> None:
+        # D13: roles.json carries summaries only; the canonical contracts
+        # live in the prompt bodies, not in duplicated catalog strings.
+        for role_id, role in self.bundle.roles.items():
+            with self.subTest(role=role_id):
+                self.assertNotIn("mutation_contract", role)
+                self.assertNotIn("delegation_contract", role)
 
 
 class CanonicalPromptTests(unittest.TestCase):

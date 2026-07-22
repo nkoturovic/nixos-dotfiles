@@ -1,4 +1,4 @@
-"""Deterministic PTY smoke tests for quick confirm, curses, and line mode."""
+"""Deterministic PTY smoke tests for quick confirm, curses form, and dumb mode."""
 
 from __future__ import annotations
 
@@ -21,6 +21,8 @@ from pathlib import Path
 CATALOG_ROOT = Path(__file__).resolve().parents[1]
 SRC_ROOT = CATALOG_ROOT / "src"
 TIMEOUT = 6.0
+# Exit waits are load-tolerant: the full suite starves PTY children.
+FINISH_TIMEOUT = 30.0
 
 
 def _set_size(fd: int, rows: int, columns: int) -> None:
@@ -78,7 +80,7 @@ class PTYProcess:
             raise AssertionError(f"did not observe {needle!r}; output={bytes(self.output)!r}")
         return bytes(self.output)
 
-    def finish(self, timeout: float = TIMEOUT) -> tuple[int, bytes, list]:
+    def finish(self, timeout: float = FINISH_TIMEOUT) -> tuple[int, bytes, list]:
         deadline = time.monotonic() + timeout
         while self.process.poll() is None and time.monotonic() < deadline:
             ready, _, _ = select.select([self.master], [], [], 0.2)
@@ -120,21 +122,28 @@ class PTYProcess:
         os.close(self.slave)
 
 
-def editor_code(force_line: bool = False, missing_lead: bool = False) -> str:
+def editor_code(missing_lead: bool = False, editor_command: str | None = None) -> str:
+    editor_env = (
+        f"environ['EDITOR'] = {editor_command!r}" if editor_command else ""
+    )
     return f"""
+import os
 import sys
 import copy
 from pathlib import Path
 from claude_multi import catalog
-from claude_multi.editor import EditorState, run_editor
+from claude_multi.tui import EditorState, run_form_editor
 root = Path({str(CATALOG_ROOT)!r})
 bundle = catalog.load_catalog(root)
 document = copy.deepcopy(bundle.default_composition)
 if {missing_lead!r}:
     document['slots'] = [slot for slot in document['slots'] if slot['role'] != 'cm-lead']
 state = EditorState(bundle.docs, document, bundle.default_composition)
-result = run_editor(state, sys.stdin, sys.stdout, force_line={force_line!r})
+environ = dict(os.environ)
+{editor_env}
+result = run_form_editor(state, input_stream=sys.stdin, output_stream=sys.stdout, environ=environ)
 print('RESULT=' + ('cancel' if result is None else result.action), flush=True)
+print('NAME=' + state.document['name'], flush=True)
 """
 
 
@@ -143,7 +152,7 @@ class CursesPTYTests(unittest.TestCase):
         child = PTYProcess(editor_code())
         self.addCleanup(child.close)
         child.read_until(b"Edit default")
-        child.send(b"q")
+        child.send(b"\x1b")
         code, output, after = child.finish()
         self.assertEqual(code, 0, output)
         self.assertIn(b"RESULT=cancel", output)
@@ -157,23 +166,23 @@ class CursesPTYTests(unittest.TestCase):
         child.resize(8, 35)
         child.send(b"j")  # wake getch; next draw must observe the resized PTY
         child.read_until(b"Terminal too small")
-        child.send(b"q")
+        child.send(b"\x1b")
         code, output, after = child.finish()
         self.assertEqual(code, 0, output)
         self.assertIn(b"RESULT=cancel", output)
         mask = termios.ECHO | termios.ICANON
         self.assertEqual(child.before[3] & mask, after[3] & mask)
 
-    def test_too_small_can_switch_to_line_fallback(self) -> None:
+    def test_too_small_cancel_restores_terminal(self) -> None:
         child = PTYProcess(editor_code(), rows=8, columns=35)
         self.addCleanup(child.close)
         child.read_until(b"Terminal too small")
-        child.send(b"l")
-        child.read_until(b"0. Cancel")
-        child.send(b"0\n")
-        code, output, _ = child.finish()
+        child.send(b"\x1b")
+        code, output, after = child.finish()
         self.assertEqual(code, 0, output)
         self.assertIn(b"RESULT=cancel", output)
+        mask = termios.ECHO | termios.ICANON
+        self.assertEqual(child.before[3] & mask, after[3] & mask)
 
     def test_curses_interrupt_cancels_and_restores_terminal(self) -> None:
         child = PTYProcess(editor_code())
@@ -191,7 +200,7 @@ class CursesPTYTests(unittest.TestCase):
         self.addCleanup(child.close)
         child.read_until(b"none selected")
         child.read_until(b"Status: BLOCKED")
-        child.send(b"q")
+        child.send(b"\x1b")
         code, output, after = child.finish()
         self.assertEqual(code, 0, output)
         self.assertIn(b"RESULT=cancel", output)
@@ -199,30 +208,80 @@ class CursesPTYTests(unittest.TestCase):
         mask = termios.ECHO | termios.ICANON
         self.assertEqual(child.before[3] & mask, after[3] & mask)
 
-
-class LinePTYTests(unittest.TestCase):
-    def test_line_mode_no_color_cancel(self) -> None:
-        child = PTYProcess(editor_code(True), extra_env={"NO_COLOR": "1", "TERM": "dumb"})
+    def test_ctrl_g_applies_editor_json_and_restores_terminal(self) -> None:
+        editor_command = (
+            f"{sys.executable} -c \"import sys,pathlib; "
+            "p=pathlib.Path(sys.argv[1]); "
+            "p.write_bytes(p.read_bytes().replace(b'default', b'renamed'))\""
+        )
+        child = PTYProcess(editor_code(editor_command=editor_command))
         self.addCleanup(child.close)
-        child.read_until(b"0. Cancel")
-        child.send(b"0\n")
-        code, output, _ = child.finish()
-        self.assertEqual(code, 0, output)
-        self.assertIn(b"Status: Ready", output)
-        self.assertNotIn(b"\x1b", output)
-
-    def test_line_mode_eof_cancels(self) -> None:
-        # Ctrl-D at an empty canonical input line produces EOF without sleeping.
-        child = PTYProcess(editor_code(True), extra_env={"TERM": "dumb"})
-        self.addCleanup(child.close)
-        child.read_until(b"> ")
-        child.send(b"\x04")
-        code, output, _ = child.finish()
+        child.read_until(b"Edit default")
+        child.send(b"\x07")  # Ctrl+G: raw composition JSON in $EDITOR
+        child.read_until(b"JSON applied")
+        child.send(b"\x1b")  # dirty: discard Modal
+        child.read_until(b"Discard")
+        child.send(b"\n")
+        code, output, after = child.finish()
         self.assertEqual(code, 0, output)
         self.assertIn(b"RESULT=cancel", output)
+        self.assertIn(b"NAME=renamed", output)
+        mask = termios.ECHO | termios.ICANON
+        self.assertEqual(child.before[3] & mask, after[3] & mask)
+
+
+class DumbTerminalPTYTests(unittest.TestCase):
+    """TERM=dumb: no interactive editor; printed plan + $EDITOR guidance."""
+
+    def _edit_code(self, temp: str, secret_file: Path) -> str:
+        return f"""
+import sys
+from pathlib import Path
+from claude_multi.cli import Runtime, main
+root = Path({str(CATALOG_ROOT)!r})
+base = Path({temp!r})
+env = {{'HOME': str(base/'home'), 'XDG_CONFIG_HOME': str(base/'config'), 'XDG_STATE_HOME': str(base/'state'), 'TERM': 'dumb', 'CLAUDE_MULTI_SECRET_ENV': {str(secret_file)!r}}}
+runtime = Runtime(asset_root=root, environ=env, cwd=base/'project', launch_callback=lambda prepared: 0)
+raise SystemExit(main(['compose', 'edit', 'default'], runtime=runtime, input_stream=sys.stdin, output_stream=sys.stdout, interactive=True))
+"""
+
+    def test_dumb_terminal_prints_plan_and_editor_command(self) -> None:
+        temp = tempfile.mkdtemp(prefix="claude-multi-pty-dumb-")
+        self.addCleanup(__import__("shutil").rmtree, temp, True)
+        child = PTYProcess(
+            self._edit_code(temp, _secret_file(temp)),
+            extra_env={"TERM": "dumb", "NO_COLOR": "1"},
+        )
+        self.addCleanup(child.close)
+        child.read_until(b"$EDITOR")
+        code, output, _ = child.finish()
+        self.assertEqual(code, 0, output)
+        self.assertIn(b"Status         Ready", output)
+        self.assertIn(b"default.json", output)
+        self.assertNotIn(b"\x1b", output)
 
 
 class QuickConfirmPTYTests(unittest.TestCase):
+    def _runtime_code(self, temp: str, secret_file: Path) -> str:
+        return f"""
+import sys
+from pathlib import Path
+from claude_multi.cli import Runtime, main
+root = Path({str(CATALOG_ROOT)!r})
+base = Path({temp!r})
+env = {{'HOME': str(base/'home'), 'XDG_CONFIG_HOME': str(base/'config'), 'XDG_STATE_HOME': str(base/'state'), 'CLAUDE_MULTI_SECRET_ENV': {str(secret_file)!r}}}
+def fake(prepared):
+    print('FAKE_LAUNCH=' + prepared.result.session_action.kind, flush=True)
+    return 0
+runtime = Runtime(asset_root=root, environ=env, cwd=base/'project', launch_callback=fake)
+raise SystemExit(main([], runtime=runtime, input_stream=sys.stdin, output_stream=sys.stdout, interactive=True))
+"""
+
+    def _temp_runtime(self, prefix: str) -> tuple[str, Path]:
+        temp = tempfile.mkdtemp(prefix=prefix)
+        self.addCleanup(__import__("shutil").rmtree, temp, True)
+        return temp, _secret_file(temp)
+
     def test_quick_confirm_one_enter_uses_fake_launch(self) -> None:
         temp = tempfile.mkdtemp(prefix="claude-multi-pty-runtime-")
         self.addCleanup(__import__("shutil").rmtree, temp, True)
@@ -252,6 +311,52 @@ raise SystemExit(main([], runtime=runtime, input_stream=sys.stdin, output_stream
         self.assertEqual(returncode, 0, output)
         self.assertIn(b"Status         Ready", output)
         self.assertIn(b"FAKE_LAUNCH=fresh", output)
+
+    def test_quick_confirm_curses_enter_launches(self) -> None:
+        temp, secret_file = self._temp_runtime("claude-multi-pty-curses-")
+        child = PTYProcess(self._runtime_code(temp, secret_file))
+        self.addCleanup(child.close)
+        child.read_until(b"composition: default")
+        child.send(b"\n")
+        returncode, output, after = child.finish()
+        self.assertEqual(returncode, 0, output)
+        self.assertIn(b"Status  Ready", output)
+        # The KeyBar accent splits "Enter" and "launch" with escape codes.
+        self.assertIn(b"Enter", output)
+        self.assertIn(b"launch", output)
+        self.assertIn(b"workflows: native", output)
+        self.assertIn(b"FAKE_LAUNCH=fresh", output)
+        mask = termios.ECHO | termios.ICANON
+        self.assertEqual(child.before[3] & mask, after[3] & mask)
+
+    def test_quick_confirm_curses_cancel_never_launches(self) -> None:
+        temp, secret_file = self._temp_runtime("claude-multi-pty-curses-q-")
+        child = PTYProcess(self._runtime_code(temp, secret_file))
+        self.addCleanup(child.close)
+        child.read_until(b"composition: default")
+        child.send(b"q")
+        returncode, output, after = child.finish()
+        self.assertEqual(returncode, 0, output)
+        self.assertNotIn(b"FAKE_LAUNCH", output)
+        mask = termios.ECHO | termios.ICANON
+        self.assertEqual(child.before[3] & mask, after[3] & mask)
+
+    def test_quick_confirm_curses_details_and_guarantee_modal(self) -> None:
+        temp, secret_file = self._temp_runtime("claude-multi-pty-curses-d-")
+        child = PTYProcess(self._runtime_code(temp, secret_file))
+        self.addCleanup(child.close)
+        child.read_until(b"composition: default")
+        child.send(b"?")
+        child.read_until(b"Workflow guarantees")
+        child.send(b"\n")  # close the Modal
+        child.read_until(b"composition: default")
+        child.send(b"d")
+        child.read_until(b"availability")
+        child.send(b"q")
+        returncode, output, _ = child.finish()
+        self.assertEqual(returncode, 0, output)
+        self.assertIn(b"Native workflows (ultracode): ON", output)
+        self.assertNotIn(b"FAKE_LAUNCH", output)
 
 
 if __name__ == "__main__":
@@ -286,11 +391,13 @@ def _secret_file(temp: str) -> Path:
 class _NoCttyChild:
     """Child in a new session without a controlling terminal, TTY stdio."""
 
-    def __init__(self, code: str):
+    def __init__(self, code: str, *, extra_env=None):
         self.master, slave = pty.openpty()
         _set_size(slave, 24, 80)
         env = dict(os.environ)
         env.update({"PYTHONDONTWRITEBYTECODE": "1", "PYTHONPATH": str(SRC_ROOT), "TERM": "dumb"})
+        if extra_env:
+            env.update(extra_env)
         self.process = subprocess.Popen(
             [sys.executable, "-c", code],
             stdin=slave,
@@ -325,7 +432,7 @@ class _NoCttyChild:
     def send(self, data: bytes) -> None:
         os.write(self.master, data)
 
-    def finish(self, timeout: float = TIMEOUT) -> tuple[int, bytes]:
+    def finish(self, timeout: float = FINISH_TIMEOUT) -> tuple[int, bytes]:
         deadline = time.monotonic() + timeout
         while self.process.poll() is None and time.monotonic() < deadline:
             ready, _, _ = select.select([self.master], [], [], 0.2)
@@ -366,11 +473,13 @@ class _CttyPipesChild:
     PTY master (the child's controlling terminal), never over the pipes.
     """
 
-    def __init__(self, code: str):
+    def __init__(self, code: str, *, extra_env=None):
         self.master, slave = pty.openpty()
         _set_size(slave, 24, 80)
         env = dict(os.environ)
         env.update({"PYTHONDONTWRITEBYTECODE": "1", "PYTHONPATH": str(SRC_ROOT), "TERM": "dumb"})
+        if extra_env:
+            env.update(extra_env)
 
         def _attach_ctty() -> None:
             os.setsid()
@@ -454,6 +563,128 @@ class _CttyPipesChild:
             self.process.wait(timeout=2)
 
 
+class SessionsAndTransitionPTYTests(unittest.TestCase):
+    """Interactive sessions Table and transition diff view on a real PTY."""
+
+    def _temp(self, prefix: str) -> tuple[str, Path]:
+        temp = tempfile.mkdtemp(prefix=prefix)
+        self.addCleanup(__import__("shutil").rmtree, temp, True)
+        return temp, _secret_file(temp)
+
+    def _sessions_code(self, temp: str, secret_file: Path, argv: list[str]) -> str:
+        return f"""
+import sys
+from pathlib import Path
+from claude_multi import composition, sessions, scope as scope_mod
+from claude_multi.cli import Runtime, main
+root = Path({str(CATALOG_ROOT)!r})
+base = Path({temp!r})
+env = {{'HOME': str(base/'home'), 'XDG_CONFIG_HOME': str(base/'config'), 'XDG_STATE_HOME': str(base/'state'), 'CLAUDE_MULTI_SECRET_ENV': {str(secret_file)!r}}}
+def fake(prepared):
+    print('FAKE_LAUNCH=' + prepared.result.session_action.kind, flush=True)
+    return 0
+runtime = Runtime(asset_root=root, environ=env, cwd=base/'project', launch_callback=fake)
+document = runtime.compositions.load('default')
+resolved = runtime.resolve_document(document)
+record = sessions.make_record(
+    session_id='11111111-1111-4111-8111-111111111111',
+    cwd=runtime.cwd,
+    composition_name='default',
+    snapshot=composition.snapshot(resolved),
+    catalog_version=runtime.catalog_version,
+    catalog_hash=runtime.catalog.bundle_sha256,
+    launcher_version=runtime.launcher_version,
+    mode='durable',
+    scope_generation=2,
+)
+runtime.session_store.save(record)
+plan = scope_mod.compile_scope(
+    resolved,
+    runtime.catalog.docs['roles']['roles'],
+    runtime.catalog.prompt_bodies,
+    scope_mod.catalog_meta_from_docs(runtime.catalog.docs),
+)
+scope_mod.write_scope(runtime.session_store.root, record['session_id'], plan)
+shifted = runtime.compositions.load('default')
+shifted['name'] = 'shifted'
+shifted['slots'][0]['model'] = 'sol'
+runtime.compositions.save(shifted)
+raise SystemExit(main({argv!r}, runtime=runtime, input_stream=sys.stdin, output_stream=sys.stdout, interactive=True))
+"""
+
+    def test_sessions_table_quit_restores_terminal(self) -> None:
+        temp, secret_file = self._temp("claude-multi-pty-sessions-")
+        child = PTYProcess(self._sessions_code(temp, secret_file, ["sessions", "list"]))
+        self.addCleanup(child.close)
+        child.read_until(b"durable(g2)")
+        child.send(b"q")
+        code, output, after = child.finish()
+        self.assertEqual(code, 0, output)
+        self.assertIn(b"cm:default", output)
+        mask = termios.ECHO | termios.ICANON
+        self.assertEqual(child.before[3] & mask, after[3] & mask)
+
+    def test_sessions_table_resume_launches(self) -> None:
+        temp, secret_file = self._temp("claude-multi-pty-sessions-r-")
+        child = PTYProcess(self._sessions_code(temp, secret_file, ["sessions", "list"]))
+        self.addCleanup(child.close)
+        child.read_until(b"durable(g2)")
+        child.send(b"r")
+        child.read_until(b"Resume")
+        child.send(b"\n")
+        code, output, _ = child.finish()
+        self.assertEqual(code, 0, output)
+        self.assertIn(b"FAKE_LAUNCH=resume", output)
+
+    def test_transition_diff_modal_relaunches(self) -> None:
+        temp, secret_file = self._temp("claude-multi-pty-transition-")
+        child = PTYProcess(
+            self._sessions_code(
+                temp,
+                secret_file,
+                [
+                    "sessions",
+                    "transition",
+                    "11111111-1111-4111-8111-111111111111",
+                    "--composition",
+                    "shifted",
+                ],
+            )
+        )
+        self.addCleanup(child.close)
+        child.read_until(b"semantic diff")
+        child.read_until(b"lead model: fable -> sol")
+        child.send(b"\n")
+        child.read_until(b"EXITED (not merely idle)")
+        child.send(b"\n")
+        code, output, _ = child.finish()
+        self.assertEqual(code, 0, output)
+        self.assertIn(b"FAKE_LAUNCH=resume", output)
+
+    def test_transition_esc_prints_command_without_mutating(self) -> None:
+        temp, secret_file = self._temp("claude-multi-pty-transition-esc-")
+        child = PTYProcess(
+            self._sessions_code(
+                temp,
+                secret_file,
+                [
+                    "sessions",
+                    "transition",
+                    "11111111-1111-4111-8111-111111111111",
+                    "--composition",
+                    "shifted",
+                ],
+            )
+        )
+        self.addCleanup(child.close)
+        child.read_until(b"semantic diff")
+        child.send(b"\x1b")
+        code, output, _ = child.finish()
+        self.assertEqual(code, 0, output)
+        self.assertIn(b"claude-multi sessions transition", output)
+        self.assertNotIn(b"FAKE_LAUNCH", output)
+
+
 class BareLaunchAutoDetectionPTYTests(unittest.TestCase):
     """Bare launch auto-detection with no injected interactive flag."""
 
@@ -483,6 +714,23 @@ class BareLaunchAutoDetectionPTYTests(unittest.TestCase):
         self.assertEqual(returncode, 0, tty_output)
         self.assertIn(b"Status         Ready", tty_output)
         self.assertNotIn(b"Status         Ready", pipe_output)
+        self.assertNotIn(b"FAKE_LAUNCH", tty_output + pipe_output)
+
+    def test_curses_quick_confirm_routes_to_controlling_terminal(self) -> None:
+        temp = tempfile.mkdtemp(prefix="claude-multi-pty-ctty-curses-")
+        self.addCleanup(__import__("shutil").rmtree, temp, True)
+        child = _CttyPipesChild(
+            _bare_launch_code(temp, _secret_file(temp)),
+            extra_env={"TERM": "xterm-256color"},
+        )
+        self.addCleanup(child.close)
+        # Full-screen UI must paint on /dev/tty (the PTY master), never the pipes.
+        child.read_until(b"composition: default")
+        child.send(b"q")
+        returncode, tty_output, pipe_output = child.finish()
+        self.assertEqual(returncode, 0, tty_output)
+        self.assertIn(b"composition: default", tty_output)
+        self.assertNotIn(b"composition: default", pipe_output)
         self.assertNotIn(b"FAKE_LAUNCH", tty_output + pipe_output)
 
     def test_genuine_pipe_fails_with_explicit_composition_error(self) -> None:

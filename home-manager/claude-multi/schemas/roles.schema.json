@@ -10,7 +10,7 @@
       "minItems": 1,
       "additionalProperties": {
         "type": "object",
-        "required": ["summary", "prompt_file", "isolation", "tools", "disallowed_tools", "mutation_contract", "delegation_contract"],
+        "required": ["summary", "prompt_file", "isolation", "tools", "disallowed_tools"],
         "additionalProperties": false,
         "properties": {
           "summary": { "type": "string", "minLength": 1, "maxLength": 256 },
@@ -35,9 +35,7 @@
             "type": "array",
             "uniqueItems": true,
             "items": { "type": "string", "pattern": "^[A-Z][A-Za-z0-9]*$" }
-          },
-          "mutation_contract": { "type": "string", "minLength": 1, "maxLength": 512 },
-          "delegation_contract": { "type": "string", "minLength": 1, "maxLength": 512 }
+          }
         }
       }
     }

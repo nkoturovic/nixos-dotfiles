@@ -24,3 +24,9 @@ Enabled provider families: anthropic, moonshot, openai.
 
 - One writer owns an overlapping file scope at a time.
 - Invoke generated agents by exact ID; never pass a per-invocation model override.
+
+## Session sentinel (generated)
+
+- Managed session: 11111111-1111-4111-8111-111111111111 (composition `default`).
+- If a selected cm-* type is unavailable, stop delegation. Never substitute a native or generic agent.
+- Exact relaunch after interruption: ask the user to run `claude-multi --composition default -r 11111111-1111-4111-8111-111111111111`.

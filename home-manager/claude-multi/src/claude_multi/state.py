@@ -156,6 +156,19 @@ def read_private(path: Path | str) -> bytes:
     return target.read_bytes()
 
 
+def remove_private(path: Path | str) -> bool:
+    """Remove a private regular state file and durably fsync its directory."""
+
+    target = Path(path)
+    _check_directory(target.parent)
+    if not os.path.lexists(target):
+        return False
+    _check_regular_file(target)
+    os.unlink(target)
+    _fsync_directory(target.parent)
+    return True
+
+
 class FileLock:
     """Advisory exclusive lock on a sibling ``<target>.lock`` file."""
 

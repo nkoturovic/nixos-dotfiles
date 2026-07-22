@@ -1,14 +1,30 @@
-"""Pure editor-state and numbered fallback tests for Phase 3."""
+"""Editor-state and form-editor tests.
+
+:class:`~claude_multi.tui.EditorState` is pure document semantics (no
+terminal); :class:`~claude_multi.tui.FormEditorScreen` is driven here through
+the same :class:`~test_tui.FakeWindow` curses double as the widget tests, so
+no test depends on numbered-menu indexes or a real terminal.
+"""
 
 from __future__ import annotations
 
+import contextlib
 import copy
-import io
 import unittest
 from pathlib import Path
 
-from claude_multi import catalog
-from claude_multi.editor import EditorError, EditorState, run_line_editor
+from claude_multi import catalog, strict_json, tui
+from claude_multi.tui import EditorError, EditorState
+
+from test_tui import (
+    CTRL_G,
+    DOWN,
+    ENTER,
+    ESC,
+    RIGHT,
+    UP,
+    FakeWindow,
+)
 
 
 CATALOG_ROOT = Path(__file__).resolve().parents[1]
@@ -23,33 +39,43 @@ def make_state(document=None, docs=None) -> EditorState:
     )
 
 
-class NavigationTests(unittest.TestCase):
-    def test_sections_revisit_without_losing_document(self) -> None:
-        state = make_state()
-        state.set_native("general_purpose", "on")
-        state.select_section(3)
-        state.move_row(1, 3)
-        state.select_section(1)
-        state.move_row(2, 8)
-        state.select_section(3)
-        self.assertEqual(state.row(3), 1)
-        self.assertEqual(state.document["native_agents"]["general_purpose"], "on")
+def run_form(state, keys, *, height=30, width=90, **kwargs):
+    kwargs.setdefault("palette", tui.MONO_PALETTE)
+    screen = tui.FormEditorScreen(state, **kwargs)
+    win = FakeWindow(keys, height=height, width=width)
+    outcome = screen.run(win)
+    return outcome, win, screen
 
-    def test_section_wrap_and_dirty(self) -> None:
-        state = make_state()
-        self.assertFalse(state.dirty)
-        state.next_section(-1)
-        self.assertEqual(state.section, "Save or launch")
-        state.set_native("plan", "off")
-        self.assertTrue(state.dirty)
 
-    def test_resize_independent_state(self) -> None:
-        state = make_state()
-        before = copy.deepcopy(state.document)
-        state.select_section(2)
-        state.row_by_section["Roles"] = 2
-        self.assertEqual(state.document, before)
-        self.assertEqual(state.row(3), 2)
+def _focusable_rows(screen):
+    rows = screen._build_rows()
+    return rows, [i for i, row in enumerate(rows) if row.kind != "section"]
+
+
+def nav_keys(screen, *predicates):
+    """Cumulative DOWN keys from the first field through each predicate row."""
+
+    keys: list = []
+    current = 0
+    for predicate in predicates:
+        rows, focusable = _focusable_rows(screen)
+        target = next(i for i in focusable if predicate(rows[i]))
+        steps = (focusable.index(target) - current) % len(focusable)
+        keys.extend([DOWN] * steps)
+        current = focusable.index(target)
+    return keys
+
+
+def row_is_actions(row):
+    return row.kind == "actions"
+
+
+def row_is_workflows(row):
+    return row.kind == "check" and row.payload == "workflows"
+
+
+def row_is_general_purpose(row):
+    return row.kind == "check" and row.payload == "general_purpose"
 
 
 class AvailabilityTests(unittest.TestCase):
@@ -242,41 +268,141 @@ class LeadNativeAndActionTests(unittest.TestCase):
         with self.assertRaises(OSError):
             state.outcome("save-as", "../escape")
 
-
-class LineFallbackTests(unittest.TestCase):
-    def test_cancel_returns_no_outcome(self) -> None:
+    def test_workflows_roundtrip_keeps_native_document_minimal(self) -> None:
         state = make_state()
-        output = io.StringIO()
-        self.assertIsNone(run_line_editor(state, io.StringIO("0\n"), output))
-        self.assertIn("Status: Ready", output.getvalue())
+        self.assertEqual(state.workflows, "native")
+        self.assertNotIn("workflows", state.document)
+        state.set_workflows("off")
+        self.assertEqual(state.document["workflows"], "off")
+        self.assertTrue(state.dirty)
+        state.set_workflows("native")
+        self.assertNotIn("workflows", state.document)
 
-    def test_navigation_preserves_native_edit(self) -> None:
+    def test_workflows_rejects_unknown_mode(self) -> None:
         state = make_state()
-        # Native agents → Plan → off, then cancel.
-        input_stream = io.StringIO("4\n2\n2\n0\n")
-        run_line_editor(state, input_stream, io.StringIO())
-        self.assertEqual(state.document["native_agents"]["plan"], "off")
+        with self.assertRaisesRegex(EditorError, "invalid workflows mode"):
+            state.set_workflows("managed")
 
-    def test_launch_once_outcome(self) -> None:
-        state = make_state()
-        output = io.StringIO()
-        outcome = run_line_editor(state, io.StringIO("5\n3\n"), output)
-        self.assertIsNotNone(outcome)
-        self.assertEqual(outcome.action, "launch-once")
 
-    def test_eof_is_cancellation(self) -> None:
+class FormEditorRenderTests(unittest.TestCase):
+    def test_card_renders_sections_status_and_keybar(self) -> None:
         state = make_state()
-        self.assertIsNone(run_line_editor(state, io.StringIO(""), io.StringIO()))
+        _, win, _ = run_form(state, [ESC])
+        text = win.text()
+        self.assertIn("claude-multi / Edit default", text)
+        for section in ("General", "Lead", "Availability", "Roles", "Native agents", "Actions"):
+            self.assertIn(section, text)
+        self.assertIn("Status: Ready", text)
+        self.assertIn("JSON in $EDITOR", text)
+        self.assertIn("[x] native workflows (ultracode)", text)
 
-    def test_existing_variant_can_be_made_preferred(self) -> None:
+    def test_modified_marker_and_blocked_status(self) -> None:
+        document = copy.deepcopy(make_state().document)
+        document["slots"] = [
+            slot for slot in document["slots"] if slot["role"] != "cm-lead"
+        ]
+        state = make_state(document)
+        # Focus moves to Description; typing marks the form modified.
+        _, win, _ = run_form(state, [DOWN, "x", ESC, ENTER])
+        text = win.text()
+        self.assertIn("Status: BLOCKED", text)
+        self.assertIn("· modified", text)
+
+    def test_cancel_clean_document_returns_none(self) -> None:
         state = make_state()
-        # Roles → Analyst → Kimi → Make preferred → cancel.
-        outcome = run_line_editor(
-            state,
-            io.StringIO("3\n1\n2\n1\n0\n"),
-            io.StringIO(),
+        before = copy.deepcopy(state.document)
+        outcome, _win, _ = run_form(state, [ESC])
+        self.assertIsNone(outcome)
+        self.assertEqual(state.document, before)
+
+    def test_too_small_guard(self) -> None:
+        state = make_state()
+        outcome, win, _ = run_form(state, [ESC], height=12, width=40)
+        self.assertIsNone(outcome)
+        self.assertIn("Terminal too small", win.text())
+
+
+class FormEditorFieldTests(unittest.TestCase):
+    def test_name_text_input_edits_document(self) -> None:
+        state = make_state()
+        # Name is the first focused field; typing appends at the cursor.
+        outcome, _win, _ = run_form(state, list("-v2") + [ESC, ENTER])
+        self.assertIsNone(outcome)
+        self.assertEqual(state.document["name"], "default-v2")
+
+    def test_lead_select_list_changes_model(self) -> None:
+        state = make_state()
+        keys = nav_keys(state_screen := _screen(state), lambda r: r.kind == "lead")
+        outcome, _win, _ = run_form(state, keys + [ENTER, DOWN, ENTER, ESC, ENTER])
+        self.assertIsNone(outcome)
+        self.assertEqual(state.lead_slot()["model"], "kimi-k3")
+
+    def test_workflows_checkbox_toggles_off_and_panel_shows(self) -> None:
+        state = make_state()
+        keys = nav_keys(_screen(state), row_is_workflows)
+        outcome, win, _ = run_form(state, keys + [" ", "?", ENTER, ESC, ENTER])
+        self.assertIsNone(outcome)
+        self.assertEqual(state.workflows, "off")
+        self.assertTrue(
+            any("Native workflows (ultracode): OFF" in frame for frame in win.frames)
+        )
+
+    def test_general_purpose_checkbox_toggles_on(self) -> None:
+        state = make_state()
+        keys = nav_keys(_screen(state), row_is_general_purpose)
+        run_form(state, keys + [" ", ESC, ENTER])
+        self.assertEqual(state.document["native_agents"]["general_purpose"], "on")
+
+    def test_native_radio_row_selects_option(self) -> None:
+        state = make_state()
+        keys = nav_keys(
+            _screen(state),
+            lambda r: r.kind == "radio" and r.payload[0] == "explore",
+        )
+        run_form(state, keys + [RIGHT, " ", ESC, ENTER])
+        self.assertEqual(state.document["native_agents"]["explore"], "native")
+
+    def test_availability_change_with_invalidation_modal(self) -> None:
+        state = make_state()
+        keys = nav_keys(
+            _screen(state),
+            lambda r: r.kind == "avail" and r.payload == ("provider", "kimi"),
+        )
+        # Scope list: lead+agents -> off (3 down), invalidation Modal: Apply.
+        outcome, win, _ = run_form(
+            state, keys + [ENTER, DOWN, DOWN, DOWN, ENTER, ENTER, ESC, ENTER]
         )
         self.assertIsNone(outcome)
+        self.assertEqual(state.provider_scope("kimi"), "off")
+        self.assertTrue(state.validation_errors())
+        self.assertTrue(any("Invalidated selections:" in frame for frame in win.frames))
+
+    def test_availability_change_cancelled_in_modal(self) -> None:
+        state = make_state()
+        keys = nav_keys(
+            _screen(state),
+            lambda r: r.kind == "avail" and r.payload == ("provider", "kimi"),
+        )
+        run_form(state, keys + [ENTER, DOWN, DOWN, DOWN, ENTER, RIGHT, ENTER, ESC, ENTER])
+        self.assertEqual(state.provider_scope("kimi"), "lead+agents")
+        self.assertEqual(state.message, "Availability change cancelled.")
+
+    def test_role_variants_multi_select_and_prefer(self) -> None:
+        state = make_state()
+        variants = state.compatible_variants("cm-analyst")
+        fable_index = variants.index(("fable", "max"))
+        kimi_index = variants.index(("kimi-k3", "max"))
+        keys = nav_keys(
+            _screen(state), lambda r: r.kind == "role" and r.payload == "cm-analyst"
+        )
+        script = keys + [ENTER]
+        script += [DOWN] * fable_index + [" "]
+        delta = kimi_index - fable_index
+        script += ([DOWN] * delta) if delta > 0 else ([UP] * (-delta))
+        script += ["p", ENTER, ESC, ENTER]
+        outcome, _win, _ = run_form(state, script)
+        self.assertIsNone(outcome)
+        self.assertTrue(state.has_variant("cm-analyst", "fable", "max"))
         preferred = [
             item["model"]
             for item in state.variants_for_role("cm-analyst")
@@ -284,63 +410,173 @@ class LineFallbackTests(unittest.TestCase):
         ]
         self.assertEqual(preferred, ["kimi-k3"])
 
-    def test_delete_requires_explicit_confirmation(self) -> None:
+    def test_removing_preferred_variant_reports_error(self) -> None:
         state = make_state()
-        # Save/actions → Delete → reject confirmation → cancel.
-        outcome = run_line_editor(
-            state,
-            io.StringIO("5\n6\nno\n0\n"),
-            io.StringIO(),
+        variants = state.compatible_variants("cm-analyst")
+        sol_index = variants.index(("sol", "high"))
+        keys = nav_keys(
+            _screen(state), lambda r: r.kind == "role" and r.payload == "cm-analyst"
         )
-        self.assertIsNone(outcome)
-        self.assertEqual(state.message, "Destructive action cancelled.")
+        _, win, _ = run_form(
+            state, keys + [ENTER] + [DOWN] * sol_index + [" ", ENTER, ESC, ENTER]
+        )
+        self.assertTrue(state.has_variant("cm-analyst", "sol", "high"))
+        self.assertTrue(any("preferred" in frame for frame in win.frames))
 
-    def test_invalid_availability_row_reports_guidance_and_preserves_state(self) -> None:
+
+def _screen(state):
+    return tui.FormEditorScreen(state, palette=tui.MONO_PALETTE)
+
+
+class FormEditorActionTests(unittest.TestCase):
+    def _actions(self, state):
+        return nav_keys(_screen(state), row_is_actions)
+
+    def test_update_outcome(self) -> None:
         state = make_state()
-        before = copy.deepcopy(state.document)
-        output = io.StringIO()
-        outcome = run_line_editor(state, io.StringIO("2\n99\n0\n"), output)
-        self.assertIsNone(outcome)
-        self.assertEqual(state.document, before)
-        self.assertIn("Choose a listed number.", output.getvalue())
+        outcome, _win, _ = run_form(state, self._actions(state) + [ENTER, ENTER])
+        self.assertIsNotNone(outcome)
+        self.assertEqual(outcome.action, "update")
+        self.assertEqual(outcome.document["name"], "default")
 
-    def test_invalid_availability_scope_reports_guidance_and_preserves_state(self) -> None:
+    def test_update_blocked_after_rename(self) -> None:
         state = make_state()
-        before = copy.deepcopy(state.document)
-        output = io.StringIO()
-        outcome = run_line_editor(state, io.StringIO("2\n1\nnot-a-number\n0\n"), output)
+        script = list("x") + self._actions(state) + [ENTER, ENTER]
+        outcome, win, _ = run_form(state, script + [ESC, ENTER])
         self.assertIsNone(outcome)
-        self.assertEqual(state.document, before)
-        self.assertIn("Choose a listed number.", output.getvalue())
+        self.assertIn(tui.FORM_UPDATE_RENAMED, state.message)
 
-    def test_missing_lead_summary_is_blocked_and_cancel_is_safe(self) -> None:
-        document = copy.deepcopy(make_state().document)
-        document["slots"] = [
-            slot for slot in document["slots"] if slot["role"] != "cm-lead"
-        ]
-        state = make_state(document)
-        output = io.StringIO()
-        self.assertIsNone(run_line_editor(state, io.StringIO("0\n"), output))
-        self.assertIn("Lead · none selected", output.getvalue())
-        self.assertIn("Status: BLOCKED", output.getvalue())
-        self.assertIsNone(state.lead_slot())
+    def test_save_as_with_target_modal(self) -> None:
+        state = make_state()
+        script = self._actions(state) + [ENTER, DOWN, ENTER]
+        script += list("copy") + [ENTER, ENTER]
+        outcome, _win, _ = run_form(state, script)
+        self.assertIsNotNone(outcome)
+        self.assertEqual(outcome.action, "save-as")
+        self.assertEqual(outcome.target, "copy")
 
-    def test_missing_lead_can_be_repaired_then_return_launch_plan(self) -> None:
-        document = copy.deepcopy(make_state().document)
-        document["slots"] = [
-            slot for slot in document["slots"] if slot["role"] != "cm-lead"
-        ]
-        state = make_state(document)
-        # Lead → Fable; Save or launch → Launch once.
-        outcome = run_line_editor(
-            state,
-            io.StringIO("1\n1\n5\n3\n"),
-            io.StringIO(),
+    def test_save_as_cancelled_without_target(self) -> None:
+        state = make_state()
+        script = self._actions(state) + [ENTER, DOWN, ENTER, ESC, ESC]
+        outcome, _win, _ = run_form(state, script)
+        self.assertIsNone(outcome)
+
+    def test_launch_once_outcome(self) -> None:
+        state = make_state()
+        outcome, _win, _ = run_form(
+            state, self._actions(state) + [ENTER, DOWN, DOWN, ENTER]
         )
         self.assertIsNotNone(outcome)
         self.assertEqual(outcome.action, "launch-once")
-        self.assertEqual(outcome.document["slots"][0]["role"], "cm-lead")
-        self.assertEqual(state.validation_errors(), [])
+
+    def test_delete_requires_modal_confirmation(self) -> None:
+        state = make_state()
+        script = self._actions(state) + [ENTER] + [DOWN] * 5 + [ENTER, ENTER]
+        outcome, win, _ = run_form(state, script)
+        self.assertIsNotNone(outcome)
+        self.assertEqual(outcome.action, "delete")
+        self.assertTrue(any("Delete 'default'?" in frame for frame in win.frames))
+
+    def test_delete_cancelled_in_modal(self) -> None:
+        state = make_state()
+        script = self._actions(state) + [ENTER] + [DOWN] * 5 + [ENTER, RIGHT, ENTER, ESC]
+        outcome, _win, _ = run_form(state, script)
+        self.assertIsNone(outcome)
+        self.assertEqual(state.message, "Destructive action cancelled.")
+
+    def test_discard_modal_keep_editing_then_discard(self) -> None:
+        state = make_state()
+        script = list("x") + [ESC, RIGHT, ENTER, ESC, ENTER]
+        outcome, win, _ = run_form(state, script)
+        self.assertIsNone(outcome)
+        self.assertTrue(any(tui.FORM_DISCARD_TITLE in frame for frame in win.frames))
+
+
+class FormEditorJsonTests(unittest.TestCase):
+    def _opener(self, mutate):
+        def open(path: str) -> int:
+            document = strict_json.load(path)
+            mutate(document)
+            Path(path).write_bytes(strict_json.canonical_file_bytes(document))
+            return 0
+
+        return open
+
+    def _kwargs(self, opener):
+        return {
+            "open_in_editor": opener,
+            "suspender": lambda _win: contextlib.nullcontext(),
+        }
+
+    def test_ctrl_g_applies_valid_json(self) -> None:
+        state = make_state()
+
+        def mutate(document):
+            document["description"] = "edited in $EDITOR"
+
+        _, win, _ = run_form(
+            state, [CTRL_G, ESC, ENTER], **self._kwargs(self._opener(mutate))
+        )
+        self.assertEqual(state.document["description"], "edited in $EDITOR")
+        self.assertEqual(state.message, "JSON applied from $EDITOR.")
+        self.assertTrue(state.dirty)
+
+    def test_ctrl_g_invalid_json_keeps_document(self) -> None:
+        state = make_state()
+        before = copy.deepcopy(state.document)
+
+        def opener(path: str) -> int:
+            Path(path).write_bytes(b"{not json\n")
+            return 0
+
+        run_form(state, [CTRL_G, ESC], **self._kwargs(opener))
+        self.assertEqual(state.document, before)
+        self.assertIn("JSON not applied", state.message)
+
+    def test_ctrl_g_editor_failure_status(self) -> None:
+        state = make_state()
+
+        def opener(path: str) -> int:
+            return 3
+
+        run_form(state, [CTRL_G, ESC], **self._kwargs(opener))
+        self.assertIn("$EDITOR exited with status 3", state.message)
+
+    def test_ctrl_g_unchanged_json(self) -> None:
+        state = make_state()
+
+        def opener(path: str) -> int:
+            return 0
+
+        run_form(state, [CTRL_G, ESC], **self._kwargs(opener))
+        self.assertEqual(state.message, "JSON unchanged.")
+
+    def test_ctrl_g_semantically_invalid_json_applies_as_blocked(self) -> None:
+        state = make_state()
+
+        def mutate(document):
+            document["slots"] = [
+                slot for slot in document["slots"] if slot["role"] != "cm-lead"
+            ]
+
+        run_form(state, [CTRL_G, ESC, ENTER], **self._kwargs(self._opener(mutate)))
+        self.assertTrue(state.validation_errors())
+        self.assertIn("validation problems", state.message)
+
+    def test_ctrl_g_name_collision_rejected(self) -> None:
+        state = make_state()
+
+        def mutate(document):
+            document["name"] = "taken"
+
+        _, _win, _ = run_form(
+            state,
+            [CTRL_G, ESC],
+            name_taken=lambda name: name == "taken",
+            **self._kwargs(self._opener(mutate)),
+        )
+        self.assertEqual(state.document["name"], "default")
+        self.assertIn("already exists", state.message)
 
 
 if __name__ == "__main__":

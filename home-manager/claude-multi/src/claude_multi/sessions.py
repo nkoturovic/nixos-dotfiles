@@ -47,6 +47,12 @@ def _now() -> str:
     return datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
 
 
+RECORD_VERSION = 2
+
+# v1 records load with these v2 defaults (one read path, no rewrite on disk).
+_V2_DEFAULTS = {"mode": "legacy", "scope_generation": 0, "workflows": "native"}
+
+
 def make_record(
     *,
     session_id: str,
@@ -57,22 +63,72 @@ def make_record(
     catalog_hash: str,
     launcher_version: str,
     forked_from: str | None = None,
+    mode: str = "legacy",
+    scope_generation: int = 0,
+    workflows: str = "native",
     now: str | None = None,
 ) -> dict[str, Any]:
     """Build a session record (schema-shaped). No secrets are accepted."""
 
     return {
-        "version": 1,
+        "version": RECORD_VERSION,
         "session_id": session_id,
         "cwd": cwd,
         "composition_name": composition_name,
         "composition_hash": strict_json.bundle_digest(snapshot),
         "snapshot": snapshot,
+        "mode": mode,
+        "scope_generation": scope_generation,
+        "workflows": workflows,
         "catalog_version": catalog_version,
         "catalog_hash": catalog_hash,
         "launcher_version": launcher_version,
         "created_at": now or _now(),
         "forked_from": forked_from,
+    }
+
+
+def transition_record(
+    prior: dict[str, Any],
+    *,
+    snapshot: dict[str, Any],
+    composition_name: str,
+    workflows: str,
+    catalog_version: int,
+    catalog_hash: str,
+    launcher_version: str,
+) -> dict[str, Any]:
+    """Build the generation N+1 record for a composition transition.
+
+    Identity fields (``session_id``, ``cwd``, ``created_at``, ``forked_from``)
+    carry over unchanged — a transition never changes the session UUID or fork
+    lineage (TRANSITIONS section 6). ``scope_generation`` bumps by one and the
+    catalog metadata records the installed catalog the relaunch compiles
+    against. No secrets are accepted; the record remains the intent authority.
+    """
+
+    if prior.get("version") != RECORD_VERSION:
+        raise SessionError(
+            f"cannot transition a version {prior.get('version')!r} record"
+        )
+    if prior.get("mode") != "durable":
+        raise SessionError(
+            f"cannot transition a {prior.get('mode')!r} record; v1 transitions "
+            "require a durable session"
+        )
+    generation = prior.get("scope_generation")
+    if not isinstance(generation, int) or isinstance(generation, bool) or generation < 1:
+        raise SessionError("durable record has no scope generation to bump")
+    return {
+        **prior,
+        "composition_name": composition_name,
+        "composition_hash": strict_json.bundle_digest(snapshot),
+        "snapshot": snapshot,
+        "scope_generation": generation + 1,
+        "workflows": workflows,
+        "catalog_version": catalog_version,
+        "catalog_hash": catalog_hash,
+        "launcher_version": launcher_version,
     }
 
 
@@ -101,6 +157,8 @@ class SessionStore:
         self.pointers_dir = state.ensure_private_dir(self.root / "last-session-by-cwd")
 
     def _record_path(self, session_id: str) -> Path:
+        if not isinstance(session_id, str) or not UUID4.fullmatch(session_id):
+            raise SessionError(f"session_id {session_id!r} is not a UUIDv4")
         return self.sessions_dir / f"{session_id}.json"
 
     def new_id(self) -> str:
@@ -108,7 +166,7 @@ class SessionStore:
 
         for _ in range(_COLLISION_RETRIES):
             candidate = str(uuid.uuid4())
-            if not self._record_path(candidate).exists():
+            if not os.path.lexists(self._record_path(candidate)):
                 return candidate
         raise SessionError("could not mint a collision-free session UUID")
 
@@ -128,6 +186,8 @@ class SessionStore:
         return path
 
     def load(self, session_id: str) -> dict[str, Any]:
+        if not UUID4.fullmatch(session_id):
+            raise SessionError(f"session_id {session_id!r} is not a UUIDv4")
         path = self._record_path(session_id)
         try:
             raw = state.read_private(path)
@@ -142,29 +202,122 @@ class SessionStore:
             ) from exc
         if not isinstance(record, dict):
             raise SessionError(f"corrupt session record {session_id}: not an object")
-        return self._validate(record, f"session {session_id}")
+        record = self._validate(record, f"session {session_id}")
+        if record["session_id"] != session_id:
+            raise SessionError(
+                f"corrupt session record {session_id}: embedded session_id "
+                f"{record['session_id']!r} does not match its record path"
+            )
+        if record["version"] == 1:
+            # v1 record: apply the v2 defaults in memory only; the on-disk
+            # record is never rewritten until the session is resumed/upgraded.
+            return {**record, **_V2_DEFAULTS}
+        for key, default in _V2_DEFAULTS.items():
+            if key not in record:
+                raise SessionError(
+                    f"corrupt session record {session_id}: version 2 record "
+                    f"is missing {key!r}"
+                )
+        return record
 
     def exists(self, session_id: str) -> bool:
-        return self._record_path(session_id).exists()
+        return os.path.lexists(self._record_path(session_id))
 
     def forget(self, session_id: str) -> bool:
-        path = self._record_path(session_id)
-        if path.exists():
-            path.unlink()
-            return True
-        return False
+        if not UUID4.fullmatch(session_id):
+            raise SessionError(f"session_id {session_id!r} is not a UUIDv4")
+        return state.remove_private(self._record_path(session_id))
 
     def link(self, record: dict[str, Any]) -> Path:
-        """Adopt an unmanaged native session; never reads private Claude files."""
+        """Adopt an unmanaged native session; never reads private Claude files.
+
+        The exists-recheck and the save run inside the session's lifecycle
+        lock (audit L1): an existence check sampled outside the lock is stale
+        the moment a concurrent launch or transition on the same UUID commits,
+        so the check-then-save pair must be serialized as one critical section.
+        """
 
         session_id = record["session_id"]
         if not UUID4.fullmatch(session_id):
             raise SessionError(f"cannot adopt {session_id!r}: not a UUIDv4")
-        if self.exists(session_id):
-            raise SessionError(f"session {session_id} is already managed")
-        return self.save(record)
+        lock = self.lifecycle_lock(session_id)
+        lock.acquire(blocking=True)
+        try:
+            if self.exists(session_id):
+                raise SessionError(f"session {session_id} is already managed")
+            return self.save(record)
+        finally:
+            lock.release()
+
+    # Exact-byte pre-read/restore (action-aware execve cleanup) -----------
+
+    def lifecycle_lock(self, session_id: str) -> state.FileLock:
+        """Per-session lifecycle lock serializing record/scope mutation.
+
+        Held by launch (scope write + record save + pointer) and transition
+        (staging/swap/save) so concurrent launchers on the same UUID cannot
+        interleave mutations. Always released before execve so the fd never
+        leaks into the Claude process; cleanup paths re-acquire and use
+        compare-and-restore so a newer launch always wins.
+        """
+
+        if not UUID4.fullmatch(session_id):
+            raise SessionError(f"session_id {session_id!r} is not a UUIDv4")
+        locks_dir = state.ensure_private_dir(self.root / "locks")
+        return state.FileLock(locks_dir / f"{session_id}.lifecycle")
+
+    def read_record_bytes(self, session_id: str) -> bytes | None:
+        """Exact on-disk record bytes; None when no record exists.
+
+        Used by the launch path to capture the pre-launch record so an
+        execve failure can restore it byte-for-byte (never regenerated).
+        """
+
+        path = self._record_path(session_id)
+        if not os.path.lexists(path):
+            return None
+        return state.read_private(path)
+
+    def restore_record_bytes(self, session_id: str, data: bytes) -> None:
+        """Restore exact pre-read record bytes (never regenerated content)."""
+
+        state.atomic_write(self._record_path(session_id), data)
 
     # Per-CWD last-session pointers -------------------------------------
+
+    def read_pointer_bytes(self, cwd: str) -> bytes | None:
+        """Exact on-disk pointer bytes; None when no pointer exists."""
+
+        pointer = self._pointer_path(cwd)
+        if not os.path.lexists(pointer):
+            return None
+        return state.read_private(pointer)
+
+    def restore_pointer_bytes(
+        self, cwd: str, session_id: str, data: bytes | None
+    ) -> bool:
+        """Compare-and-restore a pointer changed by a failed resume launch.
+
+        The restore only runs while the pointer still names ``session_id``;
+        a newer concurrent launch therefore wins. ``data`` is the exact
+        pre-launch pointer content, or None when the pointer was absent.
+        """
+
+        if not UUID4.fullmatch(session_id):
+            raise SessionError(f"session_id {session_id!r} is not a UUIDv4")
+        pointer = self._pointer_path(cwd)
+        lock = state.FileLock(pointer)
+        if not lock.acquire(blocking=False):
+            return False
+        try:
+            if self.last(cwd) != session_id:
+                return False
+            if data is None:
+                return state.remove_private(pointer)
+            state.atomic_write(pointer, data)
+            return True
+        finally:
+            lock.release()
 
     def _pointer_path(self, cwd: str) -> Path:
         digest = strict_json.sha256_hex(cwd.encode("utf-8"))[:32]
@@ -173,6 +326,8 @@ class SessionStore:
     def update_last(self, cwd: str, session_id: str) -> bool:
         """Record the per-CWD last session; lock failure skips the update."""
 
+        if not UUID4.fullmatch(session_id):
+            raise SessionError(f"session_id {session_id!r} is not a UUIDv4")
         pointer = self._pointer_path(cwd)
         lock = state.FileLock(pointer)
         if not lock.acquire(blocking=False):
@@ -195,7 +350,9 @@ class SessionStore:
         if not isinstance(payload, dict):
             return None
         session_id = payload.get("session_id")
-        return session_id if isinstance(session_id, str) else None
+        if not isinstance(session_id, str) or not UUID4.fullmatch(session_id):
+            return None
+        return session_id
 
     def clear_last(self, cwd: str, session_id: str) -> bool:
         """Clear the per-CWD pointer only if it currently points at session_id.
@@ -204,6 +361,8 @@ class SessionStore:
         session's pointer. Returns True when the pointer was removed.
         """
 
+        if not UUID4.fullmatch(session_id):
+            raise SessionError(f"session_id {session_id!r} is not a UUIDv4")
         pointer = self._pointer_path(cwd)
         lock = state.FileLock(pointer)
         if not lock.acquire(blocking=False):
@@ -211,9 +370,6 @@ class SessionStore:
         try:
             if self.last(cwd) != session_id:
                 return False
-            if pointer.exists():
-                pointer.unlink()
-                return True
-            return False
+            return state.remove_private(pointer)
         finally:
             lock.release()

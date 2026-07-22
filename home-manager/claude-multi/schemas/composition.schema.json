@@ -47,6 +47,7 @@
         "general_purpose": { "enum": ["on", "off"] }
       }
     },
+    "workflows": { "enum": ["native", "off"] },
     "seed": {
       "type": "object",
       "required": ["id", "version"],

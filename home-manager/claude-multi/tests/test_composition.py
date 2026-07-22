@@ -189,7 +189,10 @@ class KimiReviewerTests(unittest.TestCase):
         bundle, document = self._kimi_reviewer_doc()
         resolved = composition.resolve(bundle.docs, document)
         appendix = compiler.generate_lead_appendix(
-            resolved, bundle.docs["providers"]["providers"]
+            resolved,
+            bundle.docs["providers"]["providers"],
+            session_id="11111111-1111-4111-8111-111111111111",
+            composition_name="default",
         )
         self.assertIn("openai-family variant while a reviewer from moonshot", appendix)
         self.assertIn("moonshot-family variant while a reviewer from openai", appendix)
@@ -242,6 +245,67 @@ class ConflictAggregationTests(unittest.TestCase):
         with self.assertRaises(CompositionError) as raised:
             composition.resolve(bundle.docs, document)
         self.assertIn("exactly one cm-lead", str(raised.exception))
+
+
+class WorkflowsTests(unittest.TestCase):
+    def _document(self, workflows):
+        bundle = _bundle()
+        document = copy.deepcopy(bundle.default_composition)
+        if workflows is not None:
+            document["workflows"] = workflows
+        return bundle, document
+
+    def test_default_is_native(self) -> None:
+        _, resolved = _resolved()
+        self.assertEqual(resolved.workflows, "native")
+        self.assertEqual(resolved.lead.effort, "ultracode")
+
+    def test_explicit_native_keeps_ultracode(self) -> None:
+        bundle, document = self._document("native")
+        resolved = composition.resolve(bundle.docs, document)
+        self.assertEqual(resolved.workflows, "native")
+        self.assertEqual(resolved.lead.effort, "ultracode")
+
+    def test_off_maps_lead_ultracode_to_xhigh(self) -> None:
+        bundle, document = self._document("off")
+        resolved = composition.resolve(bundle.docs, document)
+        self.assertEqual(resolved.workflows, "off")
+        self.assertEqual(resolved.lead.effort, "xhigh")
+
+    def test_off_keeps_non_ultracode_lead_effort(self) -> None:
+        bundle, document = self._document("off")
+        document["slots"][0] = {"role": "cm-lead", "model": "kimi-k3"}
+        # Kimi's lead block is also ultracode; patch the model doc instead.
+        docs = copy.deepcopy(bundle.docs)
+        docs["models"]["models"]["kimi-k3"]["lead"]["effort"] = "max"
+        resolved = composition.resolve(docs, document)
+        self.assertEqual(resolved.lead.effort, "max")
+
+    def test_invalid_workflows_rejected(self) -> None:
+        bundle, document = self._document("semi")
+        with self.assertRaises(CompositionError) as raised:
+            composition.resolve(bundle.docs, document)
+        self.assertIn("workflows", str(raised.exception))
+
+    def test_snapshot_records_workflows_only_when_off(self) -> None:
+        _, resolved_native = _resolved()
+        snap_native = composition.snapshot(resolved_native)
+        self.assertNotIn("workflows", snap_native)
+        bundle, document = self._document("off")
+        snap_off = composition.snapshot(composition.resolve(bundle.docs, document))
+        self.assertEqual(snap_off["workflows"], "off")
+        self.assertEqual(snap_off["lead"]["effort"], "xhigh")
+
+    def test_workflows_included_in_snapshot_hash(self) -> None:
+        from claude_multi import strict_json
+
+        _, resolved_native = _resolved()
+        bundle, document = self._document("off")
+        resolved_off = composition.resolve(bundle.docs, document)
+        self.assertNotEqual(
+            strict_json.bundle_digest(composition.snapshot(resolved_native)),
+            strict_json.bundle_digest(composition.snapshot(resolved_off)),
+        )
 
 
 class SnapshotTests(unittest.TestCase):

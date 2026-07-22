@@ -11,15 +11,17 @@ from claude_multi import catalog, compiler, composition, strict_json
 CATALOG_ROOT = Path(__file__).resolve().parents[1]
 GOLDENS = CATALOG_ROOT / "tests" / "goldens" / "default"
 FIXED_SESSION = "11111111-1111-4111-8111-111111111111"
+OTHER_SESSION = "22222222-2222-4222-8222-222222222222"
 SETTINGS_PATH = Path("/trusted/settings.json")
+SCOPE_DIR = Path("/state") / "scopes" / FIXED_SESSION
 
 
-def _compile(passthrough=None, action=None):
+def _compile(passthrough=None, action=None, durable=False):
     bundle = catalog.load_catalog(CATALOG_ROOT)
     resolved = composition.resolve(bundle.docs, bundle.default_composition)
     snap = composition.snapshot(resolved)
     digest = strict_json.bundle_digest(snap)
-    lead_path = compiler.lead_prompt_path(Path("/state"), digest)
+    lead_path = compiler.lead_prompt_path(Path("/state"), digest, FIXED_SESSION)
     result = compiler.compile_launch(
         docs=bundle.docs,
         prompt_bodies=bundle.prompt_bodies,
@@ -28,8 +30,31 @@ def _compile(passthrough=None, action=None):
         passthrough=passthrough if passthrough is not None else ["--verbose"],
         settings_path=SETTINGS_PATH,
         lead_prompt_path=lead_path,
+        durable=durable,
+        scope_dir=SCOPE_DIR if durable else None,
     )
     return bundle, resolved, result
+
+
+class LeadPromptPathTests(unittest.TestCase):
+    def test_session_scoped_and_deterministic(self) -> None:
+        digest_a = "sha256:" + "a" * 64
+        digest_b = "sha256:" + "b" * 64
+        path = compiler.lead_prompt_path(Path("/state"), digest_a, FIXED_SESSION)
+        # resume of the same UUID is stable
+        self.assertEqual(
+            path, compiler.lead_prompt_path(Path("/state"), digest_a, FIXED_SESSION)
+        )
+        self.assertIn(FIXED_SESSION, path.name)
+        self.assertIn(digest_a.removeprefix("sha256:")[:16], path.name)
+        # fresh launches with different UUIDs never collide
+        self.assertNotEqual(
+            path, compiler.lead_prompt_path(Path("/state"), digest_a, OTHER_SESSION)
+        )
+        # composition transition for the same UUID lands on the new digest
+        self.assertNotEqual(
+            path, compiler.lead_prompt_path(Path("/state"), digest_b, FIXED_SESSION)
+        )
 
 
 class GoldenTests(unittest.TestCase):
@@ -46,7 +71,10 @@ class GoldenTests(unittest.TestCase):
     def test_lead_appendix_golden(self) -> None:
         bundle, resolved, _ = _compile()
         appendix = compiler.generate_lead_appendix(
-            resolved, bundle.docs["providers"]["providers"]
+            resolved,
+            bundle.docs["providers"]["providers"],
+            session_id=FIXED_SESSION,
+            composition_name="default",
         )
         expected = (GOLDENS / "lead-appendix.md").read_bytes()
         self.assertEqual(appendix.encode("utf-8"), expected)
@@ -66,6 +94,109 @@ class GoldenTests(unittest.TestCase):
         _, _, result = _compile()
         expected = strict_json.loads((GOLDENS / "env.json").read_bytes())
         self.assertEqual({"set": result.env_set, "unset": list(result.env_unset)}, expected)
+
+
+class DurableGoldenTests(unittest.TestCase):
+    def test_argv_fresh_durable_golden(self) -> None:
+        _, _, result = _compile(durable=True)
+        expected = strict_json.loads((GOLDENS / "argv-fresh-durable.json").read_bytes())
+        self.assertEqual(result.argv, expected)
+
+    def test_argv_resume_durable_golden(self) -> None:
+        _, _, result = _compile(
+            action=compiler.build_resume(FIXED_SESSION), durable=True
+        )
+        expected = strict_json.loads((GOLDENS / "argv-resume-durable.json").read_bytes())
+        self.assertEqual(result.argv, expected)
+        self.assertNotIn("--session-id", result.argv)
+
+
+class DurableArgvTests(unittest.TestCase):
+    def test_durable_argv_drops_agents_and_disallowed_tools(self) -> None:
+        _, _, result = _compile(durable=True)
+        self.assertNotIn("--agents", result.argv)
+        self.assertNotIn("--disallowedTools", result.argv)
+        self.assertEqual(result.agents_json, "")
+
+    def test_durable_argv_points_at_scope(self) -> None:
+        _, _, result = _compile(durable=True)
+        settings = result.argv[result.argv.index("--settings") + 1]
+        self.assertEqual(settings, str(SCOPE_DIR / "settings.json"))
+        add_dir = result.argv[result.argv.index("--add-dir") + 1]
+        self.assertEqual(add_dir, str(SCOPE_DIR))
+        # SPEC 3 order: --settings, --model, --effort, --add-dir, appendix.
+        order = [
+            result.argv.index(flag)
+            for flag in ("--settings", "--model", "--effort", "--add-dir")
+        ]
+        self.assertEqual(order, sorted(order))
+        self.assertGreater(
+            result.argv.index("--append-system-prompt-file"),
+            result.argv.index("--add-dir"),
+        )
+
+    def test_durable_compiles_scope_plan(self) -> None:
+        _, resolved, result = _compile(durable=True)
+        self.assertTrue(result.durable)
+        self.assertIsNotNone(result.scope_plan)
+        self.assertEqual(
+            set(result.scope_plan.agent_files),
+            {f".claude/agents/{variant.id}.md" for variant in resolved.variants},
+        )
+        self.assertEqual(result.scope_dir, SCOPE_DIR)
+
+    def test_durable_requires_scope_dir(self) -> None:
+        bundle = catalog.load_catalog(CATALOG_ROOT)
+        resolved = composition.resolve(bundle.docs, bundle.default_composition)
+        with self.assertRaisesRegex(compiler.CompilerError, "scope directory"):
+            compiler.compile_launch(
+                docs=bundle.docs,
+                prompt_bodies=bundle.prompt_bodies,
+                resolved=resolved,
+                session_action=compiler.build_fresh(FIXED_SESSION),
+                passthrough=[],
+                settings_path=SETTINGS_PATH,
+                lead_prompt_path=Path("/state/lead.md"),
+                durable=True,
+            )
+
+    def test_legacy_mode_has_no_scope_plan(self) -> None:
+        _, _, result = _compile()
+        self.assertFalse(result.durable)
+        self.assertIsNone(result.scope_plan)
+        self.assertIsNone(result.scope_dir)
+
+
+class PassthroughFlagTests(unittest.TestCase):
+    def test_disable_slash_commands_blocked_per_d18(self) -> None:
+        for token in ("--disable-slash-commands", "--disable-slash-commands=x"):
+            with self.subTest(token=token):
+                with self.assertRaisesRegex(
+                    compiler.CompilerError, "agent-directory watching"
+                ):
+                    compiler.validate_passthrough([token])
+
+    def test_add_dir_passthrough_allowed_and_extracted(self) -> None:
+        # SPEC section 6: user --add-dir dirs load alongside the managed
+        # scope; the collision gate scans them. Both argv forms pass through.
+        _, _, result = _compile(
+            passthrough=["--add-dir", "/extra/one", "--add-dir=/extra/two"],
+            durable=True,
+        )
+        self.assertEqual(
+            result.passthrough_add_dirs, ("/extra/one", "/extra/two")
+        )
+        self.assertIn("--add-dir", result.argv)
+        # The launcher's own scope add-dir is separate from passthrough dirs.
+        self.assertNotIn(str(SCOPE_DIR), result.passthrough_add_dirs)
+
+    def test_add_dir_extraction_in_legacy_mode(self) -> None:
+        _, _, result = _compile(passthrough=["--add-dir", "/extra"])
+        self.assertEqual(result.passthrough_add_dirs, ("/extra",))
+
+    def test_bare_add_dir_without_value_rejected(self) -> None:
+        with self.assertRaisesRegex(compiler.CompilerError, "requires a value"):
+            _compile(passthrough=["--add-dir"])
 
 
 class AgentDefinitionTests(unittest.TestCase):
@@ -121,12 +252,11 @@ class AgentDefinitionTests(unittest.TestCase):
     def test_contingency_mode_excludes_cm_lead(self) -> None:
         _, _, result = _compile()
         agents = strict_json.loads(result.agents_json.encode("utf-8"))
-        self.assertEqual(result.lead_mode, compiler.CONTINGENCY_MODE)
         self.assertNotIn("cm-lead", agents)
         self.assertEqual(len(agents), 6)
         self.assertIn("--append-system-prompt-file", result.argv)
         self.assertNotIn("--agent", result.argv)
-        self.assertIsNotNone(result.lead_prompt)
+        self.assertTrue(result.lead_prompt)
 
     def test_lead_prompt_contains_dynamic_contract(self) -> None:
         _, _, result = _compile()
@@ -148,11 +278,20 @@ class AgentDefinitionTests(unittest.TestCase):
         self.assertIn("must not receive its sole verdict", prompt)
         self.assertIn("One writer owns an overlapping file scope", prompt)
         self.assertIn("never pass a per-invocation model override", prompt)
+        # G0' sentinel: exact session UUID, no-substitution clause, relaunch.
+        self.assertIn(f"Managed session: {FIXED_SESSION}", prompt)
+        self.assertIn("Never substitute a native or generic agent", prompt)
+        self.assertIn(
+            f"`claude-multi --composition default -r {FIXED_SESSION}`", prompt
+        )
 
     def test_independence_rules_match_enabled_families(self) -> None:
         bundle, resolved, _ = _compile()
         appendix = compiler.generate_lead_appendix(
-            resolved, bundle.docs["providers"]["providers"]
+            resolved,
+            bundle.docs["providers"]["providers"],
+            session_id=FIXED_SESSION,
+            composition_name="default",
         )
         # Reviewer families enabled: anthropic (opus), openai (gpt55).
         self.assertIn("anthropic-family variant while a reviewer from openai", appendix)
@@ -175,7 +314,10 @@ class AgentDefinitionTests(unittest.TestCase):
                 slot["preferred"] = True
         resolved = composition.resolve(bundle.docs, document)
         appendix = compiler.generate_lead_appendix(
-            resolved, bundle.docs["providers"]["providers"]
+            resolved,
+            bundle.docs["providers"]["providers"],
+            session_id=FIXED_SESSION,
+            composition_name="default",
         )
         self.assertIn(
             "No enabled cross-family reviewer for anthropic-authored changes",
@@ -193,7 +335,10 @@ class AgentDefinitionTests(unittest.TestCase):
         ][:2]
         resolved = composition.resolve(bundle.docs, document)
         reduced = compiler.generate_lead_appendix(
-            resolved, bundle.docs["providers"]["providers"]
+            resolved,
+            bundle.docs["providers"]["providers"],
+            session_id=FIXED_SESSION,
+            composition_name="default",
         )
         self.assertNotIn("cm-reviewer-opus-xhigh", reduced)
         self.assertIn("cm-analyst-sol-high", reduced)
@@ -262,7 +407,7 @@ class EnvironmentTests(unittest.TestCase):
             passthrough=[],
             settings_path=SETTINGS_PATH,
             lead_prompt_path=compiler.lead_prompt_path(
-                Path("/state"), strict_json.bundle_digest(snap)
+                Path("/state"), strict_json.bundle_digest(snap), FIXED_SESSION
             ),
         )
 
@@ -285,6 +430,11 @@ class EnvironmentTests(unittest.TestCase):
                 "CLAUDE_CODE_MAX_OUTPUT_TOKENS",
                 "CLAUDE_CODE_ENABLE_GATEWAY_MODEL_DISCOVERY",
                 "CLAUDE_CODE_AUTO_COMPACT_WINDOW",
+                "CLAUDE_CONFIG_DIR",
+                "CLAUDE_CODE_MAX_SUBAGENT_SPAWN_DEPTH",
+                "CLAUDE_CODE_MAX_CONCURRENT_SUBAGENTS",
+                "CLAUDE_CODE_DISABLE_EXPLORE_PLAN_AGENTS",
+                "CLAUDE_CODE_DISABLE_WORKFLOWS",
             ),
         )
         self.assertEqual(
@@ -297,8 +447,44 @@ class EnvironmentTests(unittest.TestCase):
             result.env_set["ANTHROPIC_DEFAULT_OPUS_MODEL"], "claude-opus-4-8[1m]"
         )
         self.assertEqual(result.env_set["CLAUDE_MULTI_GATEWAY"], "1")
+        self.assertEqual(result.env_set["CLAUDE_MULTI_SESSION_ID"], FIXED_SESSION)
+        self.assertEqual(result.env_set["DISABLE_AUTOUPDATER"], "1")
         self.assertEqual(result.env_set["CLAUDE_CODE_MAX_CONTEXT_TOKENS"], "272000")
         self.assertNotIn("ANTHROPIC_AUTH_TOKEN", result.env_set)
+
+    def test_nested_spawn_keys_never_compiled_while_pending(self) -> None:
+        _, _, result = _compile()
+        contract = catalog.load_catalog(CATALOG_ROOT).docs["native-contract"]
+        self.assertEqual(contract["nested_subagents"]["decision"], "pending")
+        for key in (
+            "CLAUDE_CODE_MAX_SUBAGENT_SPAWN_DEPTH",
+            "CLAUDE_CODE_MAX_CONCURRENT_SUBAGENTS",
+        ):
+            self.assertNotIn(key, result.env_set)
+            self.assertIn(key, result.env_unset)
+
+    def test_g0_reserved_lead_env_keys_rejected(self) -> None:
+        import copy
+
+        bundle = catalog.load_catalog(CATALOG_ROOT)
+        for key in (
+            "CLAUDE_CONFIG_DIR",
+            "DISABLE_AUTOUPDATER",
+            "CLAUDE_CODE_MAX_SUBAGENT_SPAWN_DEPTH",
+            "CLAUDE_CODE_MAX_CONCURRENT_SUBAGENTS",
+            "CLAUDE_CODE_DISABLE_EXPLORE_PLAN_AGENTS",
+            "CLAUDE_CODE_DISABLE_WORKFLOWS",
+        ):
+            with self.subTest(key=key):
+                docs = copy.deepcopy(bundle.docs)
+                docs["models"]["models"]["fable"]["lead"]["env"][key] = "1"
+                resolved = composition.resolve(docs, bundle.default_composition)
+                with self.assertRaisesRegex(
+                    compiler.CompilerError, "compiler-owned and reserved"
+                ):
+                    compiler.compile_environment(
+                        docs["gateway"], docs["providers"]["providers"], resolved
+                    )
 
     def test_lead_env_applied_after_unset(self) -> None:
         import copy
@@ -316,7 +502,9 @@ class EnvironmentTests(unittest.TestCase):
             session_action=compiler.build_fresh(FIXED_SESSION),
             passthrough=[],
             settings_path=SETTINGS_PATH,
-            lead_prompt_path=compiler.lead_prompt_path(Path("/state"), digest),
+            lead_prompt_path=compiler.lead_prompt_path(
+                Path("/state"), digest, FIXED_SESSION
+            ),
         )
         self.assertIn("CLAUDE_CODE_AUTO_COMPACT_WINDOW", result.env_unset)
         self.assertEqual(

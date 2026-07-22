@@ -37,12 +37,22 @@ CANONICAL_FORK_ROUTES = {
 # Compiler-owned environment keys: never settable from a model lead.env block.
 # CLAUDE_CODE_AUTO_COMPACT_WINDOW deliberately remains the allowed lead-scoped
 # setting; every other process-scoped key is compiled by the launcher only.
+# G0' additionally reserves the config-dir, updater, and nested-spawn keys
+# against lead.env while the nested decision chain is pending.
+# CLAUDE_CODE_DISABLE_EXPLORE_PLAN_AGENTS is compiled from native-agent
+# policy; a lead.env value could contradict the appended policy truth.
 RESERVED_LEAD_ENV_KEYS = frozenset(
     {
         "CLAUDE_CODE_SUBAGENT_MODEL",
         "CLAUDE_CODE_MAX_OUTPUT_TOKENS",
         "CLAUDE_CODE_ENABLE_GATEWAY_MODEL_DISCOVERY",
         "CLAUDE_CODE_MAX_CONTEXT_TOKENS",
+        "CLAUDE_CONFIG_DIR",
+        "DISABLE_AUTOUPDATER",
+        "CLAUDE_CODE_MAX_SUBAGENT_SPAWN_DEPTH",
+        "CLAUDE_CODE_MAX_CONCURRENT_SUBAGENTS",
+        "CLAUDE_CODE_DISABLE_EXPLORE_PLAN_AGENTS",
+        "CLAUDE_CODE_DISABLE_WORKFLOWS",
     }
 )
 
@@ -334,6 +344,10 @@ def validate_composition(
             "native_agents.explore: 'replace' requires at least one available "
             "cm-analyst variant"
         )
+
+    workflows = composition.get("workflows", "native")
+    if workflows not in ("native", "off"):
+        errors.append(f"workflows: invalid value {workflows!r}")
 
     return errors
 

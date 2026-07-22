@@ -29,7 +29,7 @@ let
 in
 pkgs.stdenv.mkDerivation {
   pname = "claude-multi";
-  version = "2.0.0";
+  version = (builtins.fromJSON (builtins.readFile ./version.json)).launcher_version;
   src = ./.;
   nativeBuildInputs = [ pkgs.makeWrapper ];
   dontBuild = true;

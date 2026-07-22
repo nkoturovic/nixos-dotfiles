@@ -20,7 +20,8 @@ class PolicyMatrixTests(unittest.TestCase):
         for explore, plan, gp in itertools.product(explores, plans, general):
             with self.subTest(explore=explore, plan=plan, general_purpose=gp):
                 env, denies = compiler.compile_native_policy(
-                    {"explore": explore, "plan": plan, "general_purpose": gp}
+                    {"explore": explore, "plan": plan, "general_purpose": gp},
+                    ["claude"],
                 )
                 both_non_native = explore != "native" and plan != "native"
                 if both_non_native:
@@ -43,7 +44,7 @@ class PolicyMatrixTests(unittest.TestCase):
                     self.assertIn("Agent(general-purpose)", denies)
                 else:
                     self.assertNotIn("Agent(general-purpose)", denies)
-                # stable deny order: Explore, Plan, general-purpose
+                # stable deny order: Explore, Plan, general-purpose, aliases
                 expected: list[str] = []
                 if not both_non_native and explore != "native":
                     expected.append("Agent(Explore)")
@@ -51,14 +52,39 @@ class PolicyMatrixTests(unittest.TestCase):
                     expected.append("Agent(Plan)")
                 if gp == "off":
                     expected.append("Agent(general-purpose)")
+                expected.append("Agent(claude)")
                 self.assertEqual(denies, expected)
 
-    def test_default_seed_policy(self) -> None:
+    def test_generic_aliases_sorted_and_deduplicated(self) -> None:
+        _, denies = compiler.compile_native_policy(
+            {"explore": "native", "plan": "native", "general_purpose": "on"},
+            ["claude", "beta", "claude"],
+        )
+        self.assertEqual(denies, ["Agent(beta)", "Agent(claude)"])
+
+    def test_generic_alias_never_duplicates_builtin_deny(self) -> None:
+        _, denies = compiler.compile_native_policy(
+            {"explore": "replace", "plan": "native", "general_purpose": "off"},
+            ["general-purpose", "Explore"],
+        )
+        self.assertEqual(denies, ["Agent(Explore)", "Agent(general-purpose)"])
+
+    def test_no_aliases_preserves_builtin_only_order(self) -> None:
         env, denies = compiler.compile_native_policy(
             {"explore": "replace", "plan": "native", "general_purpose": "off"}
         )
         self.assertEqual(env, {})
         self.assertEqual(denies, ["Agent(Explore)", "Agent(general-purpose)"])
+
+    def test_default_seed_policy(self) -> None:
+        env, denies = compiler.compile_native_policy(
+            {"explore": "replace", "plan": "native", "general_purpose": "off"},
+            ["claude"],
+        )
+        self.assertEqual(env, {})
+        self.assertEqual(
+            denies, ["Agent(Explore)", "Agent(general-purpose)", "Agent(claude)"]
+        )
 
     def test_both_disabled_uses_env_var(self) -> None:
         env, denies = compiler.compile_native_policy(
@@ -88,7 +114,8 @@ class DenyConsolidationTests(unittest.TestCase):
             passthrough=[],
             settings_path=Path("/trusted/settings.json"),
             lead_prompt_path=compiler.lead_prompt_path(
-                Path("/state"), strict_json.bundle_digest(snap)
+                Path("/state"), strict_json.bundle_digest(snap),
+                "11111111-1111-4111-8111-111111111111",
             ),
         )
         occurrences = [
@@ -97,7 +124,37 @@ class DenyConsolidationTests(unittest.TestCase):
         self.assertEqual(len(occurrences), 1)
         self.assertEqual(
             result.argv[occurrences[0] + 1],
-            "Agent(Explore) Agent(general-purpose)",
+            "Agent(Explore) Agent(general-purpose) Agent(claude)",
+        )
+
+    def test_deny_list_consumes_contract_generic_aliases(self) -> None:
+        bundle = catalog.load_catalog(CATALOG_ROOT)
+        resolved = composition.resolve(bundle.docs, bundle.default_composition)
+        snap = composition.snapshot(resolved)
+        contract = {
+            **bundle.docs["native-contract"],
+            "generic_agent_aliases": {
+                **bundle.docs["native-contract"]["generic_agent_aliases"],
+                "values": ["claude", "beta"],
+            },
+        }
+        docs = {**bundle.docs, "native-contract": contract}
+        result = compiler.compile_launch(
+            docs=docs,
+            prompt_bodies=bundle.prompt_bodies,
+            resolved=resolved,
+            session_action=compiler.build_fresh("11111111-1111-4111-8111-111111111111"),
+            passthrough=[],
+            settings_path=Path("/trusted/settings.json"),
+            lead_prompt_path=compiler.lead_prompt_path(
+                Path("/state"), strict_json.bundle_digest(snap),
+                "11111111-1111-4111-8111-111111111111",
+            ),
+        )
+        index = result.argv.index("--disallowedTools")
+        self.assertEqual(
+            result.argv[index + 1],
+            "Agent(Explore) Agent(general-purpose) Agent(beta) Agent(claude)",
         )
 
     def test_policy_env_merged_into_env_set(self) -> None:
@@ -113,10 +170,77 @@ class DenyConsolidationTests(unittest.TestCase):
             passthrough=[],
             settings_path=Path("/trusted/settings.json"),
             lead_prompt_path=compiler.lead_prompt_path(
-                Path("/state"), strict_json.bundle_digest(snap)
+                Path("/state"), strict_json.bundle_digest(snap),
+                "11111111-1111-4111-8111-111111111111",
             ),
         )
         self.assertNotIn("CLAUDE_CODE_DISABLE_EXPLORE_PLAN_AGENTS", result.env_set)
+
+    def test_policy_env_var_unset_inherited_but_compiled_value_wins(self) -> None:
+        import copy
+
+        bundle = catalog.load_catalog(CATALOG_ROOT)
+        document = copy.deepcopy(bundle.default_composition)
+        document["native_agents"] = {
+            "explore": "off",
+            "plan": "off",
+            "general_purpose": "on",
+        }
+        resolved = composition.resolve(bundle.docs, document)
+        snap = composition.snapshot(resolved)
+        result = compiler.compile_launch(
+            docs=bundle.docs,
+            prompt_bodies=bundle.prompt_bodies,
+            resolved=resolved,
+            session_action=compiler.build_fresh("11111111-1111-4111-8111-111111111111"),
+            passthrough=[],
+            settings_path=Path("/trusted/settings.json"),
+            lead_prompt_path=compiler.lead_prompt_path(
+                Path("/state"), strict_json.bundle_digest(snap),
+                "11111111-1111-4111-8111-111111111111",
+            ),
+        )
+        # Inherited values are always unset; when policy requires the variable
+        # the compiled env_set value is applied after the unset at launch.
+        self.assertIn("CLAUDE_CODE_DISABLE_EXPLORE_PLAN_AGENTS", result.env_unset)
+        self.assertEqual(
+            result.env_set["CLAUDE_CODE_DISABLE_EXPLORE_PLAN_AGENTS"], "1"
+        )
+
+
+class DurableDenyPlacementTests(unittest.TestCase):
+    def _durable_result(self):
+        bundle = catalog.load_catalog(CATALOG_ROOT)
+        resolved = composition.resolve(bundle.docs, bundle.default_composition)
+        snap = composition.snapshot(resolved)
+        session_id = "11111111-1111-4111-8111-111111111111"
+        return compiler.compile_launch(
+            docs=bundle.docs,
+            prompt_bodies=bundle.prompt_bodies,
+            resolved=resolved,
+            session_action=compiler.build_fresh(session_id),
+            passthrough=[],
+            settings_path=Path("/trusted/settings.json"),
+            lead_prompt_path=compiler.lead_prompt_path(
+                Path("/state"), strict_json.bundle_digest(snap), session_id
+            ),
+            durable=True,
+            scope_dir=Path("/state") / "scopes" / session_id,
+        )
+
+    def test_denies_move_to_compiled_settings_not_argv(self) -> None:
+        result = self._durable_result()
+        self.assertNotIn("--disallowedTools", result.argv)
+        self.assertEqual(
+            result.scope_plan.settings["permissions"]["deny"],
+            ["Agent(Explore)", "Agent(general-purpose)", "Agent(claude)"],
+        )
+
+    def test_plan_native_never_denied_in_durable_settings(self) -> None:
+        result = self._durable_result()
+        self.assertNotIn(
+            "Agent(Plan)", result.scope_plan.settings["permissions"]["deny"]
+        )
 
 
 if __name__ == "__main__":

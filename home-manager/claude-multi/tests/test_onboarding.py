@@ -626,34 +626,20 @@ class PromoteTests(OnboardingTestCase):
 
 class SmokeTests(OnboardingTestCase):
     def test_smoke_without_consent_zero_requests(self) -> None:
-        def forbidden_poster(_request):
-            raise AssertionError("network must not be touched")
-
         outcome = dev.smoke_test(
             "gpt-multi-sol-high",
             allow_provider_call=False,
-            poster=forbidden_poster,
         )
         self.assertEqual(outcome["status"], "refused")
         self.assertEqual(outcome["requests"], 0)
         self.assertIn("--allow-provider-call", outcome["guidance"])
 
-    def test_smoke_request_shape_fixed(self) -> None:
-        captured = {}
-        outcome = dev.smoke_test(
-            "gpt-multi-sol-high",
-            allow_provider_call=True,
-            poster=lambda request: captured.setdefault("request", request) or {"ok": True},
-        )
-        self.assertEqual(outcome["requests"], 1)
-        self.assertEqual(
-            captured["request"],
-            {
-                "model": "gpt-multi-sol-high",
-                "max_tokens": 16,
-                "messages": [{"role": "user", "content": "Reply with exactly: OK"}],
-            },
-        )
+    def test_smoke_with_consent_fails_closed_without_transport(self) -> None:
+        with self.assertRaisesRegex(DevError, "no provider transport"):
+            dev.smoke_test(
+                "gpt-multi-sol-high",
+                allow_provider_call=True,
+            )
 
 
 class ImportHygieneTests(unittest.TestCase):

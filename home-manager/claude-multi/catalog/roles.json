@@ -6,36 +6,28 @@
       "prompt_file": "prompts/cm-lead.md",
       "isolation": null,
       "tools": null,
-      "disallowed_tools": [],
-      "mutation_contract": "Owns integration edits and may perform trivial or small direct work; otherwise delegates bounded implementation.",
-      "delegation_contract": "Delegates bounded analysis, review, and implementation to generated variants by exact ID, without per-invocation model overrides."
+      "disallowed_tools": []
     },
     "cm-analyst": {
       "summary": "Produce evidence-backed findings, reasoning, and broad analysis.",
       "prompt_file": "prompts/cm-analyst.md",
       "isolation": null,
       "tools": null,
-      "disallowed_tools": [],
-      "mutation_contract": "No implementation or integration edits; explicitly requested bounded isolated report artifacts allowed.",
-      "delegation_contract": "May delegate distinct read-only analysis and bounded reporting subproblems within scope."
+      "disallowed_tools": []
     },
     "cm-reviewer": {
       "summary": "Independent concrete change review with severity-ranked findings and an explicit verdict.",
       "prompt_file": "prompts/cm-reviewer.md",
       "isolation": null,
       "tools": null,
-      "disallowed_tools": [],
-      "mutation_contract": "No implementation or integration edits; explicitly requested bounded review artifacts allowed.",
-      "delegation_contract": "May delegate distinct read-only review subproblems within scope."
+      "disallowed_tools": []
     },
     "cm-implementer": {
       "summary": "Bounded implementation, normally worktree-isolated; reports changed files and validation.",
       "prompt_file": "prompts/cm-implementer.md",
       "isolation": "worktree",
       "tools": null,
-      "disallowed_tools": [],
-      "mutation_contract": "Edits only within the assigned bounded scope; one writer per overlapping scope; reports changed files and validation evidence.",
-      "delegation_contract": "May delegate distinct bounded subproblems inside the assigned scope; descendants share the same boundaries."
+      "disallowed_tools": []
     }
   }
 }

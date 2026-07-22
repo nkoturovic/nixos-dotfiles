@@ -4,7 +4,7 @@
   "required": ["version", "session_id", "cwd", "composition_name", "composition_hash", "snapshot", "catalog_version", "catalog_hash", "launcher_version", "created_at", "forked_from"],
   "additionalProperties": false,
   "properties": {
-    "version": { "const": 1 },
+    "version": { "enum": [1, 2] },
     "session_id": { "type": "string", "pattern": "^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$" },
     "cwd": { "type": "string", "pattern": "^/" },
     "composition_name": { "type": "string", "pattern": "^[a-z0-9][a-z0-9._-]{0,63}$" },
@@ -74,7 +74,8 @@
             { "type": "integer", "minimum": 1 },
             { "type": "null" }
           ]
-        }
+        },
+        "workflows": { "enum": ["native", "off"] }
       }
     },
     "catalog_version": { "type": "integer", "minimum": 1 },
@@ -86,6 +87,9 @@
         { "type": "string", "pattern": "^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$" },
         { "type": "null" }
       ]
-    }
+    },
+    "mode": { "enum": ["durable", "legacy"] },
+    "scope_generation": { "type": "integer", "minimum": 0 },
+    "workflows": { "enum": ["native", "off"] }
   }
 }

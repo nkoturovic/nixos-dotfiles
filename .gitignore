@@ -3,3 +3,5 @@ result
 tmp
 *~
 .slim/deepwork/
+__pycache__/
+*.pyc

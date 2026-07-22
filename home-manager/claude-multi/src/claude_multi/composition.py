@@ -49,6 +49,9 @@ class ResolvedLead:
     family: str
 
 
+WORKFLOWS_VOCABULARY = ("native", "off")
+
+
 @dataclass(frozen=True)
 class ResolvedComposition:
     name: str
@@ -58,6 +61,7 @@ class ResolvedComposition:
     native_agents: dict[str, str]
     availability: dict[str, Any]
     scalar_context_tokens: int | None
+    workflows: str = "native"
 
 
 def variant_id(role: str, model: str, lane: str) -> str:
@@ -112,6 +116,7 @@ def resolve(docs: dict[str, Any], composition: dict[str, Any]) -> ResolvedCompos
 
     lead: ResolvedLead | None = None
     variants: list[ResolvedVariant] = []
+    workflows = composition.get("workflows", "native")
     for slot in composition["slots"]:
         role_id = slot["role"]
         model_id = slot["model"]
@@ -119,10 +124,16 @@ def resolve(docs: dict[str, Any], composition: dict[str, Any]) -> ResolvedCompos
         provider = providers[model["provider"]]
         if role_id == LEAD_ID:
             lead_block = model["lead"]
+            lead_effort = lead_block["effort"]
+            if workflows == "off" and lead_effort == "ultracode":
+                # D8 compile-time derivation (composition level only): with
+                # native workflows off, lead ultracode maps to xhigh. The
+                # derived value is what the snapshot records.
+                lead_effort = "xhigh"
             lead = ResolvedLead(
                 model=model_id,
                 client_selector=model["client_selector"],
-                effort=lead_block["effort"],
+                effort=lead_effort,
                 env=dict(lead_block["env"]),
                 display=model["display"],
                 family=provider["independence_family"],
@@ -162,13 +173,20 @@ def resolve(docs: dict[str, Any], composition: dict[str, Any]) -> ResolvedCompos
             "models": dict(composition["availability"]["models"]),
         },
         scalar_context_tokens=compute_scalar(selected),
+        workflows=workflows,
     )
 
 
 def snapshot(resolved: ResolvedComposition) -> dict[str, Any]:
-    """Resolved composition semantics for session snapshots (no secrets)."""
+    """Resolved composition semantics for session snapshots (no secrets).
 
-    return {
+    ``workflows`` is recorded only when it differs from the default
+    (``"native"``): the composition hash still covers the workflow mode both
+    directions, while a native-mode snapshot stays byte-identical to the
+    pre-rethink form (legacy argv parity).
+    """
+
+    document: dict[str, Any] = {
         "lead": {
             "model": resolved.lead.model,
             "client_selector": resolved.lead.client_selector,
@@ -193,3 +211,6 @@ def snapshot(resolved: ResolvedComposition) -> dict[str, Any]:
         },
         "scalar_context_tokens": resolved.scalar_context_tokens,
     }
+    if resolved.workflows != "native":
+        document["workflows"] = resolved.workflows
+    return document

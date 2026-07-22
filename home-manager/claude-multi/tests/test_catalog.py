@@ -118,6 +118,11 @@ class SeedLoadTests(unittest.TestCase):
             {"disableWorkflows", "workflowSizeGuideline", "workflowKeywordTriggerEnabled"},
         )
 
+    def test_version_json_launcher_2_1_0_catalog_unchanged(self) -> None:
+        bundle = catalog.load_catalog(CATALOG_ROOT)
+        self.assertEqual(bundle.docs["version"]["launcher_version"], "2.1.0")
+        self.assertEqual(bundle.docs["version"]["catalog_version"], 1)
+
 
 class ReferenceViolationTests(unittest.TestCase):
     def test_unknown_provider_reference(self) -> None:
@@ -305,6 +310,7 @@ class CatalogMutationMatrixTests(unittest.TestCase):
             "CLAUDE_CODE_MAX_OUTPUT_TOKENS",
             "CLAUDE_CODE_ENABLE_GATEWAY_MODEL_DISCOVERY",
             "CLAUDE_CODE_MAX_CONTEXT_TOKENS",
+            "CLAUDE_CODE_DISABLE_WORKFLOWS",
         ):
             case(
                 f"reserved lead env key {reserved}",
@@ -486,6 +492,28 @@ class CompositionViolationTests(unittest.TestCase):
         errors = self._validate(composition)
         self.assertTrue(any("exactly one cm-lead" in error for error in errors))
 
+    def test_workflows_native_and_off_accepted(self) -> None:
+        for value in ("native", "off"):
+            with self.subTest(value=value):
+                composition = self._composition()
+                composition["workflows"] = value
+                self.assertEqual(self._validate(composition), [])
+
+    def test_workflows_invalid_value_blocked(self) -> None:
+        composition = self._composition()
+        composition["workflows"] = "semi"
+        errors = self._validate(composition)
+        self.assertTrue(any("workflows" in error for error in errors))
+
+    def test_composition_schema_accepts_optional_workflows(self) -> None:
+        schema = strict_json.load(CATALOG_ROOT / "schemas" / "composition.schema.json")
+        document = self._composition()
+        self.assertEqual(validate.validate(document, schema, "$"), [])
+        document["workflows"] = "off"
+        self.assertEqual(validate.validate(document, schema, "$"), [])
+        document["workflows"] = "sometimes"
+        self.assertTrue(validate.validate(document, schema, "$"))
+
 
 class BundleHashTests(unittest.TestCase):
     def test_bundle_hash_deterministic(self) -> None:
@@ -623,18 +651,99 @@ class NativeContractTests(unittest.TestCase):
     def test_record_is_offline_and_unverified_where_required(self) -> None:
         bundle = catalog.load_catalog(CATALOG_ROOT)
         record = bundle.docs["native-contract"]
-        self.assertEqual(record["claude"]["validated_version"], "2.1.216")
-        self.assertIn("not executed", record["claude"]["executable"]["inspection"])
+        self.assertEqual(record["claude"]["validated_version"], "2.1.217")
+        inspection = record["claude"]["executable"]["inspection"]
+        self.assertIn("--version", inspection)
+        self.assertIn("--help", inspection)
+        self.assertIn("no prompt", inspection)
+        self.assertIn("no provider request", inspection)
+        self.assertIn("no daemon contact", inspection)
         acceptance = record["acceptance"]
+        self.assertEqual(set(acceptance), {"U1", "U2", "U5", "U6"})
+        for name, entry in acceptance.items():
+            with self.subTest(acceptance=name):
+                self.assertEqual(entry["status"], "unverified")
+        # The same-launch delivery record is deleted: contingency is the only
+        # lead delivery, so no delivery record remains to drift.
+        self.assertNotIn("lead_delivery", record)
+
+    def test_promoted_executable_facts_locked(self) -> None:
+        bundle = catalog.load_catalog(CATALOG_ROOT)
+        executable = bundle.docs["native-contract"]["claude"]["executable"]
+        self.assertEqual(executable["configured_path"], "/home/kotur/.local/bin/claude")
         self.assertEqual(
-            acceptance["same_launch_agents_and_agent_cm_lead"]["status"], "unverified"
+            executable["resolved_path"],
+            "/home/kotur/.local/share/claude/versions/2.1.217",
         )
-        self.assertEqual(acceptance["fork_triple_flag"]["status"], "unverified")
-        self.assertEqual(record["lead_delivery"]["status"], "pending-probe")
         self.assertEqual(
-            record["lead_delivery"]["contingency"],
-            "main-thread-append-system-prompt-file",
+            executable["sha256"],
+            "2630fc5dc6db61bc03f86b95daf47766e5ed5b61873f7bb7cfea764c5ac5a9ba",
         )
+        self.assertEqual(executable["inspected_at"], "2026-07-22")
+        self.assertEqual(bundle.docs["native-contract"]["recorded_at"], "2026-07-22")
+        self.assertEqual(bundle.docs["native-contract"]["evidence_version"], 2)
+
+    def test_models_minimum_tested_floor_locked_separately(self) -> None:
+        # No provider/model requests are allowed in this automation, so model
+        # compatibility at the inspected 2.1.217 binary is untested; 2.1.216
+        # remains the truthful minimum-tested floor, decoupled from the native
+        # artifact version.
+        bundle = catalog.load_catalog(CATALOG_ROOT)
+        validated = bundle.docs["native-contract"]["claude"]["validated_version"]
+        self.assertEqual(validated, "2.1.217")
+        for model_id, model in bundle.models.items():
+            with self.subTest(model=model_id):
+                self.assertEqual(model["minimum_tested"]["claude_code"], "2.1.216")
+
+    def test_generic_agent_aliases_recorded_for_policy(self) -> None:
+        bundle = catalog.load_catalog(CATALOG_ROOT)
+        aliases = bundle.docs["native-contract"]["generic_agent_aliases"]
+        self.assertEqual(aliases["values"], ["claude"])
+        self.assertEqual(aliases["status"], "provisionally-trusted")
+        self.assertIn("not functional verification", aliases["evidence"])
+
+    def test_capabilities_all_pending(self) -> None:
+        bundle = catalog.load_catalog(CATALOG_ROOT)
+        capabilities = bundle.docs["native-contract"]["capabilities"]
+        self.assertEqual(
+            set(capabilities),
+            {
+                "root_agent_discovery",
+                "persistent_denies",
+                "onboarding_trust",
+                "transcript_location_exact_resume",
+                "selectors_effort_tools_worktree",
+                "background_supervisor_lifecycle",
+                "root_memory_reinjection",
+                "project_agent_collision",
+            },
+        )
+        for name, entry in capabilities.items():
+            with self.subTest(capability=name):
+                self.assertEqual(entry["status"], "pending")
+
+    def test_nested_subagent_decision_pending(self) -> None:
+        bundle = catalog.load_catalog(CATALOG_ROOT)
+        nested = bundle.docs["native-contract"]["nested_subagents"]
+        self.assertEqual(nested["decision"], "pending")
+        self.assertEqual(
+            nested["depth_key"],
+            {"name": "CLAUDE_CODE_MAX_SUBAGENT_SPAWN_DEPTH", "status": "unverified"},
+        )
+        self.assertEqual(
+            nested["concurrency_key"],
+            {"name": "CLAUDE_CODE_MAX_CONCURRENT_SUBAGENTS", "status": "unverified"},
+        )
+        self.assertIn("not functional verification", nested["evidence"])
+
+    def test_lifecycle_evidence_identifier_matches_inspected_version(self) -> None:
+        bundle = catalog.load_catalog(CATALOG_ROOT)
+        record = bundle.docs["native-contract"]
+        lifecycle = record["lifecycle_evidence"]
+        self.assertEqual(
+            lifecycle["inspected_version"], record["claude"]["validated_version"]
+        )
+        self.assertIn("phase0", lifecycle["evidence_id"])
 
     def test_effort_vocabulary_evidenced(self) -> None:
         bundle = catalog.load_catalog(CATALOG_ROOT)
@@ -643,6 +752,79 @@ class NativeContractTests(unittest.TestCase):
             vocabulary["values"], ["high", "xhigh", "max", "ultracode"]
         )
         self.assertEqual(vocabulary["status"], "provisionally-trusted")
+
+
+class NativeContractSchemaTests(unittest.TestCase):
+    @classmethod
+    def setUpClass(cls) -> None:
+        cls.schema = strict_json.load(
+            CATALOG_ROOT / "schemas" / "native-contract.schema.json"
+        )
+        validate.check_schema(cls.schema)
+
+    def _document(self) -> dict:
+        return copy.deepcopy(_raw()["docs"]["native-contract"])
+
+    def test_seed_document_valid(self) -> None:
+        self.assertEqual(validate.validate(self._document(), self.schema, "$"), [])
+
+    def test_unknown_top_level_key_rejected(self) -> None:
+        document = self._document()
+        document["surprise"] = 1
+        problems = validate.validate(document, self.schema, "$")
+        self.assertTrue(any("unexpected key" in problem for problem in problems))
+
+    def test_missing_new_required_fields_rejected(self) -> None:
+        for field in (
+            "generic_agent_aliases",
+            "capabilities",
+            "nested_subagents",
+            "acceptance",
+            "lifecycle_evidence",
+        ):
+            with self.subTest(field=field):
+                document = self._document()
+                del document[field]
+                self.assertTrue(validate.validate(document, self.schema, "$"))
+
+    def test_capability_entry_is_per_entry_closed(self) -> None:
+        document = self._document()
+        document["capabilities"]["onboarding_trust"]["probe"] = "g1-p3"
+        problems = validate.validate(document, self.schema, "$")
+        self.assertTrue(any("unexpected key" in problem for problem in problems))
+
+    def test_capability_status_outside_enum_rejected(self) -> None:
+        document = self._document()
+        document["capabilities"]["onboarding_trust"]["status"] = "passed"
+        self.assertTrue(validate.validate(document, self.schema, "$"))
+
+    def test_acceptance_entry_shape_enforced(self) -> None:
+        document = self._document()
+        document["acceptance"]["U1"]["status"] = "passed"
+        self.assertTrue(validate.validate(document, self.schema, "$"))
+        document = self._document()
+        document["acceptance"]["U1"]["probe"] = "phase2"
+        problems = validate.validate(document, self.schema, "$")
+        self.assertTrue(any("unexpected key" in problem for problem in problems))
+
+    def test_nested_decision_outside_enum_rejected(self) -> None:
+        document = self._document()
+        document["nested_subagents"]["decision"] = "assumed"
+        self.assertTrue(validate.validate(document, self.schema, "$"))
+
+    def test_nested_key_name_is_const_locked(self) -> None:
+        document = self._document()
+        document["nested_subagents"]["depth_key"]["name"] = "CLAUDE_CODE_OTHER"
+        self.assertTrue(validate.validate(document, self.schema, "$"))
+
+    def test_lifecycle_evidence_shape_enforced(self) -> None:
+        document = self._document()
+        document["lifecycle_evidence"]["surprise"] = "x"
+        problems = validate.validate(document, self.schema, "$")
+        self.assertTrue(any("unexpected key" in problem for problem in problems))
+        document = self._document()
+        document["lifecycle_evidence"]["inspected_version"] = "2.1"
+        self.assertTrue(validate.validate(document, self.schema, "$"))
 
 
 if __name__ == "__main__":

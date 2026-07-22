@@ -1,27 +1,49 @@
-# claude-multi v2
+# claude-multi v2.1
 
-Clean-slate composition compiler for a Home Manager-managed Claude Code
-environment. One validated composition model replaces v1 static profiles,
-model-bound agent files, and conservation modes. The compiler runs once
-before launch, then `execve`s ordinary Claude Code — no scheduler, wrapper
-daemon, or per-turn interception remains.
+Composition compiler and thin launcher for a Home Manager-managed Claude
+Code environment. The compiler turns one validated composition into
+**per-session durable files** — generated agent definitions and session
+settings under `~/.local/state/claude-multi/scopes/<uuid>/` — and `execve`s
+ordinary Claude Code pointed at them via `--add-dir`/`--settings`. No
+scheduler, wrapper daemon, or per-turn interception remains.
+
+**Why files, not argv:** CLI `--agents` JSON exists only for the launching
+session and is never saved to disk. When the shared Claude supervisor
+restarts (e.g. for a binary upgrade), the session's agent registry is
+rebuilt from persisted state — argv-only definitions disappear (observed
+live at the 2.1.216→2.1.217 takeover). On-disk agent files are re-discovered
+on every process start, and `--add-dir`/`--settings` are in Claude's
+documented carry-through set for backgrounded/respawned sessions.
 
 ## Architecture
 
 - **Trusted catalog** (`catalog/`): versioned JSON for providers, models,
   roles, the native-contract evidence record, the balanced default
-  composition, and the canonical model-neutral role prompts. The provider
-  profile owns transport/auth references and the canonical `fork: true`
-  passthrough rule.
-- **Compiler** (`src/claude_multi/`): strict JSON/schema validation,
-  composition resolution, deterministic agent generation (`cm-lead` plus
-  `<role>-<model>-<lane>` variants), native built-in policy, environment,
-  session records, and launch. Python standard library only.
+  composition, and the canonical model-neutral role prompts.
+- **Scope compiler** (`src/claude_multi/scope.py`): pure function
+  `(composition, catalog) → scopes/<uuid>/.claude/agents/*.md +
+  scopes/<uuid>/settings.json` — generated `cm-*` agent files (frontmatter
+  name/model/effort/isolation + canonical role prompt) and compiled session
+  settings (permission denies, workflow mode, model fence, worktree base).
+  Atomic sibling staging; the scope is always re-derivable from the session
+  record + installed catalog (the two authorities).
+- **Launcher** (`compiler.py`, `launch.py`): verified binary (full SHA-256
+  against the native contract), loopback gateway readiness, collision gate
+  (exact `cm-*` names in project/managed/user `--add-dir` agent trees fail
+  closed), session record, then `execve`. Legacy argv mode remains as
+  `--legacy` (compatibility hatch; old records upgrade on resume).
+- **Transitions** (`transition.py`): deliberate mid-session composition
+  changes — semantic diff, target-process-exited confirmation, atomic
+  scope-generation swap, exact `--resume` relaunch, crash-converge to record
+  authority.
 - **Renderer** (`render.py`): pure deterministic CLIProxyAPI YAML from
   trusted JSON; provider secrets resolve only at runtime into a mode-0600
   artifact outside this repository.
 - **Onboarding** (`dev.py`): Draft → Check → Review exact diff/hash →
   Promote source for new models/providers, with scratch candidate builds.
+- **Probe** (`probe.py`, dev-only): disposable-fixture, loopback fake-provider
+  harness for exercising the pinned binary without providers or the live
+  daemon (config-root daemon-domain gate + live-domain tripwire).
 - **Proxy control** (`proxy.py`): `init/status/run/claude-login/
   codex-device-login` for the loopback CLIProxyAPI gateway.
 
@@ -49,19 +71,48 @@ home-manager/claude-multi/
 ## Normal commands
 
 ```text
-claude-multi                          quick-confirm and launch
+claude-multi                          quick-confirm and launch (durable scope)
+claude-multi --legacy                 launch with the pre-durable argv form
 claude-multi compose list|show|new|edit|duplicate|rename|delete|restore-default
 claude-multi sessions list|show|forget|link UUID
-claude-multi doctor                   offline validation + loopback checks
+claude-multi sessions transition UUID --composition NAME
+                                      diff + exited-confirm + exact-resume relaunch
+claude-multi doctor                   binary/gateway/scope/collision checks
+claude-multi doctor --repair UUID     reconverge a session scope to record authority
+claude-multi doctor --prune           remove stale scope generations/staging
 claude-multi-dev check|review|promote developer onboarding (no provider calls)
 claude-multi-proxy init|status|run    gateway control (loopback only)
 ```
 
-Session transitions across provider families currently have a verified
-in-place workaround but an intentionally blocked, unverified fork path. See
-[`../../docs/claude-multi-session-transitions.md`](../../docs/claude-multi-session-transitions.md)
-for the observed failures, exact recovery, safety requirements, and remediation
-plan.
+Fork of a managed session: use Claude's native fork and adopt the result
+with `claude-multi sessions link UUID`; the launcher refuses to compile
+forks itself (native fork persistence with managed flags is unverified).
+
+Design package (rationale, guarantees, verification, rollback):
+[`../../docs/claude-multi-final/`](../../docs/claude-multi-final/README.md).
+
+## Rollback
+
+Rolling back to the 2.0 (argv-era) launcher is safe by construction:
+
+- **2.0 launchers fail closed on 2.1 data.** The 2.1 catalog and composition
+  documents use the closed v2 schemas (`version.json` bump), which the 2.0
+  launcher rejects outright — it never half-reads them. Schema-v2 session
+  records (durable era: `mode`, `scope_generation`, `workflows`) are likewise
+  unreadable to 2.0, whose session schema requires `version: 1` and rejects
+  the new fields.
+- **No v2-era transcript is ever stranded.** Transcripts belong to Claude,
+  not the launcher; any session recorded by 2.1 remains recoverable with
+  native `claude --resume <uuid>` (it runs without the managed scope). Keep
+  the 2.1 package's Nix store path around and it can also be invoked
+  directly for a fully managed resume of v2 records.
+- **HM-generation rollback is the clean path for v1 records.** Switching
+  Home Manager back to the pre-activation generation restores the old
+  launcher together with the old catalog; v1 (argv-era) records resume under
+  it exactly as before.
+- **No state deletion is ever part of rollback.** Session records and
+  generated scopes under `~/.local/state/claude-multi/` are left in place;
+  transcripts under `~/.claude/` are never touched by the launcher at all.
 
 ## Local-only verification
 
@@ -76,18 +127,15 @@ nix build --offline --no-link --file home-manager/claude-multi/tests/default.nix
 No command in the normal paths contacts a provider. The optional
 `claude-multi-dev smoke-test` requires explicit `--allow-provider-call`.
 
-**Live smoke status: PASSED (user-led acceptance, 2026-07-21).** The first
-real Claude/provider session passed: the bare launch initially exposed a
-no-controlling-terminal bug, fixed by preferring real `/dev/tty` via separate
-read/write handles with a TTY stdin/stdout fallback (437 tests pass, 1
-skip). The corrected package
-`/nix/store/fxapndpszjxdxz61jm5m12q1ngw014i4-claude-multi-2.0.0` (444 tests,
-1 skip) was activated with doctor/proxy Ready, and the user then created and
-live-validated the `kimi-sol` composition: Kimi K3 lead; Sol-high preferred
-analyst/implementer with Kimi-max alternates; Sol-xhigh preferred reviewer
-for focused bounded small-to-medium review; Kimi-max alternate reviewer for
-architecture/plan validation, security, broad cross-cutting, complex,
-high-risk, or large-context review; generated cross-family rules route
-Sol-authored work to Kimi review and Kimi-authored work to Sol review;
-Anthropic/GPT-5.5 off; scalar 372000. No full automated provider smoke was
-run; the `claude-multi-dev smoke-test` remains a fallback diagnostic.
+**Durable-scope status (2026-07-22):** 809 offline tests green (1
+intentional skip). On-disk agent discovery through `--add-dir` proven
+against the pinned 2.1.217 binary via the no-provider probe harness
+(fake provider, live-domain tripwire armed, delegation accepted and the
+subagent request carried the agent file's frontmatter model). Supervisor
+**takeover** carry-through of `--add-dir` is documented for backgrounded
+sessions and binary-consistent; the final takeover proof is user-performed
+acceptance step L2 (headless sessions run no resident supervisor, so it
+cannot be automated without a PTY driver).
+
+Historical: v2.0 live smoke PASSED (user-led, 2026-07-21) for the argv-mode
+launcher — superseded by the durable-scope design above.
