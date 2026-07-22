@@ -1261,7 +1261,7 @@ class _QuickConfirmScreen:
                         _role_label(variant.role),
                         variant.display,
                         variant.lane,
-                        ("★preferred" if variant.preferred else "")
+                        ("★ preferred" if variant.preferred else "")
                         + ("  (worktree)" if variant.isolation else ""),
                     ]
                     for variant in resolved.variants

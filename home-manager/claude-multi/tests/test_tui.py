@@ -562,7 +562,7 @@ class VisibleTextTests(unittest.TestCase):
         for clean in (
             "default",
             "/repo/dot files/πroject",
-            "cm-analyst-sol-high · high ★preferred → durable(g2)",
+            "cm-analyst-sol-high · high ★ preferred → durable(g2)",
             "ö",
         ):
             self.assertEqual(tui.visible_text(clean), clean)

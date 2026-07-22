@@ -1896,7 +1896,7 @@ class QuickConfirmTuiScreenTests(CLITestCase):
         self.assertIn("Explore→cm-analyst · Plan native", text)
         self.assertIn("project", text)
         self.assertIn("none colliding", text)
-        self.assertIn("★preferred", text)
+        self.assertIn("★ preferred", text)
         self.assertIn("Status  Ready", text)
         self.assertIn("Q cancel", text)
 
