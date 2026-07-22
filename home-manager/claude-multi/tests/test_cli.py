@@ -2870,3 +2870,45 @@ class QuickConfirmSessionsKeyTests(CLITestCase):
         self.assertIsNotNone(outcome)
         self.assertEqual(outcome[0], "perform")
         self.assertEqual(outcome[1].record["session_id"], FIXED_ID)
+
+
+class PresetCycleTests(CLITestCase):
+    def _two_presets(self) -> None:
+        document = self.runtime.compositions.load("default")
+        document["name"] = "second"
+        self.runtime.compositions.save(document)
+
+    def test_cycle_forward_and_back(self) -> None:
+        self._two_presets()
+        document = self.runtime.compositions.load("default")
+        plan = cli.build_quick_plan(self.runtime, document, action="fresh", source="t")
+        cycled = cli._cycle_preset(self.runtime, plan, 1)
+        self.assertEqual(cycled.document["name"], "second")
+        self.assertIn("2/2", cycled.source)
+        back = cli._cycle_preset(self.runtime, cycled, -1)
+        self.assertEqual(back.document["name"], "default")
+
+    def test_cycle_wraps(self) -> None:
+        self._two_presets()
+        document = self.runtime.compositions.load("default")
+        plan = cli.build_quick_plan(self.runtime, document, action="fresh", source="t")
+        cycled = cli._cycle_preset(self.runtime, plan, -1)
+        self.assertEqual(cycled.document["name"], "second")
+
+    def test_managed_plan_does_not_cycle(self) -> None:
+        self._two_presets()
+        self.save_session()
+        record = self.runtime.session_store.load(FIXED_ID)
+        plan = cli.managed_plan(self.runtime, record)
+        self.assertIs(cli._cycle_preset(self.runtime, plan, 1), plan)
+
+    def test_single_preset_is_noop(self) -> None:
+        document = self.runtime.compositions.load("default")
+        plan = cli.build_quick_plan(self.runtime, document, action="fresh", source="t")
+        self.assertIs(cli._cycle_preset(self.runtime, plan, 1), plan)
+
+    def test_line_mode_p_cycles(self) -> None:
+        self._two_presets()
+        code, out = self.run_cli([], "p\nq\n", interactive=True)
+        self.assertEqual(code, 0)
+        self.assertIn("Composition    second · Selected preset 2/2", out)

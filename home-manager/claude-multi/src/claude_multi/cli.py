@@ -904,6 +904,49 @@ def _role_label(role_id: str) -> str:
     return role_id.removeprefix("cm-").replace("-", " ").title()
 
 
+def _cycle_preset(
+    runtime: Runtime, plan: QuickPlan, delta: int
+) -> QuickPlan:
+    """Cycle the quick-confirm through saved composition presets.
+
+    Fresh plans only: managed (record-bearing) plans stay recorded-only —
+    composition changes there belong to the transition engine (R1 P1). The
+    rebuild keeps ``legacy_requested`` and marks the source with the cycle
+    position so the card shows where in the preset list you are.
+    """
+
+    if plan.record is not None or plan.action != "fresh":
+        return plan
+    names = runtime.compositions.names()
+    if len(names) < 2:
+        return plan
+    current = plan.document.get("name")
+    try:
+        index = names.index(current)
+    except ValueError:
+        index = -1 if delta > 0 else 0
+    index = (index + delta) % len(names)
+    document = runtime.compositions.load(names[index])
+    cycled = build_quick_plan(
+        runtime,
+        document,
+        action="fresh",
+        source=f"Selected preset {index + 1}/{len(names)}",
+    )
+    cycled.legacy_requested = plan.legacy_requested
+    return cycled
+
+
+def _cycle_key_delta(key_kind: str) -> int | None:
+    """tab/right cycle forward, btab/left cycle backward; else None."""
+
+    if key_kind in ("tab", "right"):
+        return 1
+    if key_kind in ("btab", "left"):
+        return -1
+    return None
+
+
 def _read_key(stream: TextIO) -> str | None:
     try:
         line = stream.readline()
@@ -933,7 +976,7 @@ def quick_footer(plan: QuickPlan) -> tuple[str, ...]:
         primary = "Enter launch" if plan.ready else "Enter transition hint"
         return (f"{primary} · D details · S sessions · ? workflows · Q cancel",)
     primary = "Enter launch" if plan.ready else "Enter edit"
-    return (f"{primary} · E edit · D details · S sessions · ? workflows · Q cancel",)
+    return (f"{primary} · E edit · D details · S sessions · ? workflows · P preset · Q cancel",)
 
 
 def validate_quick_passthrough(
@@ -1340,7 +1383,8 @@ class _QuickConfirmScreen:
 
     def _keybar(self) -> tui.KeyBar:
         # R1 P1: no recorded/current switching and no editor on managed
-        # plans; resume is recorded-only.
+        # plans; resume is recorded-only. Preset cycling is a fresh-plan
+        # affordance only.
         if self.plan.record is not None:
             primary = (
                 ("Enter", "launch") if self.plan.ready else ("Enter", "transition hint")
@@ -1349,6 +1393,8 @@ class _QuickConfirmScreen:
         else:
             primary = ("Enter", "launch") if self.plan.ready else ("Enter", "edit")
             bindings = [primary, ("E", "edit")]
+            if len(self.runtime.compositions.names()) > 1:
+                bindings.append(("Tab", "preset"))
         bindings.extend((("D", "details"), ("S", "sessions"), ("?", "workflows"), ("Q", "cancel")))
         return tui.KeyBar(bindings)
 
@@ -1459,6 +1505,10 @@ class _QuickConfirmScreen:
                 if outcome is None:
                     continue
                 return outcome
+            preset_delta = _cycle_key_delta(key.kind)
+            if preset_delta is not None:
+                self.plan = _cycle_preset(self.runtime, self.plan, preset_delta)
+                continue
             if key.kind == "char" and key.ch == "?":
                 mode = (
                     self.plan.resolved.workflows
@@ -1619,6 +1669,16 @@ def _line_quick_confirm(
                 "resume with `claude-multi -r <uuid>` (or a name), or press S "
                 "in the curses UI to pick interactively.\n"
             )
+            continue
+        if key in ("p", "P"):
+            cycled = _cycle_preset(runtime, plan, 1 if key == "p" else -1)
+            if cycled is plan:
+                output_stream.write(
+                    "preset cycling needs a fresh plan and at least two saved "
+                    "compositions (`claude-multi compose list`).\n"
+                )
+                continue
+            plan = cycled
             continue
         if plan.record is not None and key in ("r", "c"):
             # R1 P1: the recorded/current switch is gone; resume always uses
