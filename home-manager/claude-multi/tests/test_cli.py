@@ -3057,3 +3057,54 @@ class PickerIntentThreadingTests(CLITestCase):
         prepared = self.launches[0]
         self.assertIn("--verbose", prepared.result.argv)
         self.assertFalse(prepared.result.durable)
+
+
+class NativeDiscoveryTests(CLITestCase):
+    def _fake_projects(self, session_ids):
+        home = self.runtime.environ["HOME"]
+        import os, pathlib
+
+        projects = pathlib.Path(home) / ".claude" / "projects"
+        projects.mkdir(parents=True, exist_ok=True)
+        for slug, sid in session_ids:
+            target = projects / slug
+            target.mkdir(parents=True, exist_ok=True)
+            (target / f"{sid}.jsonl").write_bytes(b"{}\n")
+
+    def test_discovers_unmanaged_only(self) -> None:
+        self.save_session()
+        native_id = "aaaaaaaa-1111-4111-8111-111111111111"
+        self._fake_projects([("-proj", FIXED_ID), ("-proj", native_id), ("-proj", "not-a-uuid")])
+        found = cli._discover_native_sessions(self.runtime)
+        self.assertEqual([item["session_id"] for item in found], [native_id])
+        self.assertEqual(found[0]["slug"], "-proj")
+
+    def test_missing_projects_dir_is_empty(self) -> None:
+        self.assertEqual(cli._discover_native_sessions(self.runtime), [])
+
+    def test_adopt_moves_native_to_managed(self) -> None:
+        native_id = "aaaaaaaa-1111-4111-8111-111111111111"
+        self._fake_projects([("-proj", native_id)])
+        screen = cli._SessionsScreen(
+            self.runtime, palette=cli.tui.MONO_PALETTE
+        )
+        self.assertEqual(len(screen.native), 1)
+        screen.section = "native"
+        item = screen.native[0]
+        document = self.runtime.compositions.load("default")
+        resolved = self.runtime.resolve_document(document)
+        record = sessions.make_record(
+            session_id=item["session_id"],
+            cwd=self.runtime.cwd,
+            composition_name=document["name"],
+            snapshot=composition.snapshot(resolved),
+            catalog_version=self.runtime.catalog_version,
+            catalog_hash=self.runtime.catalog.bundle_sha256,
+            launcher_version=self.runtime.launcher_version,
+        )
+        self.runtime.session_store.link(record)
+        screen._reload()
+        self.assertEqual(screen.native, [])
+        self.assertEqual(
+            [r["session_id"] for r in screen.records], [item["session_id"]]
+        )

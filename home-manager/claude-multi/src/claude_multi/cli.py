@@ -1813,12 +1813,50 @@ def _session_records(runtime: Runtime) -> list[dict[str, Any]]:
     return records
 
 
+def _discover_native_sessions(runtime: Runtime, *, limit: int = 20) -> list[dict[str, Any]]:
+    """Metadata-only discovery of unmanaged native sessions.
+
+    Boundary (deliberate): directory names, filename stems, and mtimes only —
+    session/transcript files are never opened. Anything unexpected degrades
+    to an empty list, so a layout change can never break managed sessions.
+    """
+
+    home = Path(runtime.environ.get("HOME") or Path.home())
+    projects = home / ".claude" / "projects"
+    managed = {record["session_id"] for record in _session_records(runtime)}
+    found: list[dict[str, Any]] = []
+    try:
+        for project_dir in projects.iterdir():
+            if not project_dir.is_dir():
+                continue
+            for entry in project_dir.glob("*.jsonl"):
+                session_id = entry.stem
+                if not sessions.UUID4.fullmatch(session_id) or session_id in managed:
+                    continue
+                try:
+                    mtime = entry.stat().st_mtime
+                except OSError:
+                    continue
+                found.append(
+                    {
+                        "session_id": session_id,
+                        "slug": project_dir.name,
+                        "mtime": mtime,
+                    }
+                )
+    except OSError:
+        return []
+    found.sort(key=lambda item: item["mtime"], reverse=True)
+    return found[:limit]
+
+
 # UX section 4 sessions screen strings (single source; tests pin them).
 SESSIONS_TITLE = "sessions"
 SESSIONS_KEYBAR = (
     ("R", "resume"),
-    ("T", "transition"),
+    ("T", "switch comp"),
     ("F", "forget"),
+    ("L", "adopt"),
     ("Q", "quit"),
 )
 SESSIONS_EMPTY = "(no recorded sessions)"
@@ -1851,6 +1889,18 @@ def _record_age(record: dict[str, Any], *, now: datetime | None = None) -> str:
         return str(record.get("created_at", "?"))
     current = now or datetime.now(timezone.utc)
     seconds = max(0, int((current - created).total_seconds()))
+    return _age_from_seconds(seconds)
+
+
+def _mtime_age(mtime: float, *, now: datetime | None = None) -> str:
+    """Relative age from a filesystem mtime (native session rows)."""
+
+    current = now or datetime.now(timezone.utc)
+    seconds = max(0, int(current.timestamp() - mtime))
+    return _age_from_seconds(seconds)
+
+
+def _age_from_seconds(seconds: int) -> str:
     if seconds < 90:
         return "just now"
     minutes = seconds // 60
@@ -1863,25 +1913,35 @@ def _record_age(record: dict[str, Any], *, now: datetime | None = None) -> str:
 
 
 class _SessionsScreen:
-    """UX section 4 sessions Table: mode column + Modal-confirmed row actions.
+    """UX section 4 sessions screen: managed + native (unmanaged) sections.
 
+    Managed rows support resume/transition/forget as before. Native rows are
+    discovered metadata-only (names + times; files never opened) and support
+    exactly one action: ``l`` adopt (sessions link with a composition
+    chooser), after which the row moves into the managed section.
     Returns ("resume", record) or ("transition", record, composition) for the
-    CLI to execute after curses teardown; forget runs inline (no launch) and
-    refreshes the table; Esc/Q returns None.
+    CLI to execute after curses teardown; forget/adopt run inline.
     """
 
     def __init__(self, runtime: Runtime, *, palette: tui.Palette):
         self.runtime = runtime
         self.palette = palette
+        self.section = "managed"
+        self.selected = 0
+        self.message = ""
+        self._reload()
+
+    def _reload(self) -> None:
         self.records = sorted(
-            _session_records(runtime),
+            _session_records(self.runtime),
             key=lambda record: record["created_at"],
             reverse=True,
         )
-        self.selected = 0
-        self.message = ""
+        self.native = _discover_native_sessions(self.runtime)
+        active = self.records if self.section == "managed" else self.native
+        self.selected = min(self.selected, max(0, len(active) - 1))
 
-    def _rows(self) -> list[list[str]]:
+    def _managed_rows(self) -> list[list[str]]:
         return [
             [
                 f"{record['session_id'][:12]}…",
@@ -1893,25 +1953,69 @@ class _SessionsScreen:
             for record in self.records
         ]
 
+    def _native_rows(self) -> list[list[str]]:
+        return [
+            [
+                f"{item['session_id'][:12]}…",
+                "(native)",
+                "unmanaged",
+                item["slug"],
+                _mtime_age(item["mtime"]),
+            ]
+            for item in self.native
+        ]
+
+    def _active(self) -> list[dict[str, Any]]:
+        return self.records if self.section == "managed" else self.native
+
     def _draw(self, win: Any) -> None:
         win.erase()
         palette = self.palette
         height, width = win.getmaxyx()
         tui.safe_add(win, 0, 0, SESSIONS_TITLE, palette.attr("accent") | curses.A_BOLD)
         tui.safe_add(win, 1, 0, "─" * min(width - 1, 60), palette.attr("dim"))
-        if not self.records:
-            tui.safe_add(win, 3, 0, SESSIONS_EMPTY, palette.attr("dim"))
+        row = 3
+        managed_rows = self._managed_rows()
+        if not managed_rows:
+            tui.safe_add(win, row, 0, SESSIONS_EMPTY, palette.attr("dim"))
+            row += 2
         else:
+            tui.safe_add(win, row - 1, 0, "managed (claude-multi)", palette.attr("dim"))
+            managed_selected = self.selected if self.section == "managed" else -1
             table = tui.Table(
                 ["session", "composition", "mode", "cwd", "created"],
-                self._rows(),
-                selected=self.selected,
+                managed_rows,
+                selected=managed_selected,
                 min_widths=[13, 10, 11, 8, 19],
             )
-            table.draw(win, 3, 0, width, palette, max_rows=height - 7)
-            record = self.records[table.selected]
-            self.selected = table.selected
-            tui.safe_add(win, height - 3, 0, _record_actions_label(record), palette.attr("dim"))
+            shown = min(len(managed_rows), height - 9)
+            table.draw(win, row, 0, width, palette, max_rows=shown)
+            row += shown + 2
+        if self.native:
+            tui.safe_add(
+                win,
+                row,
+                0,
+                "native (unmanaged, discovered names+times only) · press L to adopt",
+                palette.attr("dim"),
+            )
+            row += 1
+            native_selected = self.selected if self.section == "native" else -1
+            table = tui.Table(
+                ["session", "", "", "project", "active"],
+                self._native_rows(),
+                selected=native_selected,
+                min_widths=[13, 8, 9, 8, 19],
+            )
+            table.draw(win, row, 0, width, palette, max_rows=max(1, height - row - 3))
+        active = self._active()
+        if active:
+            item = active[self.selected]
+            if self.section == "managed":
+                label = _record_actions_label(item)
+            else:
+                label = "L adopt into a composition · then resume/transition apply"
+            tui.safe_add(win, height - 3, 0, label, palette.attr("dim"))
         if self.message:
             tui.safe_add(win, height - 2, 0, self.message, palette.attr("warn"))
         tui.KeyBar(SESSIONS_KEYBAR).draw(win, height - 1, palette)
@@ -1956,6 +2060,46 @@ class _SessionsScreen:
             return None
         return names[index]
 
+    def _adopt(self, win: Any, item: dict[str, Any]) -> None:
+        """Adopt a native session into the managed set (sessions link inline)."""
+
+        names = self.runtime.compositions.names()
+        chooser = tui.SelectList(
+            f"Adopt {item['session_id'][:8]}… into composition",
+            [tui.SelectItem(name) for name in names],
+            footer=(("Enter", "adopt"), ("Esc", "back")),
+        )
+        index = chooser.run(win, self.palette)
+        if index is None:
+            self.message = "Adopt cancelled."
+            return
+        document = self.runtime.compositions.load(names[index])
+        resolved = self.runtime.resolve_document(document)
+        record = sessions.make_record(
+            session_id=item["session_id"],
+            cwd=self.runtime.cwd,
+            composition_name=document["name"],
+            snapshot=composition.snapshot(resolved),
+            catalog_version=self.runtime.catalog_version,
+            catalog_hash=self.runtime.catalog.bundle_sha256,
+            launcher_version=self.runtime.launcher_version,
+        )
+        self.runtime.session_store.link(record)
+        self.message = (
+            f"Adopted {item['session_id'][:8]}… into cm:{document['name']}; "
+            "it is now managed — resume or transition apply"
+        )
+        self.section = "managed"
+        self._reload()
+        self.selected = next(
+            (
+                i
+                for i, record in enumerate(self.records)
+                if record["session_id"] == item["session_id"]
+            ),
+            0,
+        )
+
     def run(self, win: Any) -> tuple[str, dict[str, Any]] | tuple[str, dict[str, Any], str] | None:
         tui.hide_cursor()
         while True:
@@ -1967,15 +2111,34 @@ class _SessionsScreen:
                 raise KeyboardInterrupt
             if key.kind == "esc" or (key.kind == "char" and key.ch == "q"):
                 return None
-            if not self.records:
+            active = self._active()
+            if not active:
                 continue
-            record = self.records[self.selected]
             if key.kind == "up" or (key.kind == "char" and key.ch == "k"):
-                self.selected = (self.selected - 1) % len(self.records)
+                if self.selected > 0:
+                    self.selected -= 1
+                elif self.section == "native" and self.records:
+                    self.section = "managed"
+                    self.selected = len(self.records) - 1
                 continue
             if key.kind == "down" or (key.kind == "char" and key.ch == "j"):
-                self.selected = (self.selected + 1) % len(self.records)
+                if self.selected < len(active) - 1:
+                    self.selected += 1
+                elif self.section == "managed" and self.native:
+                    self.section = "native"
+                    self.selected = 0
                 continue
+            item = active[self.selected]
+            if self.section == "native":
+                if key.kind == "char" and key.ch == "l":
+                    self._adopt(win, item)
+                elif key.kind == "char" and key.ch in ("r", "t", "f"):
+                    self.message = (
+                        "adopt this session first (L); resume/transition/forget "
+                        "apply to managed sessions"
+                    )
+                continue
+            record = item
             if key.kind == "char" and key.ch == "r":
                 lines: list[str] = []
                 if record["mode"] != "durable":
@@ -2275,6 +2438,18 @@ def _print_sessions_listing(runtime: Runtime, output_stream: TextIO) -> None:
         "are listed — adopt native ones with `claude-multi sessions link <uuid>` "
         "(run it bare for the discovery guide)\n"
     )
+    native = _discover_native_sessions(runtime)
+    if native:
+        output_stream.write("native (unmanaged, discovered names+times only)\n")
+        output_stream.write("----------------------------------------\n")
+        for item in native:
+            output_stream.write(
+                tui.visible_text(
+                    f"{item['session_id']}  (native)  {item['slug']}  "
+                    f"{_mtime_age(item['mtime'])}"
+                )
+                + "\n"
+            )
 
 
 def _sessions_transition(
