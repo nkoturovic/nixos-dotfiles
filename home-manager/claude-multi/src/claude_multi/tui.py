@@ -1903,7 +1903,7 @@ class FormEditorScreen:
 
     def _edit_json(self, win: Any) -> None:
         state = self.state
-        before = strict_json.canonical_file_bytes(state.document)
+        before = strict_json.pretty_file_bytes(state.document)
         fd, path = tempfile.mkstemp(prefix="claude-multi-edit-", suffix=".json")
         try:
             with os.fdopen(fd, "wb") as handle:
