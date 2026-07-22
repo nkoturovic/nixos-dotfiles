@@ -1,0 +1,10 @@
+cf04fce Document claude-multi session transition gaps
+6c4a51b Fix claude-multi terminal and reviewer routing
+23a5ddf Implement claude-multi v2 composition compiler
+354d6e8 Allow analysis agents to create report artifacts
+1ee40ed Source secrets in commonrc; disable commonrc source in bashrc
+678fcf2 Add claude-multi conservation feature and local gateway; add zellij and disable git signing
+39fc5d9 Update profile to source secrets; add packages and docs
+4de5069 Use unstable as default nixpkgs, remove gui, other tweaks
+161abe4 Restructure dotfiles, add vifm, update flake
+f89618f Update nix to 25.05

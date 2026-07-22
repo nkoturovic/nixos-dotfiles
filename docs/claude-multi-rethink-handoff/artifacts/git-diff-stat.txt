@@ -1,0 +1,25 @@
+ .../claude-multi/catalog/native-contract.json      |  50 ++-
+ .../claude-multi/catalog/prompts/cm-analyst.md     |   7 +-
+ .../claude-multi/catalog/prompts/cm-implementer.md |   7 +-
+ .../claude-multi/catalog/prompts/cm-lead.md        |   5 +-
+ .../claude-multi/catalog/prompts/cm-reviewer.md    |   5 +-
+ home-manager/claude-multi/catalog/roles.json       |   6 +-
+ .../schemas/native-contract.schema.json            | 142 +++++++-
+ .../claude-multi/src/claude_multi/catalog.py       |   9 +
+ home-manager/claude-multi/src/claude_multi/cli.py  |  27 +-
+ .../claude-multi/src/claude_multi/compiler.py      |  74 +++-
+ home-manager/claude-multi/src/claude_multi/dev.py  |  33 +-
+ .../claude-multi/src/claude_multi/launch.py        | 301 ++++++++++++++--
+ .../tests/goldens/default/agents-contingency.json  |   2 +-
+ .../tests/goldens/default/argv-fresh.json          |   2 +-
+ .../tests/goldens/default/argv-resume.json         |   2 +-
+ .../claude-multi/tests/goldens/default/env.json    |   2 +-
+ .../tests/goldens/default/lead-appendix.md         |   6 +
+ home-manager/claude-multi/tests/test_catalog.py    | 162 ++++++++-
+ home-manager/claude-multi/tests/test_cli.py        | 106 ++++++
+ home-manager/claude-multi/tests/test_compiler.py   |  94 ++++-
+ .../claude-multi/tests/test_composition.py         |   5 +-
+ home-manager/claude-multi/tests/test_launch.py     | 387 +++++++++++++++++++--
+ .../claude-multi/tests/test_native_contract.py     |  29 +-
+ .../claude-multi/tests/test_native_policy.py       | 101 +++++-
+ 24 files changed, 1461 insertions(+), 103 deletions(-)

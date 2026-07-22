@@ -1,0 +1,9 @@
+a3b78d92494a5332521520e87dd0cc903f1b35e9bbe66166dddc36adec8be0a6  docs/claude-multi-rethink-handoff/artifacts/tracked-changes.patch
+9e699969ed21c29bdd31286bdac1e2683804eb46415f74b36b9fdfc92c38073e  docs/claude-multi-rethink-handoff/artifacts/untracked-reference-files.tar.gz
+3667b0c21542f5f56be04c15646692303fe2458741b6e65999f5c695491ac9a7  docs/claude-multi-rethink-handoff/artifacts/untracked-archive-files.txt
+4823541a57df155bb6b6258c21ff33afc321c8677052579d73c118370839739a  docs/claude-multi-rethink-handoff/artifacts/p0-self-test-evidence.json
+48c1b7422c1d5f4e5250354f410a50c641bde1d936a8163ccf012ef8c4b2a7fe  docs/claude-multi-rethink-handoff/artifacts/p0-version-evidence.json
+47a89fb7c957d896a6b8a9662ff5a7d1c23c3abcab72af6c5761a5577849330d  docs/claude-multi-rethink-handoff/artifacts/handoff-docs.tar.gz
+cf8fd8a34198d75c33e26de062cce23c6b0251a1cef6c22aca5a11e6306116f4  docs/claude-multi-rethink-handoff/artifacts/git-diff-stat.txt
+0a5f7ced091f6f9e1b079b7b38b12693d40dd3e2bd428f46dd8eafe3a6020f93  docs/claude-multi-rethink-handoff/artifacts/git-log.txt
+b872f534b2170c52ab6214c523470efa99546a3cd1b09a2d7c0f1f792cf9b30c  docs/claude-multi-rethink-handoff/artifacts/git-status.txt

@@ -1,0 +1,2246 @@
+diff --git a/home-manager/claude-multi/catalog/native-contract.json b/home-manager/claude-multi/catalog/native-contract.json
+index f97f57c..09e3d44 100644
+--- a/home-manager/claude-multi/catalog/native-contract.json
++++ b/home-manager/claude-multi/catalog/native-contract.json
+@@ -1,13 +1,13 @@
+ {
+   "version": 1,
+   "claude": {
+-    "validated_version": "2.1.216",
++    "validated_version": "2.1.217",
+     "executable": {
+       "configured_path": "/home/kotur/.local/bin/claude",
+-      "resolved_path": "/home/kotur/.local/share/claude/versions/2.1.216",
+-      "sha256": "74deca45220b8080ec75ab099bd5a5980e41a2b5879846a008fb115d436de085",
+-      "inspection": "Offline symlink/path resolution and SHA-256 file hashing only; Claude was not executed for this record; version read from the versioned install path.",
+-      "inspected_at": "2026-07-21"
++      "resolved_path": "/home/kotur/.local/share/claude/versions/2.1.217",
++      "sha256": "2630fc5dc6db61bc03f86b95daf47766e5ed5b61873f7bb7cfea764c5ac5a9ba",
++      "inspection": "Offline symlink/path resolution and SHA-256 file hashing; local execution of the pinned 2.1.217 binary limited to --version and --help (no prompt, no provider request, no daemon contact).",
++      "inspected_at": "2026-07-22"
+     }
+   },
+   "effort_vocabulary": {
+@@ -15,6 +15,38 @@
+     "status": "provisionally-trusted",
+     "evidence": "Client-accepted in ordinary v1 operation against the pinned installation (launcher profiles and agent definitions). Native acceptance per pinned version remains to be confirmed by the Phase 2 native-contract probe."
+   },
++  "generic_agent_aliases": {
++    "values": ["claude"],
++    "status": "provisionally-trusted",
++    "evidence": "Static strings in the inspected 2.1.217 binary name the generic native agent alias 'claude'; recorded per inspected version for policy compilation (Agent(claude) deny). Static presence is not functional verification; deny acceptance remains Phase-1 G1/P2 probe scope."
++  },
++  "session_config": {
++    "status": "pending",
++    "evidence": "Offline 2.1.217 help confirms agents/settings/model/effort/session/resume/fork/background/tool-policy/worktree/prompt surfaces; static strings confirm CLAUDE_CONFIG_DIR and DISABLE_AUTOUPDATER. Static presence is not functional verification; no C* capability is verified.",
++    "capabilities": {
++      "root_agent_discovery": { "status": "pending", "probe": "g1-p1" },
++      "persistent_denies": { "status": "pending", "probe": "g1-p2" },
++      "onboarding_trust": { "status": "pending", "probe": "g1-p3" },
++      "transcript_location_exact_resume": { "status": "pending", "probe": "g1-p-t" },
++      "selectors_effort_tools_worktree": { "status": "pending", "probe": "g1-p8" },
++      "background_supervisor_lifecycle": { "status": "pending", "probe": "g1-p-bg" },
++      "root_memory_reinjection": { "status": "pending", "probe": "g1-p9" },
++      "project_agent_collision": { "status": "pending", "probe": "g1-p-project" }
++    }
++  },
++  "nested_subagents": {
++    "decision": "pending",
++    "depth_key": {
++      "name": "CLAUDE_CODE_MAX_SUBAGENT_SPAWN_DEPTH",
++      "status": "unverified"
++    },
++    "concurrency_key": {
++      "name": "CLAUDE_CODE_MAX_CONCURRENT_SUBAGENTS",
++      "status": "unverified"
++    },
++    "probe": "g1-p-bg",
++    "evidence": "Static strings in the inspected 2.1.217 binary name both keys; static presence is not functional verification. 2.1.217 disables nested spawning by default. Decision chain: G1 positive/negative controls, then Phase 2C compiles verified keys or amends canonical prompts."
++  },
+   "acceptance": {
+     "same_launch_agents_and_agent_cm_lead": {
+       "status": "unverified",
+@@ -31,6 +63,10 @@
+     "contingency": "main-thread-append-system-prompt-file",
+     "decision_gate": "P1"
+   },
+-  "evidence_version": 1,
+-  "recorded_at": "2026-07-21"
++  "lifecycle_evidence": {
++    "inspected_version": "2.1.217",
++    "evidence_id": "deepwork-claude-multi-durable-session-config-phase0-2.1.217"
++  },
++  "evidence_version": 2,
++  "recorded_at": "2026-07-22"
+ }
+diff --git a/home-manager/claude-multi/catalog/prompts/cm-analyst.md b/home-manager/claude-multi/catalog/prompts/cm-analyst.md
+index 3f47854..3769aca 100644
+--- a/home-manager/claude-multi/catalog/prompts/cm-analyst.md
++++ b/home-manager/claude-multi/catalog/prompts/cm-analyst.md
+@@ -24,6 +24,7 @@ comparison, and repository-wide synthesis.
+ 
+ ## Delegation
+ 
+-- You may delegate distinct read-only analysis or bounded reporting
+-  subproblems when useful. Delegated work must stay read-mostly and inside
+-  this contract; never delegate implementation.
++- You must not delegate. Nested subagent spawning is disabled on the pinned
++  platform while the spawn-depth decision is pending. If a subtask needs
++  separate handling, report the split to the lead; never ask another agent to
++  perform work for you.
+diff --git a/home-manager/claude-multi/catalog/prompts/cm-implementer.md b/home-manager/claude-multi/catalog/prompts/cm-implementer.md
+index 5539db6..4cb55a8 100644
+--- a/home-manager/claude-multi/catalog/prompts/cm-implementer.md
++++ b/home-manager/claude-multi/catalog/prompts/cm-implementer.md
+@@ -24,6 +24,7 @@ normally inside an isolated worktree.
+ 
+ ## Delegation
+ 
+-- You may delegate distinct bounded subproblems inside the assigned scope when
+-  parallelism helps. Descendants share these same boundaries; you keep
+-  validation ownership for everything you delegate.
++- You must not delegate. Nested subagent spawning is disabled on the pinned
++  platform while the spawn-depth decision is pending. If the task splits into
++  disjoint bounded parts, report the split to the lead; you keep validation
++  ownership for your own work.
+diff --git a/home-manager/claude-multi/catalog/prompts/cm-lead.md b/home-manager/claude-multi/catalog/prompts/cm-lead.md
+index 55037e5..ed5d913 100644
+--- a/home-manager/claude-multi/catalog/prompts/cm-lead.md
++++ b/home-manager/claude-multi/catalog/prompts/cm-lead.md
+@@ -22,8 +22,9 @@ variant's model and effort lane are fixed by its definition.
+   of the same role remain available for their routing hints; a preferred
+   variant is a routing default, never an automatic fallback or retry.
+ - Delegated work stays inside the delegate's role contract. Nested delegation
+-  is allowed within the same contracts; descendants share the same budgets and
+-  boundaries, and the parent keeps integration and validation ownership.
++  is disabled on the pinned platform while the spawn-depth decision is
++  pending: selected agents must not delegate further, so route every
++  delegation decision yourself.
+ 
+ ## Writer discipline
+ 
+diff --git a/home-manager/claude-multi/catalog/prompts/cm-reviewer.md b/home-manager/claude-multi/catalog/prompts/cm-reviewer.md
+index b4cf477..a1e143a 100644
+--- a/home-manager/claude-multi/catalog/prompts/cm-reviewer.md
++++ b/home-manager/claude-multi/catalog/prompts/cm-reviewer.md
+@@ -23,5 +23,6 @@ change presented to you.
+ 
+ ## Delegation
+ 
+-- You may delegate distinct read-only review subproblems within scope. Never
+-  delegate edits.
++- You must not delegate. Nested subagent spawning is disabled on the pinned
++  platform while the spawn-depth decision is pending. If the review scope
++  splits, report the split to the lead; never delegate edits.
+diff --git a/home-manager/claude-multi/catalog/roles.json b/home-manager/claude-multi/catalog/roles.json
+index 2a690b9..1529621 100644
+--- a/home-manager/claude-multi/catalog/roles.json
++++ b/home-manager/claude-multi/catalog/roles.json
+@@ -17,7 +17,7 @@
+       "tools": null,
+       "disallowed_tools": [],
+       "mutation_contract": "No implementation or integration edits; explicitly requested bounded isolated report artifacts allowed.",
+-      "delegation_contract": "May delegate distinct read-only analysis and bounded reporting subproblems within scope."
++      "delegation_contract": "Does not delegate while nested spawning is disabled (spawn-depth decision pending); reports task splits to the lead."
+     },
+     "cm-reviewer": {
+       "summary": "Independent concrete change review with severity-ranked findings and an explicit verdict.",
+@@ -26,7 +26,7 @@
+       "tools": null,
+       "disallowed_tools": [],
+       "mutation_contract": "No implementation or integration edits; explicitly requested bounded review artifacts allowed.",
+-      "delegation_contract": "May delegate distinct read-only review subproblems within scope."
++      "delegation_contract": "Does not delegate while nested spawning is disabled (spawn-depth decision pending); reports scope splits to the lead."
+     },
+     "cm-implementer": {
+       "summary": "Bounded implementation, normally worktree-isolated; reports changed files and validation.",
+@@ -35,7 +35,7 @@
+       "tools": null,
+       "disallowed_tools": [],
+       "mutation_contract": "Edits only within the assigned bounded scope; one writer per overlapping scope; reports changed files and validation evidence.",
+-      "delegation_contract": "May delegate distinct bounded subproblems inside the assigned scope; descendants share the same boundaries."
++      "delegation_contract": "Does not delegate while nested spawning is disabled (spawn-depth decision pending); reports task splits to the lead."
+     }
+   }
+ }
+diff --git a/home-manager/claude-multi/schemas/native-contract.schema.json b/home-manager/claude-multi/schemas/native-contract.schema.json
+index 9c54e46..c08c706 100644
+--- a/home-manager/claude-multi/schemas/native-contract.schema.json
++++ b/home-manager/claude-multi/schemas/native-contract.schema.json
+@@ -1,7 +1,7 @@
+ {
+   "version": 1,
+   "type": "object",
+-  "required": ["version", "claude", "effort_vocabulary", "acceptance", "lead_delivery", "evidence_version", "recorded_at"],
++  "required": ["version", "claude", "effort_vocabulary", "generic_agent_aliases", "session_config", "nested_subagents", "acceptance", "lead_delivery", "lifecycle_evidence", "evidence_version", "recorded_at"],
+   "additionalProperties": false,
+   "properties": {
+     "version": { "const": 1 },
+@@ -40,6 +40,137 @@
+         "evidence": { "type": "string", "minLength": 1, "maxLength": 512 }
+       }
+     },
++    "generic_agent_aliases": {
++      "type": "object",
++      "required": ["values", "status", "evidence"],
++      "additionalProperties": false,
++      "properties": {
++        "values": {
++          "type": "array",
++          "minItems": 1,
++          "uniqueItems": true,
++          "items": { "type": "string", "pattern": "^[a-z][a-z0-9-]*$" }
++        },
++        "status": { "enum": ["provisionally-trusted", "verified", "unverified"] },
++        "evidence": { "type": "string", "minLength": 1, "maxLength": 512 }
++      }
++    },
++    "session_config": {
++      "type": "object",
++      "required": ["status", "evidence", "capabilities"],
++      "additionalProperties": false,
++      "properties": {
++        "status": { "enum": ["pending", "verified", "rejected"] },
++        "evidence": { "type": "string", "minLength": 1, "maxLength": 512 },
++        "capabilities": {
++          "type": "object",
++          "required": ["root_agent_discovery", "persistent_denies", "onboarding_trust", "transcript_location_exact_resume", "selectors_effort_tools_worktree", "background_supervisor_lifecycle", "root_memory_reinjection", "project_agent_collision"],
++          "additionalProperties": false,
++          "properties": {
++            "root_agent_discovery": {
++              "type": "object",
++              "required": ["status", "probe"],
++              "additionalProperties": false,
++              "properties": {
++                "status": { "enum": ["pending", "verified", "failed"] },
++                "probe": { "type": "string", "pattern": "^[a-z0-9-]+$" }
++              }
++            },
++            "persistent_denies": {
++              "type": "object",
++              "required": ["status", "probe"],
++              "additionalProperties": false,
++              "properties": {
++                "status": { "enum": ["pending", "verified", "failed"] },
++                "probe": { "type": "string", "pattern": "^[a-z0-9-]+$" }
++              }
++            },
++            "onboarding_trust": {
++              "type": "object",
++              "required": ["status", "probe"],
++              "additionalProperties": false,
++              "properties": {
++                "status": { "enum": ["pending", "verified", "failed"] },
++                "probe": { "type": "string", "pattern": "^[a-z0-9-]+$" }
++              }
++            },
++            "transcript_location_exact_resume": {
++              "type": "object",
++              "required": ["status", "probe"],
++              "additionalProperties": false,
++              "properties": {
++                "status": { "enum": ["pending", "verified", "failed"] },
++                "probe": { "type": "string", "pattern": "^[a-z0-9-]+$" }
++              }
++            },
++            "selectors_effort_tools_worktree": {
++              "type": "object",
++              "required": ["status", "probe"],
++              "additionalProperties": false,
++              "properties": {
++                "status": { "enum": ["pending", "verified", "failed"] },
++                "probe": { "type": "string", "pattern": "^[a-z0-9-]+$" }
++              }
++            },
++            "background_supervisor_lifecycle": {
++              "type": "object",
++              "required": ["status", "probe"],
++              "additionalProperties": false,
++              "properties": {
++                "status": { "enum": ["pending", "verified", "failed"] },
++                "probe": { "type": "string", "pattern": "^[a-z0-9-]+$" }
++              }
++            },
++            "root_memory_reinjection": {
++              "type": "object",
++              "required": ["status", "probe"],
++              "additionalProperties": false,
++              "properties": {
++                "status": { "enum": ["pending", "verified", "failed"] },
++                "probe": { "type": "string", "pattern": "^[a-z0-9-]+$" }
++              }
++            },
++            "project_agent_collision": {
++              "type": "object",
++              "required": ["status", "probe"],
++              "additionalProperties": false,
++              "properties": {
++                "status": { "enum": ["pending", "verified", "failed"] },
++                "probe": { "type": "string", "pattern": "^[a-z0-9-]+$" }
++              }
++            }
++          }
++        }
++      }
++    },
++    "nested_subagents": {
++      "type": "object",
++      "required": ["decision", "depth_key", "concurrency_key", "probe", "evidence"],
++      "additionalProperties": false,
++      "properties": {
++        "decision": { "enum": ["pending", "compile-verified-keys", "amend-prompts"] },
++        "depth_key": {
++          "type": "object",
++          "required": ["name", "status"],
++          "additionalProperties": false,
++          "properties": {
++            "name": { "const": "CLAUDE_CODE_MAX_SUBAGENT_SPAWN_DEPTH" },
++            "status": { "enum": ["unverified", "verified", "failed"] }
++          }
++        },
++        "concurrency_key": {
++          "type": "object",
++          "required": ["name", "status"],
++          "additionalProperties": false,
++          "properties": {
++            "name": { "const": "CLAUDE_CODE_MAX_CONCURRENT_SUBAGENTS" },
++            "status": { "enum": ["unverified", "verified", "failed"] }
++          }
++        },
++        "probe": { "type": "string", "pattern": "^[a-z0-9-]+$" },
++        "evidence": { "type": "string", "minLength": 1, "maxLength": 512 }
++      }
++    },
+     "acceptance": {
+       "type": "object",
+       "required": ["same_launch_agents_and_agent_cm_lead", "fork_triple_flag"],
+@@ -76,6 +207,15 @@
+         "decision_gate": { "const": "P1" }
+       }
+     },
++    "lifecycle_evidence": {
++      "type": "object",
++      "required": ["inspected_version", "evidence_id"],
++      "additionalProperties": false,
++      "properties": {
++        "inspected_version": { "type": "string", "pattern": "^[0-9]+\\.[0-9]+\\.[0-9]+$" },
++        "evidence_id": { "type": "string", "minLength": 1, "maxLength": 128, "pattern": "^[a-z0-9][a-z0-9.-]*$" }
++      }
++    },
+     "evidence_version": { "type": "integer", "minimum": 1 },
+     "recorded_at": { "type": "string", "pattern": "^[0-9]{4}-[0-9]{2}-[0-9]{2}$" }
+   }
+diff --git a/home-manager/claude-multi/src/claude_multi/catalog.py b/home-manager/claude-multi/src/claude_multi/catalog.py
+index 9c256c6..0924be6 100644
+--- a/home-manager/claude-multi/src/claude_multi/catalog.py
++++ b/home-manager/claude-multi/src/claude_multi/catalog.py
+@@ -37,12 +37,21 @@ CANONICAL_FORK_ROUTES = {
+ # Compiler-owned environment keys: never settable from a model lead.env block.
+ # CLAUDE_CODE_AUTO_COMPACT_WINDOW deliberately remains the allowed lead-scoped
+ # setting; every other process-scoped key is compiled by the launcher only.
++# G0' additionally reserves the config-dir, updater, and nested-spawn keys
++# against lead.env while the nested decision chain is pending.
++# CLAUDE_CODE_DISABLE_EXPLORE_PLAN_AGENTS is compiled from native-agent
++# policy; a lead.env value could contradict the appended policy truth.
+ RESERVED_LEAD_ENV_KEYS = frozenset(
+     {
+         "CLAUDE_CODE_SUBAGENT_MODEL",
+         "CLAUDE_CODE_MAX_OUTPUT_TOKENS",
+         "CLAUDE_CODE_ENABLE_GATEWAY_MODEL_DISCOVERY",
+         "CLAUDE_CODE_MAX_CONTEXT_TOKENS",
++        "CLAUDE_CONFIG_DIR",
++        "DISABLE_AUTOUPDATER",
++        "CLAUDE_CODE_MAX_SUBAGENT_SPAWN_DEPTH",
++        "CLAUDE_CODE_MAX_CONCURRENT_SUBAGENTS",
++        "CLAUDE_CODE_DISABLE_EXPLORE_PLAN_AGENTS",
+     }
+ )
+ 
+diff --git a/home-manager/claude-multi/src/claude_multi/cli.py b/home-manager/claude-multi/src/claude_multi/cli.py
+index 9516acc..4c30676 100644
+--- a/home-manager/claude-multi/src/claude_multi/cli.py
++++ b/home-manager/claude-multi/src/claude_multi/cli.py
+@@ -190,6 +190,12 @@ class Runtime:
+         compile_callback: Callable[..., compiler.CompileResult] = compiler.compile_launch,
+         launch_callback: Callable[[PreparedLaunch], Any] | None = None,
+         doctor_callback: Callable[["Runtime"], list[str]] | None = None,
++        doctor_binary_callback: Callable[
++            [dict[str, Any]], tuple[list[str], list[str]]
++        ] = launch.doctor_binary_report,
++        doctor_daemon_callback: Callable[
++            [], launch.DaemonStatus
++        ] = launch.inspect_shared_daemon,
+     ):
+         self.asset_root = Path(asset_root)
+         self.environ = dict(os.environ if environ is None else environ)
+@@ -211,6 +217,8 @@ class Runtime:
+         self.compile_callback = compile_callback
+         self.launch_callback = launch_callback
+         self.doctor_callback = doctor_callback
++        self.doctor_binary_callback = doctor_binary_callback
++        self.doctor_daemon_callback = doctor_daemon_callback
+ 
+     @property
+     def launcher_version(self) -> str:
+@@ -266,7 +274,9 @@ class Runtime:
+             session_action=session_action,
+             passthrough=passthrough,
+             settings_path=self.asset_root / "settings.json",
+-            lead_prompt_path=compiler.lead_prompt_path(self.session_store.root, digest),
++            lead_prompt_path=compiler.lead_prompt_path(
++                self.session_store.root, digest, session_action.session_id
++            ),
+         )
+         record = sessions.make_record(
+             session_id=launch_id,
+@@ -1040,6 +1050,14 @@ def handle_command(
+                     environ=runtime.environ,
+                 ):
+                     problems.append(f"composition {name}: {issue}")
++        # G0': the same resolver as launch; Doctor can never report Ready when
++        # binary verification would fail. Daemon status is informational only.
++        binary_problems, binary_info = runtime.doctor_binary_callback(
++            runtime.catalog.docs["native-contract"]
++        )
++        problems.extend(binary_problems)
++        daemon = runtime.doctor_daemon_callback()
++        info_lines = [*binary_info, f"Shared daemon: {daemon.summary}."]
+         if runtime.doctor_callback is not None:
+             problems.extend(runtime.doctor_callback(runtime))
+         else:
+@@ -1051,8 +1069,13 @@ def handle_command(
+             output_stream.write("BLOCKED\n")
+             for problem in problems:
+                 output_stream.write(f"  - {problem}\n")
++            for line in info_lines:
++                output_stream.write(f"{line}\n")
+             return 1
+-        output_stream.write("Ready\nCatalog, compositions, and local gateway are valid.\n")
++        output_stream.write("Ready\n")
++        for line in info_lines:
++            output_stream.write(f"{line}\n")
++        output_stream.write("Catalog, compositions, and local gateway are valid.\n")
+         return 0
+ 
+     raise CLIError(f"unsupported command {args.command!r}")
+diff --git a/home-manager/claude-multi/src/claude_multi/compiler.py b/home-manager/claude-multi/src/claude_multi/compiler.py
+index 60de54c..b0ec829 100644
+--- a/home-manager/claude-multi/src/claude_multi/compiler.py
++++ b/home-manager/claude-multi/src/claude_multi/compiler.py
+@@ -8,6 +8,7 @@ writes, no health checks, no exec.
+ 
+ from __future__ import annotations
+ 
++from collections.abc import Iterable
+ from dataclasses import dataclass
+ from pathlib import Path
+ from typing import Any
+@@ -177,7 +178,11 @@ def generate_agent_definitions(
+ 
+ 
+ def generate_lead_appendix(
+-    resolved: ResolvedComposition, providers: dict[str, Any]
++    resolved: ResolvedComposition,
++    providers: dict[str, Any],
++    *,
++    session_id: str,
++    composition_name: str,
+ ) -> str:
+     """Dynamic cm-lead content: inventory, native policy, independence, rules."""
+ 
+@@ -236,11 +241,31 @@ def generate_lead_appendix(
+         "- Invoke generated agents by exact ID; never pass a per-invocation model override."
+     )
+     lines.append("")
++    lines.append("## Session sentinel (generated)")
++    lines.append("")
++    lines.append(f"- Managed session: {session_id} (composition `{composition_name}`).")
++    lines.append(
++        "- If a selected cm-* type is unavailable, stop delegation. "
++        "Never substitute a native or generic agent."
++    )
++    lines.append(
++        "- Exact relaunch after interruption: ask the user to run "
++        f"`claude-multi --composition {composition_name} -r {session_id}`."
++    )
++    lines.append("")
+     return "\n".join(lines)
+ 
+ 
+-def compile_native_policy(policy: dict[str, str]) -> tuple[dict[str, str], list[str]]:
+-    """Compile built-in policy into env and one consolidated exact deny list."""
++def compile_native_policy(
++    policy: dict[str, str], generic_aliases: Iterable[str] = ()
++) -> tuple[dict[str, str], list[str]]:
++    """Compile built-in policy plus contract-recorded generic native aliases.
++
++    Deny order is deterministic: built-ins (Explore, Plan, general-purpose)
++    followed by the sorted unique contract generic aliases (e.g.
++    ``Agent(claude)``). Recording an alias compiles a deny only; it asserts no
++    functional verification beyond policy compilation.
++    """
+ 
+     env: dict[str, str] = {}
+     denies: list[str] = []
+@@ -255,6 +280,10 @@ def compile_native_policy(policy: dict[str, str]) -> tuple[dict[str, str], list[
+             denies.append("Agent(Plan)")
+     if policy["general_purpose"] == "off":
+         denies.append("Agent(general-purpose)")
++    for alias in sorted(set(generic_aliases)):
++        deny = f"Agent({alias})"
++        if deny not in denies:
++            denies.append(deny)
+     return env, denies
+ 
+ 
+@@ -319,6 +348,8 @@ def compile_environment(
+         "ANTHROPIC_DEFAULT_FABLE_MODEL": fable_default,
+         "ANTHROPIC_DEFAULT_OPUS_MODEL": opus_default,
+         "CLAUDE_MULTI_GATEWAY": "1",
++        # G0' updater hygiene: non-load-bearing; no shared-daemon claim.
++        "DISABLE_AUTOUPDATER": "1",
+     }
+     if resolved.scalar_context_tokens is not None:
+         env_set["CLAUDE_CODE_MAX_CONTEXT_TOKENS"] = str(resolved.scalar_context_tokens)
+@@ -329,6 +360,16 @@ def compile_environment(
+         "CLAUDE_CODE_MAX_OUTPUT_TOKENS",
+         "CLAUDE_CODE_ENABLE_GATEWAY_MODEL_DISCOVERY",
+         "CLAUDE_CODE_AUTO_COMPACT_WINDOW",
++        # G0' reservations: an inherited config-dir or nested-spawn control
++        # must never leak into a managed legacy launch while the nested
++        # decision chain is pending.
++        "CLAUDE_CONFIG_DIR",
++        "CLAUDE_CODE_MAX_SUBAGENT_SPAWN_DEPTH",
++        "CLAUDE_CODE_MAX_CONCURRENT_SUBAGENTS",
++        # Compiled from native-agent policy; an inherited value could
++        # contradict the compiled policy truth. Unset first; when policy
++        # requires it, env_set applies the compiled value afterwards.
++        "CLAUDE_CODE_DISABLE_EXPLORE_PLAN_AGENTS",
+     ]
+     if resolved.scalar_context_tokens is None:
+         # No scalar selection: an inherited context cap must never leak in.
+@@ -353,9 +394,20 @@ class CompileResult:
+     composition_name: str
+ 
+ 
+-def lead_prompt_path(state_root: Path, composition_hash: str) -> Path:
++def lead_prompt_path(
++    state_root: Path, composition_hash: str, session_id: str
++) -> Path:
++    """Session-scoped lead prompt path: composition digest + exact session UUID.
++
++    Deterministic per (composition, session): fresh launches with different
++    UUIDs never overwrite each other's sentinel, resume of the same UUID is
++    stable, and a composition transition for the same UUID lands on a new
++    digest-named file. The launcher never prunes a prompt file, so a file
++    that could belong to an active session is never removed.
++    """
++
+     digest = composition_hash.removeprefix("sha256:")[:16]
+-    return state_root / f"lead-prompt-{digest}.md"
++    return state_root / f"lead-prompt-{digest}-{session_id}.md"
+ 
+ 
+ def compile_launch(
+@@ -380,7 +432,12 @@ def compile_launch(
+     lead_prompt = (
+         prompt_bodies[LEAD_ID].decode("utf-8")
+         + "\n"
+-        + generate_lead_appendix(resolved, docs["providers"]["providers"])
++        + generate_lead_appendix(
++            resolved,
++            docs["providers"]["providers"],
++            session_id=session_action.session_id,
++            composition_name=resolved.name,
++        )
+     )
+     definitions = generate_agent_definitions(
+         resolved,
+@@ -393,7 +450,10 @@ def compile_launch(
+     )
+     agents_json = strict_json.canonical_bytes(definitions).decode("utf-8")
+ 
+-    policy_env, denies = compile_native_policy(resolved.native_agents)
++    policy_env, denies = compile_native_policy(
++        resolved.native_agents,
++        native_contract["generic_agent_aliases"]["values"],
++    )
+     env_set, env_unset = compile_environment(
+         docs["gateway"], docs["providers"]["providers"], resolved
+     )
+diff --git a/home-manager/claude-multi/src/claude_multi/dev.py b/home-manager/claude-multi/src/claude_multi/dev.py
+index 6112a7d..1ef4529 100644
+--- a/home-manager/claude-multi/src/claude_multi/dev.py
++++ b/home-manager/claude-multi/src/claude_multi/dev.py
+@@ -5,6 +5,16 @@ trusted repository JSON only: it never builds, activates, stages, commits,
+ restarts services, resolves real secrets, or contacts a provider. Dummy
+ secrets are used for every check/review render. The pre/post-image hash
+ contract fails closed on any source drift.
++
++This entrypoint also hosts the explicitly gated Phase-1B disposable probe
++harness: `probe init --allow-local-claude --fixture-root PATH`, and
++`probe p0-self-test --allow-local-claude --fixture-root PATH` (exercises
++the P0 namespace mechanism with a harmless fake executable). Real native
++execution exists only as `probe run --allow-local-claude --fixture-root
++PATH --native-contract FILE --p0 --allow-real-execution [-- args]`; both
++consent flags are presence-based (their values are ignored and never relax
++any other check). It never touches live Claude config, provider
++credentials, real providers, user transcripts, or the live shared daemon.
+ """
+ 
+ from __future__ import annotations
+@@ -22,6 +32,7 @@ from pathlib import Path
+ from typing import Any, Callable
+ 
+ from . import catalog as catalog_mod
++from . import probe as probe_mod
+ from . import render as render_mod
+ from . import state, strict_json
+ from . import validate as schema_validate
+@@ -849,20 +860,29 @@ def _parse_flags(args: list[str]) -> tuple[list[str], dict[str, Any]]:
+     return positionals, flags
+ 
+ 
++def _draft_store() -> DraftStore:
++    return DraftStore(
++        Path(os.environ.get("XDG_STATE_HOME", str(Path.home() / ".local" / "state")))
++        / "claude-multi"
++        / "drafts"
++    )
++
++
+ def main(argv: list[str]) -> int:
+     if not argv:
+         print(__doc__)
+         return 2
+     command, rest = argv[0], argv[1:]
++    if command == "probe":
++        head = rest[: rest.index("--")] if "--" in rest else rest
++        tail = rest[rest.index("--") + 1:] if "--" in rest else []
++        positionals, flags = _parse_flags(head)
++        return probe_mod.probe_cli(positionals, flags, tail)
+     positionals, flags = _parse_flags(rest)
+     repo = Path(flags.get("repo", ".")) if "repo" in flags else None
+-    drafts = DraftStore(
+-        Path(os.environ.get("XDG_STATE_HOME", str(Path.home() / ".local" / "state")))
+-        / "claude-multi"
+-        / "drafts"
+-    )
+     try:
+         if command in ("model", "provider") and positionals[:1] == ["add"]:
++            drafts = _draft_store()
+             kind = command
+             if "from-json" not in flags:
+                 raise DevError(f"{kind} add requires --from-json FILE")
+@@ -901,6 +921,7 @@ def main(argv: list[str]) -> int:
+             print(f"draft saved: {path}")
+             return 0
+         if command == "check":
++            drafts = _draft_store()
+             if not positionals:
+                 raise DevError("check requires a DRAFT name")
+             draft = _validate_draft(drafts.load(positionals[0]), _load_draft_schema(
+@@ -912,6 +933,7 @@ def main(argv: list[str]) -> int:
+                 print(f"  build: {build.get('cmd', ['?'])[-1]} -> {build.get('returncode', build.get('skipped'))}")
+             return 0
+         if command == "review":
++            drafts = _draft_store()
+             if not positionals:
+                 raise DevError("review requires a DRAFT name")
+             verified = verify_repo(repo or Path("."))
+@@ -925,6 +947,7 @@ def main(argv: list[str]) -> int:
+             print(record["results"]["diff"])
+             return 0
+         if command == "promote":
++            drafts = _draft_store()
+             if not positionals:
+                 raise DevError("promote requires a DRAFT name")
+             mode = resolve_promote_mode(
+diff --git a/home-manager/claude-multi/src/claude_multi/launch.py b/home-manager/claude-multi/src/claude_multi/launch.py
+index bb5e61d..e47b06a 100644
+--- a/home-manager/claude-multi/src/claude_multi/launch.py
++++ b/home-manager/claude-multi/src/claude_multi/launch.py
+@@ -12,6 +12,19 @@ Hashing contract: ``resolve_claude`` rehashes the full external binary
+ deliberate; any cache must be separately reviewed and must still rehash fully
+ whenever the resolved-path identity changes.
+ 
++G0' trust model: the contract's recorded ``resolved_path`` is verified
++directly — absolute, existing, regular, non-symlink, executable, basename
++equal to the validated version, full SHA-256 match. The configured symlink is
++resolved only for an informational advisory; a moved symlink never blocks
++launch while the inspected artifact remains intact, and a missing, symlinked,
++non-executable, wrong-basename, or hash-mismatched artifact blocks before any
++readiness check, state write, prompt write, or pointer update.
++
++Accepted limitation: verification is path-based, so a determined local
++attacker could swap the artifact between verification and execve (TOCTOU).
++This is the blueprint's accepted trust-model boundary; an fd/memfd-based
++redesign is deliberately out of scope for G0'.
++
+ Cleanup contract: if ``os.execve`` raises ``OSError``, the just-persisted
+ session record is forgotten and a per-CWD pointer set by this launch is
+ cleared (compare-and-clear), so a nonexistent session is never offered later.
+@@ -25,11 +38,13 @@ import hashlib
+ import http.client
+ import os
+ import re
++import stat
+ import urllib.parse
++from dataclasses import dataclass
+ from pathlib import Path
+ from typing import Any, Callable
+ 
+-from . import state
++from . import state, strict_json
+ from .compiler import CompileResult
+ from .sessions import SessionStore
+ 
+@@ -41,41 +56,282 @@ class LaunchError(RuntimeError):
+ _TOKEN_SHAPE = re.compile(r"^[0-9a-f]{64}$")
+ 
+ 
+-def resolve_claude(native_contract: dict[str, Any]) -> Path:
+-    """Resolve and verify the external Claude executable against the record.
++@dataclass(frozen=True)
++class BinaryStatus:
++    """Immutable trust status for the inspected Claude binary (G0')."""
++
++    inspected_path: Path
++    validated_version: str
++    sha256: str
++    configured_path: Path
++    configured_target: Path | None
++    configured_matches: bool
++    advisory: str | None
++
+ 
+-    Symlinks are resolved, then the resolved path, version basename, and
+-    content hash must match the trusted record exactly; any mismatch fails
+-    closed before any state write or health check.
++def resolve_claude(native_contract: dict[str, Any]) -> BinaryStatus:
++    """Verify the contract's recorded ``resolved_path`` directly (G0').
++
++    The inspected artifact must be an absolute, existing, regular,
++    non-symlink, executable file whose basename equals the validated version
++    and whose full SHA-256 matches the trusted record; any deviation fails
++    closed before any readiness check or state write. The configured symlink
++    is resolved only for the informational status object: a moved symlink
++    never blocks while the inspected artifact remains intact.
+     """
+ 
+     record = native_contract["claude"]
+     executable = record["executable"]
+-    configured = Path(executable["configured_path"])
+-    resolved = Path(os.path.realpath(configured))
+     expected = Path(executable["resolved_path"])
+-    if resolved != expected:
++    if not expected.is_absolute():
++        raise LaunchError(f"inspected Claude path {expected} is not absolute")
++    if not os.path.lexists(expected):
+         raise LaunchError(
+-            f"Claude executable resolves to {resolved}, expected {expected}; "
+-            "the external installation drifted from the trusted native-contract "
+-            "record"
++            f"inspected Claude artifact {expected} is missing; re-run the "
++            "native-contract inspection against the installed version"
+         )
+-    if not resolved.is_file():
+-        raise LaunchError(f"Claude executable {resolved} is not a regular file")
+-    if resolved.name != record["validated_version"]:
++    if expected.is_symlink():
+         raise LaunchError(
+-            f"Claude executable version {resolved.name!r} does not match trusted "
++            f"inspected Claude artifact {expected} is a symlink; the trusted "
++            "record must name the regular installed file"
++        )
++    if not expected.is_file():
++        raise LaunchError(
++            f"inspected Claude artifact {expected} is not a regular file"
++        )
++    if expected.name != record["validated_version"]:
++        raise LaunchError(
++            f"inspected Claude version {expected.name!r} does not match trusted "
+             f"version {record['validated_version']!r}"
+         )
+-    digest = hashlib.sha256(resolved.read_bytes()).hexdigest()
++    # Cheap checks before the deliberate full-file hash.
++    if not os.access(expected, os.X_OK):
++        raise LaunchError(f"inspected Claude artifact {expected} is not executable")
++    digest = hashlib.sha256(expected.read_bytes()).hexdigest()
+     if digest != executable["sha256"]:
+         raise LaunchError(
+-            "Claude executable content hash does not match the trusted "
++            "inspected Claude artifact content hash does not match the trusted "
+             "native-contract record; re-run the native-contract inspection"
+         )
+-    if not os.access(resolved, os.X_OK):
+-        raise LaunchError(f"Claude executable {resolved} is not executable")
+-    return resolved
++
++    configured = Path(executable["configured_path"])
++    target: Path | None = None
++    if os.path.lexists(configured):
++        target = Path(os.path.realpath(configured))
++    matches = target == expected
++    advisory: str | None = None
++    if not matches:
++        shown = "unresolvable" if target is None else str(target)
++        advisory = (
++            f"configured symlink {configured} resolves to {shown}, not the "
++            f"inspected artifact {expected}"
++        )
++    return BinaryStatus(
++        inspected_path=expected,
++        validated_version=record["validated_version"],
++        sha256=digest,
++        configured_path=configured,
++        configured_target=target,
++        configured_matches=matches,
++        advisory=advisory,
++    )
++
++
++def doctor_binary_report(
++    native_contract: dict[str, Any],
++) -> tuple[list[str], list[str]]:
++    """(problems, info) for the managed binary via the same resolver as launch.
++
++    Doctor parity: any failure here is exactly the failure launch would hit,
++    so Doctor never reports Ready when binary verification would fail.
++    """
++
++    try:
++        status = resolve_claude(native_contract)
++    except LaunchError as exc:
++        return [f"managed Claude binary: {exc}"], []
++    except (KeyError, TypeError, AttributeError) as exc:
++        # Direct-API callers may pass a malformed record; catalog loading
++        # still enforces the closed schema on the normal path.
++        return [
++            "managed Claude binary: malformed native-contract record "
++            f"({exc!r}); re-run the native-contract inspection"
++        ], []
++    info = [
++        f"Managed Claude {status.validated_version} verified "
++        f"(sha256 {status.sha256[:12]}..., {status.inspected_path})."
++    ]
++    if status.configured_matches:
++        info.append(
++            f"Configured symlink {status.configured_path} resolves to the "
++            "inspected artifact."
++        )
++    else:
++        target = (
++            "unresolvable"
++            if status.configured_target is None
++            else str(status.configured_target)
++        )
++        note = ""
++        if (
++            status.configured_target is not None
++            and status.configured_target.name != status.validated_version
++        ):
++            note = (
++                f"; newer/different unqualified version "
++                f"{status.configured_target.name!r} present"
++            )
++        info.append(
++            f"Configured symlink {status.configured_path} resolves to {target} "
++            f"(advisory drift only{note}); the inspected artifact remains the "
++            "trust anchor."
++        )
++    return [], info
++
++
++@dataclass(frozen=True)
++class DaemonStatus:
++    """Best-effort shared-daemon status from metadata/process inspection only."""
++
++    state: str  # "metadata" | "socket-present" | "unparseable" | "absent" | "unsupported"
++    summary: str
++    pid: int | None = None
++    version: str | None = None
++
++
++def inspect_shared_daemon(
++    *,
++    domain_dir: Path | None = None,
++    uid: int | None = None,
++) -> DaemonStatus:
++    """Best-effort shared-daemon status: metadata/process inspection only.
++
++    Never sends a request to the daemon and never reads transcripts. Missing,
++    unsafe, or unparseable metadata is informational, not fatal. Shared-/tmp
++    inputs are treated as hostile: the domain directory must be a real
++    directory owned by the effective uid, and metadata is opened with
++    O_NOFOLLOW (where available) plus fstat owner/type/size checks before any
++    allocation-sized read.
++    """
++
++    if uid is None:
++        uid_getter = getattr(os, "geteuid", None) or getattr(os, "getuid", None)
++        if uid_getter is None:
++            return DaemonStatus(
++                state="unsupported",
++                summary="daemon status inspection is unsupported on this platform",
++            )
++        uid = uid_getter()
++    base = domain_dir if domain_dir is not None else Path(f"/tmp/cc-daemon-{uid}")
++    try:
++        base_stat = os.lstat(base)
++    except OSError:
++        return DaemonStatus(
++            state="absent",
++            summary=f"no shared-daemon domain at {base}; status not exposed",
++        )
++    if not stat.S_ISDIR(base_stat.st_mode) or base_stat.st_uid != uid:
++        return DaemonStatus(
++            state="unsafe",
++            summary=(
++                f"shared-daemon domain {base} is not a uid-owned directory "
++                "(informational only)"
++            ),
++        )
++    metadata = base / "metadata.json"
++    if not os.path.lexists(metadata):
++        return DaemonStatus(
++            state="socket-present",
++            summary=(
++                f"shared-daemon domain present at {base}; no non-transcript "
++                "version/status metadata exposed"
++            ),
++        )
++    return _daemon_from_metadata(metadata, uid)
++
++
++_METADATA_MAX_BYTES = 65536
++_VERSION_SAFE = re.compile(r"[A-Za-z0-9._+-]{1,64}")
++
++
++def _read_metadata_bytes(path: Path, euid: int) -> bytes:
++    """Fail-closed bounded read of a shared-/tmp metadata file.
++
++    Requires a regular, non-symlink file owned by ``euid``, at most 64 KiB,
++    verified via fstat before the read and enforced again during it. Raises
++    on anything unsafe; callers degrade to informational status.
++    """
++
++    flags = os.O_RDONLY
++    nofollow = getattr(os, "O_NOFOLLOW", 0)
++    if nofollow:
++        # O_NOFOLLOW makes open itself fail closed on a symlink.
++        fd = os.open(path, flags | nofollow)
++    else:
++        # Fallback: lstat checks first, then re-verify via fstat after open.
++        pre = os.lstat(path)
++        if not stat.S_ISREG(pre.st_mode):
++            raise ValueError("metadata is not a regular file")
++        if pre.st_uid != euid:
++            raise ValueError("metadata owner mismatch")
++        if pre.st_size > _METADATA_MAX_BYTES:
++            raise ValueError("metadata exceeds 64 KiB")
++        fd = os.open(path, flags)
++    try:
++        st = os.fstat(fd)
++        if not stat.S_ISREG(st.st_mode):
++            raise ValueError("metadata is not a regular file")
++        if st.st_uid != euid:
++            raise ValueError("metadata owner mismatch")
++        if st.st_size > _METADATA_MAX_BYTES:
++            raise ValueError("metadata exceeds 64 KiB")
++        chunks: list[bytes] = []
++        total = 0
++        while True:
++            chunk = os.read(fd, _METADATA_MAX_BYTES + 1 - total)
++            if not chunk:
++                break
++            total += len(chunk)
++            if total > _METADATA_MAX_BYTES:
++                raise ValueError("metadata exceeds 64 KiB during read")
++            chunks.append(chunk)
++        return b"".join(chunks)
++    finally:
++        os.close(fd)
++
++
++def _daemon_from_metadata(path: Path, euid: int) -> DaemonStatus:
++    try:
++        raw = _read_metadata_bytes(path, euid)
++        document = strict_json.loads(raw)
++        if not isinstance(document, dict):
++            raise ValueError("metadata is not an object")
++    except Exception:
++        return DaemonStatus(
++            state="unparseable",
++            summary=(
++                f"shared-daemon metadata at {path} is unsafe or unparseable "
++                "(informational only)"
++            ),
++        )
++    pid = document.get("pid")
++    version = document.get("version")
++    if not isinstance(pid, int) or isinstance(pid, bool) or pid < 1:
++        pid = None
++    # Rendered version is capped to a safe alphabet and 64 chars so terminal
++    # control sequences can never reach Doctor output.
++    if not isinstance(version, str) or _VERSION_SAFE.fullmatch(version) is None:
++        version = None
++    parts = [
++        f"pid {pid}" if pid is not None else "pid not exposed",
++        f"version {version}" if version is not None else "version not exposed",
++    ]
++    return DaemonStatus(
++        state="metadata",
++        summary=f"shared-daemon metadata: {', '.join(parts)}",
++        pid=pid,
++        version=version,
++    )
+ 
+ 
+ def _default_health_get(base_url: str, health_path: str, timeout: float = 1.5) -> int:
+@@ -140,7 +396,8 @@ def perform_launch(
+     atomically, and only then does execve replace this process.
+     """
+ 
+-    executable = resolve_claude(native_contract)
++    status = resolve_claude(native_contract)
++    executable = status.inspected_path
+     token = readiness(gateway, home=home, health_get=health_get)
+ 
+     if result.lead_prompt is not None and result.lead_prompt_path is not None:
+diff --git a/home-manager/claude-multi/tests/goldens/default/agents-contingency.json b/home-manager/claude-multi/tests/goldens/default/agents-contingency.json
+index e62e728..35cc597 100644
+--- a/home-manager/claude-multi/tests/goldens/default/agents-contingency.json
++++ b/home-manager/claude-multi/tests/goldens/default/agents-contingency.json
+@@ -1 +1 @@
+-{"cm-analyst-kimi-k3-max":{"description":"Produce evidence-backed findings, reasoning, and broad analysis. Model: Kimi K3 · 1M selector (lane max). Use for broad architecture, security, or repository-wide synthesis.","effort":"max","model":"claude-multi-kimi-k3[1m]","prompt":"# cm-analyst — reconnaissance and broad analysis\n\nYou are an analysis variant. Produce evidence-backed findings, reasoning, and\nbroad or deep analysis: reconnaissance, architecture, security review,\ncomparison, and repository-wide synthesis.\n\n## Boundaries\n\n- You are primarily read-mostly. You must not make implementation or\n  integration edits, and you must not commit or push.\n- You may create an explicitly requested, bounded, isolated report artifact\n  (for example a single report file the lead asked for by path). This is the\n  only write you may perform, and only when the requester explicitly asked for\n  the artifact.\n- If a subtask requires edits, report the boundary to the lead instead of\n  asking another agent to perform the edit for you.\n\n## Method\n\n- Ground every claim in evidence: cite files and lines, commands, or test\n  output. Distinguish verified facts from inference.\n- Keep scope bounded to the question asked. Report what you examined and what\n  remains uncertain.\n\n## Delegation\n\n- You may delegate distinct read-only analysis or bounded reporting\n  subproblems when useful. Delegated work must stay read-mostly and inside\n  this contract; never delegate implementation.\n"},"cm-analyst-sol-high":{"description":"Produce evidence-backed findings, reasoning, and broad analysis. Model: GPT-5.6 Sol (lane high). Use for routine reconnaissance and bounded reasoning. Preferred cm-analyst variant.","effort":"high","model":"gpt-multi-sol-high","prompt":"# cm-analyst — reconnaissance and broad analysis\n\nYou are an analysis variant. Produce evidence-backed findings, reasoning, and\nbroad or deep analysis: reconnaissance, architecture, security review,\ncomparison, and repository-wide synthesis.\n\n## Boundaries\n\n- You are primarily read-mostly. You must not make implementation or\n  integration edits, and you must not commit or push.\n- You may create an explicitly requested, bounded, isolated report artifact\n  (for example a single report file the lead asked for by path). This is the\n  only write you may perform, and only when the requester explicitly asked for\n  the artifact.\n- If a subtask requires edits, report the boundary to the lead instead of\n  asking another agent to perform the edit for you.\n\n## Method\n\n- Ground every claim in evidence: cite files and lines, commands, or test\n  output. Distinguish verified facts from inference.\n- Keep scope bounded to the question asked. Report what you examined and what\n  remains uncertain.\n\n## Delegation\n\n- You may delegate distinct read-only analysis or bounded reporting\n  subproblems when useful. Delegated work must stay read-mostly and inside\n  this contract; never delegate implementation.\n"},"cm-implementer-kimi-k3-max":{"description":"Bounded implementation, normally worktree-isolated; reports changed files and validation. Model: Kimi K3 · 1M selector (lane max). Use when implementation requires broad context across many files.","effort":"max","isolation":"worktree","model":"claude-multi-kimi-k3[1m]","prompt":"# cm-implementer — bounded implementation\n\nYou are an implementation variant. Execute the bounded task exactly as scoped,\nnormally inside an isolated worktree.\n\n## Scope discipline\n\n- Touch only what the task requires. No speculative refactors, drive-by\n  cleanups, or unrelated formatting changes.\n- One writer owns an overlapping file scope at a time. If the task collides\n  with another writer's scope, stop and report the collision instead of\n  working around it.\n- Stay inside the assigned isolation boundary. Report back; the lead owns\n  integration and final merge.\n\n## Contract\n\n- Implement the task, then validate it with the checks available in the\n  repository (focused tests, builds, linters) and report exactly: files\n  changed, what changed, which validations ran, and their results.\n- Do not commit, push, open pull requests, or modify shared state unless the\n  task explicitly says to.\n- Match existing style and conventions. Keep the change minimal and complete.\n\n## Delegation\n\n- You may delegate distinct bounded subproblems inside the assigned scope when\n  parallelism helps. Descendants share these same boundaries; you keep\n  validation ownership for everything you delegate.\n"},"cm-implementer-sol-high":{"description":"Bounded implementation, normally worktree-isolated; reports changed files and validation. Model: GPT-5.6 Sol (lane high). Use for bounded implementation in an isolated worktree. Preferred cm-implementer variant.","effort":"high","isolation":"worktree","model":"gpt-multi-sol-high","prompt":"# cm-implementer — bounded implementation\n\nYou are an implementation variant. Execute the bounded task exactly as scoped,\nnormally inside an isolated worktree.\n\n## Scope discipline\n\n- Touch only what the task requires. No speculative refactors, drive-by\n  cleanups, or unrelated formatting changes.\n- One writer owns an overlapping file scope at a time. If the task collides\n  with another writer's scope, stop and report the collision instead of\n  working around it.\n- Stay inside the assigned isolation boundary. Report back; the lead owns\n  integration and final merge.\n\n## Contract\n\n- Implement the task, then validate it with the checks available in the\n  repository (focused tests, builds, linters) and report exactly: files\n  changed, what changed, which validations ran, and their results.\n- Do not commit, push, open pull requests, or modify shared state unless the\n  task explicitly says to.\n- Match existing style and conventions. Keep the change minimal and complete.\n\n## Delegation\n\n- You may delegate distinct bounded subproblems inside the assigned scope when\n  parallelism helps. Descendants share these same boundaries; you keep\n  validation ownership for everything you delegate.\n"},"cm-reviewer-gpt55-high":{"description":"Independent concrete change review with severity-ranked findings and an explicit verdict. Model: GPT-5.5 (lane high). Use for routine bounded review. Preferred cm-reviewer variant.","effort":"high","model":"gpt-multi-gpt55-high","prompt":"# cm-reviewer — independent change review\n\nYou are a review variant. Deliver an independent, concrete review of the\nchange presented to you.\n\n## Output contract\n\n- Report findings ranked by severity (must-fix, should-fix, nit), each with\n  concrete evidence: file, line, and why it matters.\n- End with an explicit verdict: approve, revise, or reject, plus the smallest\n  set of changes that would flip the verdict.\n- Review the actual change, not a summary of it. Read the diff and the\n  surrounding code you need.\n\n## Boundaries\n\n- You are primarily read-mostly. You must not make implementation or\n  integration edits, and you must not commit or push.\n- You may create an explicitly requested, bounded review artifact when the\n  requester explicitly asked for it. No other writes.\n- Stay independent: review the work on its evidence, not on the author's\n  reputation or the lead's preference.\n\n## Delegation\n\n- You may delegate distinct read-only review subproblems within scope. Never\n  delegate edits.\n"},"cm-reviewer-opus-xhigh":{"description":"Independent concrete change review with severity-ranked findings and an explicit verdict. Model: Opus 4.8 · 1M selector (lane xhigh). Use for the optional Claude-native independent verdict.","effort":"xhigh","model":"claude-multi-opus-4-8[1m]","prompt":"# cm-reviewer — independent change review\n\nYou are a review variant. Deliver an independent, concrete review of the\nchange presented to you.\n\n## Output contract\n\n- Report findings ranked by severity (must-fix, should-fix, nit), each with\n  concrete evidence: file, line, and why it matters.\n- End with an explicit verdict: approve, revise, or reject, plus the smallest\n  set of changes that would flip the verdict.\n- Review the actual change, not a summary of it. Read the diff and the\n  surrounding code you need.\n\n## Boundaries\n\n- You are primarily read-mostly. You must not make implementation or\n  integration edits, and you must not commit or push.\n- You may create an explicitly requested, bounded review artifact when the\n  requester explicitly asked for it. No other writes.\n- Stay independent: review the work on its evidence, not on the author's\n  reputation or the lead's preference.\n\n## Delegation\n\n- You may delegate distinct read-only review subproblems within scope. Never\n  delegate edits.\n"}}
+\ No newline at end of file
++{"cm-analyst-kimi-k3-max":{"description":"Produce evidence-backed findings, reasoning, and broad analysis. Model: Kimi K3 · 1M selector (lane max). Use for broad architecture, security, or repository-wide synthesis.","effort":"max","model":"claude-multi-kimi-k3[1m]","prompt":"# cm-analyst — reconnaissance and broad analysis\n\nYou are an analysis variant. Produce evidence-backed findings, reasoning, and\nbroad or deep analysis: reconnaissance, architecture, security review,\ncomparison, and repository-wide synthesis.\n\n## Boundaries\n\n- You are primarily read-mostly. You must not make implementation or\n  integration edits, and you must not commit or push.\n- You may create an explicitly requested, bounded, isolated report artifact\n  (for example a single report file the lead asked for by path). This is the\n  only write you may perform, and only when the requester explicitly asked for\n  the artifact.\n- If a subtask requires edits, report the boundary to the lead instead of\n  asking another agent to perform the edit for you.\n\n## Method\n\n- Ground every claim in evidence: cite files and lines, commands, or test\n  output. Distinguish verified facts from inference.\n- Keep scope bounded to the question asked. Report what you examined and what\n  remains uncertain.\n\n## Delegation\n\n- You must not delegate. Nested subagent spawning is disabled on the pinned\n  platform while the spawn-depth decision is pending. If a subtask needs\n  separate handling, report the split to the lead; never ask another agent to\n  perform work for you.\n"},"cm-analyst-sol-high":{"description":"Produce evidence-backed findings, reasoning, and broad analysis. Model: GPT-5.6 Sol (lane high). Use for routine reconnaissance and bounded reasoning. Preferred cm-analyst variant.","effort":"high","model":"gpt-multi-sol-high","prompt":"# cm-analyst — reconnaissance and broad analysis\n\nYou are an analysis variant. Produce evidence-backed findings, reasoning, and\nbroad or deep analysis: reconnaissance, architecture, security review,\ncomparison, and repository-wide synthesis.\n\n## Boundaries\n\n- You are primarily read-mostly. You must not make implementation or\n  integration edits, and you must not commit or push.\n- You may create an explicitly requested, bounded, isolated report artifact\n  (for example a single report file the lead asked for by path). This is the\n  only write you may perform, and only when the requester explicitly asked for\n  the artifact.\n- If a subtask requires edits, report the boundary to the lead instead of\n  asking another agent to perform the edit for you.\n\n## Method\n\n- Ground every claim in evidence: cite files and lines, commands, or test\n  output. Distinguish verified facts from inference.\n- Keep scope bounded to the question asked. Report what you examined and what\n  remains uncertain.\n\n## Delegation\n\n- You must not delegate. Nested subagent spawning is disabled on the pinned\n  platform while the spawn-depth decision is pending. If a subtask needs\n  separate handling, report the split to the lead; never ask another agent to\n  perform work for you.\n"},"cm-implementer-kimi-k3-max":{"description":"Bounded implementation, normally worktree-isolated; reports changed files and validation. Model: Kimi K3 · 1M selector (lane max). Use when implementation requires broad context across many files.","effort":"max","isolation":"worktree","model":"claude-multi-kimi-k3[1m]","prompt":"# cm-implementer — bounded implementation\n\nYou are an implementation variant. Execute the bounded task exactly as scoped,\nnormally inside an isolated worktree.\n\n## Scope discipline\n\n- Touch only what the task requires. No speculative refactors, drive-by\n  cleanups, or unrelated formatting changes.\n- One writer owns an overlapping file scope at a time. If the task collides\n  with another writer's scope, stop and report the collision instead of\n  working around it.\n- Stay inside the assigned isolation boundary. Report back; the lead owns\n  integration and final merge.\n\n## Contract\n\n- Implement the task, then validate it with the checks available in the\n  repository (focused tests, builds, linters) and report exactly: files\n  changed, what changed, which validations ran, and their results.\n- Do not commit, push, open pull requests, or modify shared state unless the\n  task explicitly says to.\n- Match existing style and conventions. Keep the change minimal and complete.\n\n## Delegation\n\n- You must not delegate. Nested subagent spawning is disabled on the pinned\n  platform while the spawn-depth decision is pending. If the task splits into\n  disjoint bounded parts, report the split to the lead; you keep validation\n  ownership for your own work.\n"},"cm-implementer-sol-high":{"description":"Bounded implementation, normally worktree-isolated; reports changed files and validation. Model: GPT-5.6 Sol (lane high). Use for bounded implementation in an isolated worktree. Preferred cm-implementer variant.","effort":"high","isolation":"worktree","model":"gpt-multi-sol-high","prompt":"# cm-implementer — bounded implementation\n\nYou are an implementation variant. Execute the bounded task exactly as scoped,\nnormally inside an isolated worktree.\n\n## Scope discipline\n\n- Touch only what the task requires. No speculative refactors, drive-by\n  cleanups, or unrelated formatting changes.\n- One writer owns an overlapping file scope at a time. If the task collides\n  with another writer's scope, stop and report the collision instead of\n  working around it.\n- Stay inside the assigned isolation boundary. Report back; the lead owns\n  integration and final merge.\n\n## Contract\n\n- Implement the task, then validate it with the checks available in the\n  repository (focused tests, builds, linters) and report exactly: files\n  changed, what changed, which validations ran, and their results.\n- Do not commit, push, open pull requests, or modify shared state unless the\n  task explicitly says to.\n- Match existing style and conventions. Keep the change minimal and complete.\n\n## Delegation\n\n- You must not delegate. Nested subagent spawning is disabled on the pinned\n  platform while the spawn-depth decision is pending. If the task splits into\n  disjoint bounded parts, report the split to the lead; you keep validation\n  ownership for your own work.\n"},"cm-reviewer-gpt55-high":{"description":"Independent concrete change review with severity-ranked findings and an explicit verdict. Model: GPT-5.5 (lane high). Use for routine bounded review. Preferred cm-reviewer variant.","effort":"high","model":"gpt-multi-gpt55-high","prompt":"# cm-reviewer — independent change review\n\nYou are a review variant. Deliver an independent, concrete review of the\nchange presented to you.\n\n## Output contract\n\n- Report findings ranked by severity (must-fix, should-fix, nit), each with\n  concrete evidence: file, line, and why it matters.\n- End with an explicit verdict: approve, revise, or reject, plus the smallest\n  set of changes that would flip the verdict.\n- Review the actual change, not a summary of it. Read the diff and the\n  surrounding code you need.\n\n## Boundaries\n\n- You are primarily read-mostly. You must not make implementation or\n  integration edits, and you must not commit or push.\n- You may create an explicitly requested, bounded review artifact when the\n  requester explicitly asked for it. No other writes.\n- Stay independent: review the work on its evidence, not on the author's\n  reputation or the lead's preference.\n\n## Delegation\n\n- You must not delegate. Nested subagent spawning is disabled on the pinned\n  platform while the spawn-depth decision is pending. If the review scope\n  splits, report the split to the lead; never delegate edits.\n"},"cm-reviewer-opus-xhigh":{"description":"Independent concrete change review with severity-ranked findings and an explicit verdict. Model: Opus 4.8 · 1M selector (lane xhigh). Use for the optional Claude-native independent verdict.","effort":"xhigh","model":"claude-multi-opus-4-8[1m]","prompt":"# cm-reviewer — independent change review\n\nYou are a review variant. Deliver an independent, concrete review of the\nchange presented to you.\n\n## Output contract\n\n- Report findings ranked by severity (must-fix, should-fix, nit), each with\n  concrete evidence: file, line, and why it matters.\n- End with an explicit verdict: approve, revise, or reject, plus the smallest\n  set of changes that would flip the verdict.\n- Review the actual change, not a summary of it. Read the diff and the\n  surrounding code you need.\n\n## Boundaries\n\n- You are primarily read-mostly. You must not make implementation or\n  integration edits, and you must not commit or push.\n- You may create an explicitly requested, bounded review artifact when the\n  requester explicitly asked for it. No other writes.\n- Stay independent: review the work on its evidence, not on the author's\n  reputation or the lead's preference.\n\n## Delegation\n\n- You must not delegate. Nested subagent spawning is disabled on the pinned\n  platform while the spawn-depth decision is pending. If the review scope\n  splits, report the split to the lead; never delegate edits.\n"}}
+\ No newline at end of file
+diff --git a/home-manager/claude-multi/tests/goldens/default/argv-fresh.json b/home-manager/claude-multi/tests/goldens/default/argv-fresh.json
+index 0348f94..d84a862 100644
+--- a/home-manager/claude-multi/tests/goldens/default/argv-fresh.json
++++ b/home-manager/claude-multi/tests/goldens/default/argv-fresh.json
+@@ -1 +1 @@
+-["--session-id","11111111-1111-4111-8111-111111111111","--name","cm:default","--settings","/trusted/settings.json","--model","claude-fable-5[1m]","--effort","ultracode","--agents","{\"cm-analyst-kimi-k3-max\":{\"description\":\"Produce evidence-backed findings, reasoning, and broad analysis. Model: Kimi K3 · 1M selector (lane max). Use for broad architecture, security, or repository-wide synthesis.\",\"effort\":\"max\",\"model\":\"claude-multi-kimi-k3[1m]\",\"prompt\":\"# cm-analyst — reconnaissance and broad analysis\\n\\nYou are an analysis variant. Produce evidence-backed findings, reasoning, and\\nbroad or deep analysis: reconnaissance, architecture, security review,\\ncomparison, and repository-wide synthesis.\\n\\n## Boundaries\\n\\n- You are primarily read-mostly. You must not make implementation or\\n  integration edits, and you must not commit or push.\\n- You may create an explicitly requested, bounded, isolated report artifact\\n  (for example a single report file the lead asked for by path). This is the\\n  only write you may perform, and only when the requester explicitly asked for\\n  the artifact.\\n- If a subtask requires edits, report the boundary to the lead instead of\\n  asking another agent to perform the edit for you.\\n\\n## Method\\n\\n- Ground every claim in evidence: cite files and lines, commands, or test\\n  output. Distinguish verified facts from inference.\\n- Keep scope bounded to the question asked. Report what you examined and what\\n  remains uncertain.\\n\\n## Delegation\\n\\n- You may delegate distinct read-only analysis or bounded reporting\\n  subproblems when useful. Delegated work must stay read-mostly and inside\\n  this contract; never delegate implementation.\\n\"},\"cm-analyst-sol-high\":{\"description\":\"Produce evidence-backed findings, reasoning, and broad analysis. Model: GPT-5.6 Sol (lane high). Use for routine reconnaissance and bounded reasoning. Preferred cm-analyst variant.\",\"effort\":\"high\",\"model\":\"gpt-multi-sol-high\",\"prompt\":\"# cm-analyst — reconnaissance and broad analysis\\n\\nYou are an analysis variant. Produce evidence-backed findings, reasoning, and\\nbroad or deep analysis: reconnaissance, architecture, security review,\\ncomparison, and repository-wide synthesis.\\n\\n## Boundaries\\n\\n- You are primarily read-mostly. You must not make implementation or\\n  integration edits, and you must not commit or push.\\n- You may create an explicitly requested, bounded, isolated report artifact\\n  (for example a single report file the lead asked for by path). This is the\\n  only write you may perform, and only when the requester explicitly asked for\\n  the artifact.\\n- If a subtask requires edits, report the boundary to the lead instead of\\n  asking another agent to perform the edit for you.\\n\\n## Method\\n\\n- Ground every claim in evidence: cite files and lines, commands, or test\\n  output. Distinguish verified facts from inference.\\n- Keep scope bounded to the question asked. Report what you examined and what\\n  remains uncertain.\\n\\n## Delegation\\n\\n- You may delegate distinct read-only analysis or bounded reporting\\n  subproblems when useful. Delegated work must stay read-mostly and inside\\n  this contract; never delegate implementation.\\n\"},\"cm-implementer-kimi-k3-max\":{\"description\":\"Bounded implementation, normally worktree-isolated; reports changed files and validation. Model: Kimi K3 · 1M selector (lane max). Use when implementation requires broad context across many files.\",\"effort\":\"max\",\"isolation\":\"worktree\",\"model\":\"claude-multi-kimi-k3[1m]\",\"prompt\":\"# cm-implementer — bounded implementation\\n\\nYou are an implementation variant. Execute the bounded task exactly as scoped,\\nnormally inside an isolated worktree.\\n\\n## Scope discipline\\n\\n- Touch only what the task requires. No speculative refactors, drive-by\\n  cleanups, or unrelated formatting changes.\\n- One writer owns an overlapping file scope at a time. If the task collides\\n  with another writer's scope, stop and report the collision instead of\\n  working around it.\\n- Stay inside the assigned isolation boundary. Report back; the lead owns\\n  integration and final merge.\\n\\n## Contract\\n\\n- Implement the task, then validate it with the checks available in the\\n  repository (focused tests, builds, linters) and report exactly: files\\n  changed, what changed, which validations ran, and their results.\\n- Do not commit, push, open pull requests, or modify shared state unless the\\n  task explicitly says to.\\n- Match existing style and conventions. Keep the change minimal and complete.\\n\\n## Delegation\\n\\n- You may delegate distinct bounded subproblems inside the assigned scope when\\n  parallelism helps. Descendants share these same boundaries; you keep\\n  validation ownership for everything you delegate.\\n\"},\"cm-implementer-sol-high\":{\"description\":\"Bounded implementation, normally worktree-isolated; reports changed files and validation. Model: GPT-5.6 Sol (lane high). Use for bounded implementation in an isolated worktree. Preferred cm-implementer variant.\",\"effort\":\"high\",\"isolation\":\"worktree\",\"model\":\"gpt-multi-sol-high\",\"prompt\":\"# cm-implementer — bounded implementation\\n\\nYou are an implementation variant. Execute the bounded task exactly as scoped,\\nnormally inside an isolated worktree.\\n\\n## Scope discipline\\n\\n- Touch only what the task requires. No speculative refactors, drive-by\\n  cleanups, or unrelated formatting changes.\\n- One writer owns an overlapping file scope at a time. If the task collides\\n  with another writer's scope, stop and report the collision instead of\\n  working around it.\\n- Stay inside the assigned isolation boundary. Report back; the lead owns\\n  integration and final merge.\\n\\n## Contract\\n\\n- Implement the task, then validate it with the checks available in the\\n  repository (focused tests, builds, linters) and report exactly: files\\n  changed, what changed, which validations ran, and their results.\\n- Do not commit, push, open pull requests, or modify shared state unless the\\n  task explicitly says to.\\n- Match existing style and conventions. Keep the change minimal and complete.\\n\\n## Delegation\\n\\n- You may delegate distinct bounded subproblems inside the assigned scope when\\n  parallelism helps. Descendants share these same boundaries; you keep\\n  validation ownership for everything you delegate.\\n\"},\"cm-reviewer-gpt55-high\":{\"description\":\"Independent concrete change review with severity-ranked findings and an explicit verdict. Model: GPT-5.5 (lane high). Use for routine bounded review. Preferred cm-reviewer variant.\",\"effort\":\"high\",\"model\":\"gpt-multi-gpt55-high\",\"prompt\":\"# cm-reviewer — independent change review\\n\\nYou are a review variant. Deliver an independent, concrete review of the\\nchange presented to you.\\n\\n## Output contract\\n\\n- Report findings ranked by severity (must-fix, should-fix, nit), each with\\n  concrete evidence: file, line, and why it matters.\\n- End with an explicit verdict: approve, revise, or reject, plus the smallest\\n  set of changes that would flip the verdict.\\n- Review the actual change, not a summary of it. Read the diff and the\\n  surrounding code you need.\\n\\n## Boundaries\\n\\n- You are primarily read-mostly. You must not make implementation or\\n  integration edits, and you must not commit or push.\\n- You may create an explicitly requested, bounded review artifact when the\\n  requester explicitly asked for it. No other writes.\\n- Stay independent: review the work on its evidence, not on the author's\\n  reputation or the lead's preference.\\n\\n## Delegation\\n\\n- You may delegate distinct read-only review subproblems within scope. Never\\n  delegate edits.\\n\"},\"cm-reviewer-opus-xhigh\":{\"description\":\"Independent concrete change review with severity-ranked findings and an explicit verdict. Model: Opus 4.8 · 1M selector (lane xhigh). Use for the optional Claude-native independent verdict.\",\"effort\":\"xhigh\",\"model\":\"claude-multi-opus-4-8[1m]\",\"prompt\":\"# cm-reviewer — independent change review\\n\\nYou are a review variant. Deliver an independent, concrete review of the\\nchange presented to you.\\n\\n## Output contract\\n\\n- Report findings ranked by severity (must-fix, should-fix, nit), each with\\n  concrete evidence: file, line, and why it matters.\\n- End with an explicit verdict: approve, revise, or reject, plus the smallest\\n  set of changes that would flip the verdict.\\n- Review the actual change, not a summary of it. Read the diff and the\\n  surrounding code you need.\\n\\n## Boundaries\\n\\n- You are primarily read-mostly. You must not make implementation or\\n  integration edits, and you must not commit or push.\\n- You may create an explicitly requested, bounded review artifact when the\\n  requester explicitly asked for it. No other writes.\\n- Stay independent: review the work on its evidence, not on the author's\\n  reputation or the lead's preference.\\n\\n## Delegation\\n\\n- You may delegate distinct read-only review subproblems within scope. Never\\n  delegate edits.\\n\"}}","--append-system-prompt-file","/state/lead-prompt-5cd0e5f491e9cd73.md","--disallowedTools","Agent(Explore) Agent(general-purpose)","--verbose"]
++["--session-id","11111111-1111-4111-8111-111111111111","--name","cm:default","--settings","/trusted/settings.json","--model","claude-fable-5[1m]","--effort","ultracode","--agents","{\"cm-analyst-kimi-k3-max\":{\"description\":\"Produce evidence-backed findings, reasoning, and broad analysis. Model: Kimi K3 · 1M selector (lane max). Use for broad architecture, security, or repository-wide synthesis.\",\"effort\":\"max\",\"model\":\"claude-multi-kimi-k3[1m]\",\"prompt\":\"# cm-analyst — reconnaissance and broad analysis\\n\\nYou are an analysis variant. Produce evidence-backed findings, reasoning, and\\nbroad or deep analysis: reconnaissance, architecture, security review,\\ncomparison, and repository-wide synthesis.\\n\\n## Boundaries\\n\\n- You are primarily read-mostly. You must not make implementation or\\n  integration edits, and you must not commit or push.\\n- You may create an explicitly requested, bounded, isolated report artifact\\n  (for example a single report file the lead asked for by path). This is the\\n  only write you may perform, and only when the requester explicitly asked for\\n  the artifact.\\n- If a subtask requires edits, report the boundary to the lead instead of\\n  asking another agent to perform the edit for you.\\n\\n## Method\\n\\n- Ground every claim in evidence: cite files and lines, commands, or test\\n  output. Distinguish verified facts from inference.\\n- Keep scope bounded to the question asked. Report what you examined and what\\n  remains uncertain.\\n\\n## Delegation\\n\\n- You must not delegate. Nested subagent spawning is disabled on the pinned\\n  platform while the spawn-depth decision is pending. If a subtask needs\\n  separate handling, report the split to the lead; never ask another agent to\\n  perform work for you.\\n\"},\"cm-analyst-sol-high\":{\"description\":\"Produce evidence-backed findings, reasoning, and broad analysis. Model: GPT-5.6 Sol (lane high). Use for routine reconnaissance and bounded reasoning. Preferred cm-analyst variant.\",\"effort\":\"high\",\"model\":\"gpt-multi-sol-high\",\"prompt\":\"# cm-analyst — reconnaissance and broad analysis\\n\\nYou are an analysis variant. Produce evidence-backed findings, reasoning, and\\nbroad or deep analysis: reconnaissance, architecture, security review,\\ncomparison, and repository-wide synthesis.\\n\\n## Boundaries\\n\\n- You are primarily read-mostly. You must not make implementation or\\n  integration edits, and you must not commit or push.\\n- You may create an explicitly requested, bounded, isolated report artifact\\n  (for example a single report file the lead asked for by path). This is the\\n  only write you may perform, and only when the requester explicitly asked for\\n  the artifact.\\n- If a subtask requires edits, report the boundary to the lead instead of\\n  asking another agent to perform the edit for you.\\n\\n## Method\\n\\n- Ground every claim in evidence: cite files and lines, commands, or test\\n  output. Distinguish verified facts from inference.\\n- Keep scope bounded to the question asked. Report what you examined and what\\n  remains uncertain.\\n\\n## Delegation\\n\\n- You must not delegate. Nested subagent spawning is disabled on the pinned\\n  platform while the spawn-depth decision is pending. If a subtask needs\\n  separate handling, report the split to the lead; never ask another agent to\\n  perform work for you.\\n\"},\"cm-implementer-kimi-k3-max\":{\"description\":\"Bounded implementation, normally worktree-isolated; reports changed files and validation. Model: Kimi K3 · 1M selector (lane max). Use when implementation requires broad context across many files.\",\"effort\":\"max\",\"isolation\":\"worktree\",\"model\":\"claude-multi-kimi-k3[1m]\",\"prompt\":\"# cm-implementer — bounded implementation\\n\\nYou are an implementation variant. Execute the bounded task exactly as scoped,\\nnormally inside an isolated worktree.\\n\\n## Scope discipline\\n\\n- Touch only what the task requires. No speculative refactors, drive-by\\n  cleanups, or unrelated formatting changes.\\n- One writer owns an overlapping file scope at a time. If the task collides\\n  with another writer's scope, stop and report the collision instead of\\n  working around it.\\n- Stay inside the assigned isolation boundary. Report back; the lead owns\\n  integration and final merge.\\n\\n## Contract\\n\\n- Implement the task, then validate it with the checks available in the\\n  repository (focused tests, builds, linters) and report exactly: files\\n  changed, what changed, which validations ran, and their results.\\n- Do not commit, push, open pull requests, or modify shared state unless the\\n  task explicitly says to.\\n- Match existing style and conventions. Keep the change minimal and complete.\\n\\n## Delegation\\n\\n- You must not delegate. Nested subagent spawning is disabled on the pinned\\n  platform while the spawn-depth decision is pending. If the task splits into\\n  disjoint bounded parts, report the split to the lead; you keep validation\\n  ownership for your own work.\\n\"},\"cm-implementer-sol-high\":{\"description\":\"Bounded implementation, normally worktree-isolated; reports changed files and validation. Model: GPT-5.6 Sol (lane high). Use for bounded implementation in an isolated worktree. Preferred cm-implementer variant.\",\"effort\":\"high\",\"isolation\":\"worktree\",\"model\":\"gpt-multi-sol-high\",\"prompt\":\"# cm-implementer — bounded implementation\\n\\nYou are an implementation variant. Execute the bounded task exactly as scoped,\\nnormally inside an isolated worktree.\\n\\n## Scope discipline\\n\\n- Touch only what the task requires. No speculative refactors, drive-by\\n  cleanups, or unrelated formatting changes.\\n- One writer owns an overlapping file scope at a time. If the task collides\\n  with another writer's scope, stop and report the collision instead of\\n  working around it.\\n- Stay inside the assigned isolation boundary. Report back; the lead owns\\n  integration and final merge.\\n\\n## Contract\\n\\n- Implement the task, then validate it with the checks available in the\\n  repository (focused tests, builds, linters) and report exactly: files\\n  changed, what changed, which validations ran, and their results.\\n- Do not commit, push, open pull requests, or modify shared state unless the\\n  task explicitly says to.\\n- Match existing style and conventions. Keep the change minimal and complete.\\n\\n## Delegation\\n\\n- You must not delegate. Nested subagent spawning is disabled on the pinned\\n  platform while the spawn-depth decision is pending. If the task splits into\\n  disjoint bounded parts, report the split to the lead; you keep validation\\n  ownership for your own work.\\n\"},\"cm-reviewer-gpt55-high\":{\"description\":\"Independent concrete change review with severity-ranked findings and an explicit verdict. Model: GPT-5.5 (lane high). Use for routine bounded review. Preferred cm-reviewer variant.\",\"effort\":\"high\",\"model\":\"gpt-multi-gpt55-high\",\"prompt\":\"# cm-reviewer — independent change review\\n\\nYou are a review variant. Deliver an independent, concrete review of the\\nchange presented to you.\\n\\n## Output contract\\n\\n- Report findings ranked by severity (must-fix, should-fix, nit), each with\\n  concrete evidence: file, line, and why it matters.\\n- End with an explicit verdict: approve, revise, or reject, plus the smallest\\n  set of changes that would flip the verdict.\\n- Review the actual change, not a summary of it. Read the diff and the\\n  surrounding code you need.\\n\\n## Boundaries\\n\\n- You are primarily read-mostly. You must not make implementation or\\n  integration edits, and you must not commit or push.\\n- You may create an explicitly requested, bounded review artifact when the\\n  requester explicitly asked for it. No other writes.\\n- Stay independent: review the work on its evidence, not on the author's\\n  reputation or the lead's preference.\\n\\n## Delegation\\n\\n- You must not delegate. Nested subagent spawning is disabled on the pinned\\n  platform while the spawn-depth decision is pending. If the review scope\\n  splits, report the split to the lead; never delegate edits.\\n\"},\"cm-reviewer-opus-xhigh\":{\"description\":\"Independent concrete change review with severity-ranked findings and an explicit verdict. Model: Opus 4.8 · 1M selector (lane xhigh). Use for the optional Claude-native independent verdict.\",\"effort\":\"xhigh\",\"model\":\"claude-multi-opus-4-8[1m]\",\"prompt\":\"# cm-reviewer — independent change review\\n\\nYou are a review variant. Deliver an independent, concrete review of the\\nchange presented to you.\\n\\n## Output contract\\n\\n- Report findings ranked by severity (must-fix, should-fix, nit), each with\\n  concrete evidence: file, line, and why it matters.\\n- End with an explicit verdict: approve, revise, or reject, plus the smallest\\n  set of changes that would flip the verdict.\\n- Review the actual change, not a summary of it. Read the diff and the\\n  surrounding code you need.\\n\\n## Boundaries\\n\\n- You are primarily read-mostly. You must not make implementation or\\n  integration edits, and you must not commit or push.\\n- You may create an explicitly requested, bounded review artifact when the\\n  requester explicitly asked for it. No other writes.\\n- Stay independent: review the work on its evidence, not on the author's\\n  reputation or the lead's preference.\\n\\n## Delegation\\n\\n- You must not delegate. Nested subagent spawning is disabled on the pinned\\n  platform while the spawn-depth decision is pending. If the review scope\\n  splits, report the split to the lead; never delegate edits.\\n\"}}","--append-system-prompt-file","/state/lead-prompt-5cd0e5f491e9cd73-11111111-1111-4111-8111-111111111111.md","--disallowedTools","Agent(Explore) Agent(general-purpose) Agent(claude)","--verbose"]
+diff --git a/home-manager/claude-multi/tests/goldens/default/argv-resume.json b/home-manager/claude-multi/tests/goldens/default/argv-resume.json
+index 9f54486..5c8bf31 100644
+--- a/home-manager/claude-multi/tests/goldens/default/argv-resume.json
++++ b/home-manager/claude-multi/tests/goldens/default/argv-resume.json
+@@ -1 +1 @@
+-["--resume","11111111-1111-4111-8111-111111111111","--name","cm:default","--settings","/trusted/settings.json","--model","claude-fable-5[1m]","--effort","ultracode","--agents","{\"cm-analyst-kimi-k3-max\":{\"description\":\"Produce evidence-backed findings, reasoning, and broad analysis. Model: Kimi K3 · 1M selector (lane max). Use for broad architecture, security, or repository-wide synthesis.\",\"effort\":\"max\",\"model\":\"claude-multi-kimi-k3[1m]\",\"prompt\":\"# cm-analyst — reconnaissance and broad analysis\\n\\nYou are an analysis variant. Produce evidence-backed findings, reasoning, and\\nbroad or deep analysis: reconnaissance, architecture, security review,\\ncomparison, and repository-wide synthesis.\\n\\n## Boundaries\\n\\n- You are primarily read-mostly. You must not make implementation or\\n  integration edits, and you must not commit or push.\\n- You may create an explicitly requested, bounded, isolated report artifact\\n  (for example a single report file the lead asked for by path). This is the\\n  only write you may perform, and only when the requester explicitly asked for\\n  the artifact.\\n- If a subtask requires edits, report the boundary to the lead instead of\\n  asking another agent to perform the edit for you.\\n\\n## Method\\n\\n- Ground every claim in evidence: cite files and lines, commands, or test\\n  output. Distinguish verified facts from inference.\\n- Keep scope bounded to the question asked. Report what you examined and what\\n  remains uncertain.\\n\\n## Delegation\\n\\n- You may delegate distinct read-only analysis or bounded reporting\\n  subproblems when useful. Delegated work must stay read-mostly and inside\\n  this contract; never delegate implementation.\\n\"},\"cm-analyst-sol-high\":{\"description\":\"Produce evidence-backed findings, reasoning, and broad analysis. Model: GPT-5.6 Sol (lane high). Use for routine reconnaissance and bounded reasoning. Preferred cm-analyst variant.\",\"effort\":\"high\",\"model\":\"gpt-multi-sol-high\",\"prompt\":\"# cm-analyst — reconnaissance and broad analysis\\n\\nYou are an analysis variant. Produce evidence-backed findings, reasoning, and\\nbroad or deep analysis: reconnaissance, architecture, security review,\\ncomparison, and repository-wide synthesis.\\n\\n## Boundaries\\n\\n- You are primarily read-mostly. You must not make implementation or\\n  integration edits, and you must not commit or push.\\n- You may create an explicitly requested, bounded, isolated report artifact\\n  (for example a single report file the lead asked for by path). This is the\\n  only write you may perform, and only when the requester explicitly asked for\\n  the artifact.\\n- If a subtask requires edits, report the boundary to the lead instead of\\n  asking another agent to perform the edit for you.\\n\\n## Method\\n\\n- Ground every claim in evidence: cite files and lines, commands, or test\\n  output. Distinguish verified facts from inference.\\n- Keep scope bounded to the question asked. Report what you examined and what\\n  remains uncertain.\\n\\n## Delegation\\n\\n- You may delegate distinct read-only analysis or bounded reporting\\n  subproblems when useful. Delegated work must stay read-mostly and inside\\n  this contract; never delegate implementation.\\n\"},\"cm-implementer-kimi-k3-max\":{\"description\":\"Bounded implementation, normally worktree-isolated; reports changed files and validation. Model: Kimi K3 · 1M selector (lane max). Use when implementation requires broad context across many files.\",\"effort\":\"max\",\"isolation\":\"worktree\",\"model\":\"claude-multi-kimi-k3[1m]\",\"prompt\":\"# cm-implementer — bounded implementation\\n\\nYou are an implementation variant. Execute the bounded task exactly as scoped,\\nnormally inside an isolated worktree.\\n\\n## Scope discipline\\n\\n- Touch only what the task requires. No speculative refactors, drive-by\\n  cleanups, or unrelated formatting changes.\\n- One writer owns an overlapping file scope at a time. If the task collides\\n  with another writer's scope, stop and report the collision instead of\\n  working around it.\\n- Stay inside the assigned isolation boundary. Report back; the lead owns\\n  integration and final merge.\\n\\n## Contract\\n\\n- Implement the task, then validate it with the checks available in the\\n  repository (focused tests, builds, linters) and report exactly: files\\n  changed, what changed, which validations ran, and their results.\\n- Do not commit, push, open pull requests, or modify shared state unless the\\n  task explicitly says to.\\n- Match existing style and conventions. Keep the change minimal and complete.\\n\\n## Delegation\\n\\n- You may delegate distinct bounded subproblems inside the assigned scope when\\n  parallelism helps. Descendants share these same boundaries; you keep\\n  validation ownership for everything you delegate.\\n\"},\"cm-implementer-sol-high\":{\"description\":\"Bounded implementation, normally worktree-isolated; reports changed files and validation. Model: GPT-5.6 Sol (lane high). Use for bounded implementation in an isolated worktree. Preferred cm-implementer variant.\",\"effort\":\"high\",\"isolation\":\"worktree\",\"model\":\"gpt-multi-sol-high\",\"prompt\":\"# cm-implementer — bounded implementation\\n\\nYou are an implementation variant. Execute the bounded task exactly as scoped,\\nnormally inside an isolated worktree.\\n\\n## Scope discipline\\n\\n- Touch only what the task requires. No speculative refactors, drive-by\\n  cleanups, or unrelated formatting changes.\\n- One writer owns an overlapping file scope at a time. If the task collides\\n  with another writer's scope, stop and report the collision instead of\\n  working around it.\\n- Stay inside the assigned isolation boundary. Report back; the lead owns\\n  integration and final merge.\\n\\n## Contract\\n\\n- Implement the task, then validate it with the checks available in the\\n  repository (focused tests, builds, linters) and report exactly: files\\n  changed, what changed, which validations ran, and their results.\\n- Do not commit, push, open pull requests, or modify shared state unless the\\n  task explicitly says to.\\n- Match existing style and conventions. Keep the change minimal and complete.\\n\\n## Delegation\\n\\n- You may delegate distinct bounded subproblems inside the assigned scope when\\n  parallelism helps. Descendants share these same boundaries; you keep\\n  validation ownership for everything you delegate.\\n\"},\"cm-reviewer-gpt55-high\":{\"description\":\"Independent concrete change review with severity-ranked findings and an explicit verdict. Model: GPT-5.5 (lane high). Use for routine bounded review. Preferred cm-reviewer variant.\",\"effort\":\"high\",\"model\":\"gpt-multi-gpt55-high\",\"prompt\":\"# cm-reviewer — independent change review\\n\\nYou are a review variant. Deliver an independent, concrete review of the\\nchange presented to you.\\n\\n## Output contract\\n\\n- Report findings ranked by severity (must-fix, should-fix, nit), each with\\n  concrete evidence: file, line, and why it matters.\\n- End with an explicit verdict: approve, revise, or reject, plus the smallest\\n  set of changes that would flip the verdict.\\n- Review the actual change, not a summary of it. Read the diff and the\\n  surrounding code you need.\\n\\n## Boundaries\\n\\n- You are primarily read-mostly. You must not make implementation or\\n  integration edits, and you must not commit or push.\\n- You may create an explicitly requested, bounded review artifact when the\\n  requester explicitly asked for it. No other writes.\\n- Stay independent: review the work on its evidence, not on the author's\\n  reputation or the lead's preference.\\n\\n## Delegation\\n\\n- You may delegate distinct read-only review subproblems within scope. Never\\n  delegate edits.\\n\"},\"cm-reviewer-opus-xhigh\":{\"description\":\"Independent concrete change review with severity-ranked findings and an explicit verdict. Model: Opus 4.8 · 1M selector (lane xhigh). Use for the optional Claude-native independent verdict.\",\"effort\":\"xhigh\",\"model\":\"claude-multi-opus-4-8[1m]\",\"prompt\":\"# cm-reviewer — independent change review\\n\\nYou are a review variant. Deliver an independent, concrete review of the\\nchange presented to you.\\n\\n## Output contract\\n\\n- Report findings ranked by severity (must-fix, should-fix, nit), each with\\n  concrete evidence: file, line, and why it matters.\\n- End with an explicit verdict: approve, revise, or reject, plus the smallest\\n  set of changes that would flip the verdict.\\n- Review the actual change, not a summary of it. Read the diff and the\\n  surrounding code you need.\\n\\n## Boundaries\\n\\n- You are primarily read-mostly. You must not make implementation or\\n  integration edits, and you must not commit or push.\\n- You may create an explicitly requested, bounded review artifact when the\\n  requester explicitly asked for it. No other writes.\\n- Stay independent: review the work on its evidence, not on the author's\\n  reputation or the lead's preference.\\n\\n## Delegation\\n\\n- You may delegate distinct read-only review subproblems within scope. Never\\n  delegate edits.\\n\"}}","--append-system-prompt-file","/state/lead-prompt-5cd0e5f491e9cd73.md","--disallowedTools","Agent(Explore) Agent(general-purpose)","--verbose"]
++["--resume","11111111-1111-4111-8111-111111111111","--name","cm:default","--settings","/trusted/settings.json","--model","claude-fable-5[1m]","--effort","ultracode","--agents","{\"cm-analyst-kimi-k3-max\":{\"description\":\"Produce evidence-backed findings, reasoning, and broad analysis. Model: Kimi K3 · 1M selector (lane max). Use for broad architecture, security, or repository-wide synthesis.\",\"effort\":\"max\",\"model\":\"claude-multi-kimi-k3[1m]\",\"prompt\":\"# cm-analyst — reconnaissance and broad analysis\\n\\nYou are an analysis variant. Produce evidence-backed findings, reasoning, and\\nbroad or deep analysis: reconnaissance, architecture, security review,\\ncomparison, and repository-wide synthesis.\\n\\n## Boundaries\\n\\n- You are primarily read-mostly. You must not make implementation or\\n  integration edits, and you must not commit or push.\\n- You may create an explicitly requested, bounded, isolated report artifact\\n  (for example a single report file the lead asked for by path). This is the\\n  only write you may perform, and only when the requester explicitly asked for\\n  the artifact.\\n- If a subtask requires edits, report the boundary to the lead instead of\\n  asking another agent to perform the edit for you.\\n\\n## Method\\n\\n- Ground every claim in evidence: cite files and lines, commands, or test\\n  output. Distinguish verified facts from inference.\\n- Keep scope bounded to the question asked. Report what you examined and what\\n  remains uncertain.\\n\\n## Delegation\\n\\n- You must not delegate. Nested subagent spawning is disabled on the pinned\\n  platform while the spawn-depth decision is pending. If a subtask needs\\n  separate handling, report the split to the lead; never ask another agent to\\n  perform work for you.\\n\"},\"cm-analyst-sol-high\":{\"description\":\"Produce evidence-backed findings, reasoning, and broad analysis. Model: GPT-5.6 Sol (lane high). Use for routine reconnaissance and bounded reasoning. Preferred cm-analyst variant.\",\"effort\":\"high\",\"model\":\"gpt-multi-sol-high\",\"prompt\":\"# cm-analyst — reconnaissance and broad analysis\\n\\nYou are an analysis variant. Produce evidence-backed findings, reasoning, and\\nbroad or deep analysis: reconnaissance, architecture, security review,\\ncomparison, and repository-wide synthesis.\\n\\n## Boundaries\\n\\n- You are primarily read-mostly. You must not make implementation or\\n  integration edits, and you must not commit or push.\\n- You may create an explicitly requested, bounded, isolated report artifact\\n  (for example a single report file the lead asked for by path). This is the\\n  only write you may perform, and only when the requester explicitly asked for\\n  the artifact.\\n- If a subtask requires edits, report the boundary to the lead instead of\\n  asking another agent to perform the edit for you.\\n\\n## Method\\n\\n- Ground every claim in evidence: cite files and lines, commands, or test\\n  output. Distinguish verified facts from inference.\\n- Keep scope bounded to the question asked. Report what you examined and what\\n  remains uncertain.\\n\\n## Delegation\\n\\n- You must not delegate. Nested subagent spawning is disabled on the pinned\\n  platform while the spawn-depth decision is pending. If a subtask needs\\n  separate handling, report the split to the lead; never ask another agent to\\n  perform work for you.\\n\"},\"cm-implementer-kimi-k3-max\":{\"description\":\"Bounded implementation, normally worktree-isolated; reports changed files and validation. Model: Kimi K3 · 1M selector (lane max). Use when implementation requires broad context across many files.\",\"effort\":\"max\",\"isolation\":\"worktree\",\"model\":\"claude-multi-kimi-k3[1m]\",\"prompt\":\"# cm-implementer — bounded implementation\\n\\nYou are an implementation variant. Execute the bounded task exactly as scoped,\\nnormally inside an isolated worktree.\\n\\n## Scope discipline\\n\\n- Touch only what the task requires. No speculative refactors, drive-by\\n  cleanups, or unrelated formatting changes.\\n- One writer owns an overlapping file scope at a time. If the task collides\\n  with another writer's scope, stop and report the collision instead of\\n  working around it.\\n- Stay inside the assigned isolation boundary. Report back; the lead owns\\n  integration and final merge.\\n\\n## Contract\\n\\n- Implement the task, then validate it with the checks available in the\\n  repository (focused tests, builds, linters) and report exactly: files\\n  changed, what changed, which validations ran, and their results.\\n- Do not commit, push, open pull requests, or modify shared state unless the\\n  task explicitly says to.\\n- Match existing style and conventions. Keep the change minimal and complete.\\n\\n## Delegation\\n\\n- You must not delegate. Nested subagent spawning is disabled on the pinned\\n  platform while the spawn-depth decision is pending. If the task splits into\\n  disjoint bounded parts, report the split to the lead; you keep validation\\n  ownership for your own work.\\n\"},\"cm-implementer-sol-high\":{\"description\":\"Bounded implementation, normally worktree-isolated; reports changed files and validation. Model: GPT-5.6 Sol (lane high). Use for bounded implementation in an isolated worktree. Preferred cm-implementer variant.\",\"effort\":\"high\",\"isolation\":\"worktree\",\"model\":\"gpt-multi-sol-high\",\"prompt\":\"# cm-implementer — bounded implementation\\n\\nYou are an implementation variant. Execute the bounded task exactly as scoped,\\nnormally inside an isolated worktree.\\n\\n## Scope discipline\\n\\n- Touch only what the task requires. No speculative refactors, drive-by\\n  cleanups, or unrelated formatting changes.\\n- One writer owns an overlapping file scope at a time. If the task collides\\n  with another writer's scope, stop and report the collision instead of\\n  working around it.\\n- Stay inside the assigned isolation boundary. Report back; the lead owns\\n  integration and final merge.\\n\\n## Contract\\n\\n- Implement the task, then validate it with the checks available in the\\n  repository (focused tests, builds, linters) and report exactly: files\\n  changed, what changed, which validations ran, and their results.\\n- Do not commit, push, open pull requests, or modify shared state unless the\\n  task explicitly says to.\\n- Match existing style and conventions. Keep the change minimal and complete.\\n\\n## Delegation\\n\\n- You must not delegate. Nested subagent spawning is disabled on the pinned\\n  platform while the spawn-depth decision is pending. If the task splits into\\n  disjoint bounded parts, report the split to the lead; you keep validation\\n  ownership for your own work.\\n\"},\"cm-reviewer-gpt55-high\":{\"description\":\"Independent concrete change review with severity-ranked findings and an explicit verdict. Model: GPT-5.5 (lane high). Use for routine bounded review. Preferred cm-reviewer variant.\",\"effort\":\"high\",\"model\":\"gpt-multi-gpt55-high\",\"prompt\":\"# cm-reviewer — independent change review\\n\\nYou are a review variant. Deliver an independent, concrete review of the\\nchange presented to you.\\n\\n## Output contract\\n\\n- Report findings ranked by severity (must-fix, should-fix, nit), each with\\n  concrete evidence: file, line, and why it matters.\\n- End with an explicit verdict: approve, revise, or reject, plus the smallest\\n  set of changes that would flip the verdict.\\n- Review the actual change, not a summary of it. Read the diff and the\\n  surrounding code you need.\\n\\n## Boundaries\\n\\n- You are primarily read-mostly. You must not make implementation or\\n  integration edits, and you must not commit or push.\\n- You may create an explicitly requested, bounded review artifact when the\\n  requester explicitly asked for it. No other writes.\\n- Stay independent: review the work on its evidence, not on the author's\\n  reputation or the lead's preference.\\n\\n## Delegation\\n\\n- You must not delegate. Nested subagent spawning is disabled on the pinned\\n  platform while the spawn-depth decision is pending. If the review scope\\n  splits, report the split to the lead; never delegate edits.\\n\"},\"cm-reviewer-opus-xhigh\":{\"description\":\"Independent concrete change review with severity-ranked findings and an explicit verdict. Model: Opus 4.8 · 1M selector (lane xhigh). Use for the optional Claude-native independent verdict.\",\"effort\":\"xhigh\",\"model\":\"claude-multi-opus-4-8[1m]\",\"prompt\":\"# cm-reviewer — independent change review\\n\\nYou are a review variant. Deliver an independent, concrete review of the\\nchange presented to you.\\n\\n## Output contract\\n\\n- Report findings ranked by severity (must-fix, should-fix, nit), each with\\n  concrete evidence: file, line, and why it matters.\\n- End with an explicit verdict: approve, revise, or reject, plus the smallest\\n  set of changes that would flip the verdict.\\n- Review the actual change, not a summary of it. Read the diff and the\\n  surrounding code you need.\\n\\n## Boundaries\\n\\n- You are primarily read-mostly. You must not make implementation or\\n  integration edits, and you must not commit or push.\\n- You may create an explicitly requested, bounded review artifact when the\\n  requester explicitly asked for it. No other writes.\\n- Stay independent: review the work on its evidence, not on the author's\\n  reputation or the lead's preference.\\n\\n## Delegation\\n\\n- You must not delegate. Nested subagent spawning is disabled on the pinned\\n  platform while the spawn-depth decision is pending. If the review scope\\n  splits, report the split to the lead; never delegate edits.\\n\"}}","--append-system-prompt-file","/state/lead-prompt-5cd0e5f491e9cd73-11111111-1111-4111-8111-111111111111.md","--disallowedTools","Agent(Explore) Agent(general-purpose) Agent(claude)","--verbose"]
+diff --git a/home-manager/claude-multi/tests/goldens/default/env.json b/home-manager/claude-multi/tests/goldens/default/env.json
+index 0edc63c..2fbb223 100644
+--- a/home-manager/claude-multi/tests/goldens/default/env.json
++++ b/home-manager/claude-multi/tests/goldens/default/env.json
+@@ -1 +1 @@
+-{"set":{"ANTHROPIC_BASE_URL":"http://127.0.0.1:8317","ANTHROPIC_DEFAULT_FABLE_MODEL":"claude-fable-5[1m]","ANTHROPIC_DEFAULT_OPUS_MODEL":"claude-opus-4-8[1m]","CLAUDE_CODE_MAX_CONTEXT_TOKENS":"272000","CLAUDE_MULTI_GATEWAY":"1"},"unset":["CLAUDE_CODE_SUBAGENT_MODEL","CLAUDE_CODE_MAX_OUTPUT_TOKENS","CLAUDE_CODE_ENABLE_GATEWAY_MODEL_DISCOVERY","CLAUDE_CODE_AUTO_COMPACT_WINDOW"]}
++{"set":{"ANTHROPIC_BASE_URL":"http://127.0.0.1:8317","ANTHROPIC_DEFAULT_FABLE_MODEL":"claude-fable-5[1m]","ANTHROPIC_DEFAULT_OPUS_MODEL":"claude-opus-4-8[1m]","CLAUDE_CODE_MAX_CONTEXT_TOKENS":"272000","CLAUDE_MULTI_GATEWAY":"1","DISABLE_AUTOUPDATER":"1"},"unset":["CLAUDE_CODE_SUBAGENT_MODEL","CLAUDE_CODE_MAX_OUTPUT_TOKENS","CLAUDE_CODE_ENABLE_GATEWAY_MODEL_DISCOVERY","CLAUDE_CODE_AUTO_COMPACT_WINDOW","CLAUDE_CONFIG_DIR","CLAUDE_CODE_MAX_SUBAGENT_SPAWN_DEPTH","CLAUDE_CODE_MAX_CONCURRENT_SUBAGENTS","CLAUDE_CODE_DISABLE_EXPLORE_PLAN_AGENTS"]}
+diff --git a/home-manager/claude-multi/tests/goldens/default/lead-appendix.md b/home-manager/claude-multi/tests/goldens/default/lead-appendix.md
+index 8649906..6ebc6b5 100644
+--- a/home-manager/claude-multi/tests/goldens/default/lead-appendix.md
++++ b/home-manager/claude-multi/tests/goldens/default/lead-appendix.md
+@@ -24,3 +24,9 @@ Enabled provider families: anthropic, moonshot, openai.
+ 
+ - One writer owns an overlapping file scope at a time.
+ - Invoke generated agents by exact ID; never pass a per-invocation model override.
++
++## Session sentinel (generated)
++
++- Managed session: 11111111-1111-4111-8111-111111111111 (composition `default`).
++- If a selected cm-* type is unavailable, stop delegation. Never substitute a native or generic agent.
++- Exact relaunch after interruption: ask the user to run `claude-multi --composition default -r 11111111-1111-4111-8111-111111111111`.
+diff --git a/home-manager/claude-multi/tests/test_catalog.py b/home-manager/claude-multi/tests/test_catalog.py
+index ca0b155..61c87d4 100644
+--- a/home-manager/claude-multi/tests/test_catalog.py
++++ b/home-manager/claude-multi/tests/test_catalog.py
+@@ -623,8 +623,13 @@ class NativeContractTests(unittest.TestCase):
+     def test_record_is_offline_and_unverified_where_required(self) -> None:
+         bundle = catalog.load_catalog(CATALOG_ROOT)
+         record = bundle.docs["native-contract"]
+-        self.assertEqual(record["claude"]["validated_version"], "2.1.216")
+-        self.assertIn("not executed", record["claude"]["executable"]["inspection"])
++        self.assertEqual(record["claude"]["validated_version"], "2.1.217")
++        inspection = record["claude"]["executable"]["inspection"]
++        self.assertIn("--version", inspection)
++        self.assertIn("--help", inspection)
++        self.assertIn("no prompt", inspection)
++        self.assertIn("no provider request", inspection)
++        self.assertIn("no daemon contact", inspection)
+         acceptance = record["acceptance"]
+         self.assertEqual(
+             acceptance["same_launch_agents_and_agent_cm_lead"]["status"], "unverified"
+@@ -636,6 +641,88 @@ class NativeContractTests(unittest.TestCase):
+             "main-thread-append-system-prompt-file",
+         )
+ 
++    def test_promoted_executable_facts_locked(self) -> None:
++        bundle = catalog.load_catalog(CATALOG_ROOT)
++        executable = bundle.docs["native-contract"]["claude"]["executable"]
++        self.assertEqual(executable["configured_path"], "/home/kotur/.local/bin/claude")
++        self.assertEqual(
++            executable["resolved_path"],
++            "/home/kotur/.local/share/claude/versions/2.1.217",
++        )
++        self.assertEqual(
++            executable["sha256"],
++            "2630fc5dc6db61bc03f86b95daf47766e5ed5b61873f7bb7cfea764c5ac5a9ba",
++        )
++        self.assertEqual(executable["inspected_at"], "2026-07-22")
++        self.assertEqual(bundle.docs["native-contract"]["recorded_at"], "2026-07-22")
++        self.assertEqual(bundle.docs["native-contract"]["evidence_version"], 2)
++
++    def test_models_minimum_tested_floor_locked_separately(self) -> None:
++        # No provider/model requests are allowed in this automation, so model
++        # compatibility at the inspected 2.1.217 binary is untested; 2.1.216
++        # remains the truthful minimum-tested floor, decoupled from the native
++        # artifact version.
++        bundle = catalog.load_catalog(CATALOG_ROOT)
++        validated = bundle.docs["native-contract"]["claude"]["validated_version"]
++        self.assertEqual(validated, "2.1.217")
++        for model_id, model in bundle.models.items():
++            with self.subTest(model=model_id):
++                self.assertEqual(model["minimum_tested"]["claude_code"], "2.1.216")
++
++    def test_generic_agent_aliases_recorded_for_policy(self) -> None:
++        bundle = catalog.load_catalog(CATALOG_ROOT)
++        aliases = bundle.docs["native-contract"]["generic_agent_aliases"]
++        self.assertEqual(aliases["values"], ["claude"])
++        self.assertEqual(aliases["status"], "provisionally-trusted")
++        self.assertIn("not functional verification", aliases["evidence"])
++
++    def test_session_config_capabilities_all_pending(self) -> None:
++        bundle = catalog.load_catalog(CATALOG_ROOT)
++        session_config = bundle.docs["native-contract"]["session_config"]
++        self.assertEqual(session_config["status"], "pending")
++        self.assertIn("not functional verification", session_config["evidence"])
++        capabilities = session_config["capabilities"]
++        self.assertEqual(
++            set(capabilities),
++            {
++                "root_agent_discovery",
++                "persistent_denies",
++                "onboarding_trust",
++                "transcript_location_exact_resume",
++                "selectors_effort_tools_worktree",
++                "background_supervisor_lifecycle",
++                "root_memory_reinjection",
++                "project_agent_collision",
++            },
++        )
++        for name, entry in capabilities.items():
++            with self.subTest(capability=name):
++                self.assertEqual(entry["status"], "pending")
++                self.assertTrue(entry["probe"].startswith("g1-"))
++
++    def test_nested_subagent_decision_pending(self) -> None:
++        bundle = catalog.load_catalog(CATALOG_ROOT)
++        nested = bundle.docs["native-contract"]["nested_subagents"]
++        self.assertEqual(nested["decision"], "pending")
++        self.assertEqual(
++            nested["depth_key"],
++            {"name": "CLAUDE_CODE_MAX_SUBAGENT_SPAWN_DEPTH", "status": "unverified"},
++        )
++        self.assertEqual(
++            nested["concurrency_key"],
++            {"name": "CLAUDE_CODE_MAX_CONCURRENT_SUBAGENTS", "status": "unverified"},
++        )
++        self.assertIn("not functional verification", nested["evidence"])
++
++    def test_lifecycle_evidence_identifier_matches_inspected_version(self) -> None:
++        bundle = catalog.load_catalog(CATALOG_ROOT)
++        record = bundle.docs["native-contract"]
++        lifecycle = record["lifecycle_evidence"]
++        self.assertEqual(
++            lifecycle["inspected_version"], record["claude"]["validated_version"]
++        )
++        self.assertIn("phase0", lifecycle["evidence_id"])
++
+     def test_effort_vocabulary_evidenced(self) -> None:
+         bundle = catalog.load_catalog(CATALOG_ROOT)
+         vocabulary = bundle.docs["native-contract"]["effort_vocabulary"]
+@@ -645,5 +732,76 @@ class NativeContractTests(unittest.TestCase):
+         self.assertEqual(vocabulary["status"], "provisionally-trusted")
+ 
+ 
++class NativeContractSchemaTests(unittest.TestCase):
++    @classmethod
++    def setUpClass(cls) -> None:
++        cls.schema = strict_json.load(
++            CATALOG_ROOT / "schemas" / "native-contract.schema.json"
++        )
++        validate.check_schema(cls.schema)
++
++    def _document(self) -> dict:
++        return copy.deepcopy(_raw()["docs"]["native-contract"])
++
++    def test_seed_document_valid(self) -> None:
++        self.assertEqual(validate.validate(self._document(), self.schema, "$"), [])
++
++    def test_unknown_top_level_key_rejected(self) -> None:
++        document = self._document()
++        document["surprise"] = 1
++        problems = validate.validate(document, self.schema, "$")
++        self.assertTrue(any("unexpected key" in problem for problem in problems))
++
++    def test_missing_new_required_fields_rejected(self) -> None:
++        for field in (
++            "generic_agent_aliases",
++            "session_config",
++            "nested_subagents",
++            "lifecycle_evidence",
++        ):
++            with self.subTest(field=field):
++                document = self._document()
++                del document[field]
++                self.assertTrue(validate.validate(document, self.schema, "$"))
++
++    def test_unknown_capability_key_rejected(self) -> None:
++        document = self._document()
++        document["session_config"]["capabilities"]["surprise"] = {
++            "status": "pending",
++            "probe": "g1-p0",
++        }
++        problems = validate.validate(document, self.schema, "$")
++        self.assertTrue(any("unexpected key" in problem for problem in problems))
++
++    def test_capability_status_outside_enum_rejected(self) -> None:
++        document = self._document()
++        document["session_config"]["capabilities"]["onboarding_trust"]["status"] = "passed"
++        self.assertTrue(validate.validate(document, self.schema, "$"))
++
++    def test_session_config_status_outside_enum_rejected(self) -> None:
++        document = self._document()
++        document["session_config"]["status"] = "passed"
++        self.assertTrue(validate.validate(document, self.schema, "$"))
++
++    def test_nested_decision_outside_enum_rejected(self) -> None:
++        document = self._document()
++        document["nested_subagents"]["decision"] = "assumed"
++        self.assertTrue(validate.validate(document, self.schema, "$"))
++
++    def test_nested_key_name_is_const_locked(self) -> None:
++        document = self._document()
++        document["nested_subagents"]["depth_key"]["name"] = "CLAUDE_CODE_OTHER"
++        self.assertTrue(validate.validate(document, self.schema, "$"))
++
++    def test_lifecycle_evidence_shape_enforced(self) -> None:
++        document = self._document()
++        document["lifecycle_evidence"]["surprise"] = "x"
++        problems = validate.validate(document, self.schema, "$")
++        self.assertTrue(any("unexpected key" in problem for problem in problems))
++        document = self._document()
++        document["lifecycle_evidence"]["inspected_version"] = "2.1"
++        self.assertTrue(validate.validate(document, self.schema, "$"))
++
++
+ if __name__ == "__main__":
+     unittest.main()
+diff --git a/home-manager/claude-multi/tests/test_cli.py b/home-manager/claude-multi/tests/test_cli.py
+index b7dad46..fa9e36f 100644
+--- a/home-manager/claude-multi/tests/test_cli.py
++++ b/home-manager/claude-multi/tests/test_cli.py
+@@ -43,6 +43,13 @@ class CLITestCase(unittest.TestCase):
+             cwd=self.root / "project",
+             launch_callback=lambda prepared: self.launches.append(prepared) or 0,
+             doctor_callback=lambda _runtime: [],
++            doctor_binary_callback=lambda _contract: (
++                [],
++                ["Managed Claude 2.1.217 verified (fixture)."],
++            ),
++            doctor_daemon_callback=lambda: cli.launch.DaemonStatus(
++                state="absent", summary="fixture daemon absent"
++            ),
+         )
+ 
+     def run_cli(self, argv, text="", *, interactive=True):
+@@ -765,6 +772,34 @@ class SessionCommandTests(CLITestCase):
+         self.assertIn("Ready", output)
+         self.assertEqual(self.launches, [])
+ 
++    def test_doctor_reports_binary_and_daemon_info(self) -> None:
++        code, output = self.run_cli(["doctor"])
++        self.assertEqual(code, 0)
++        self.assertIn("Managed Claude 2.1.217 verified (fixture).", output)
++        self.assertIn("Shared daemon: fixture daemon absent.", output)
++
++    def test_doctor_blocked_when_binary_verification_fails(self) -> None:
++        self.runtime.doctor_binary_callback = lambda _contract: (
++            ["managed Claude binary: inspected Claude artifact /x is missing; "
++             "re-run the native-contract inspection against the installed version"],
++            [],
++        )
++        code, output = self.run_cli(["doctor"], interactive=False)
++        self.assertEqual(code, 1)
++        self.assertIn("BLOCKED", output)
++        self.assertNotIn("Ready", output)
++        self.assertIn("managed Claude binary", output)
++        self.assertIn("re-run the native-contract inspection", output)
++
++    def test_doctor_binary_parity_uses_launch_resolver_by_default(self) -> None:
++        runtime = cli.Runtime(
++            asset_root=CATALOG_ROOT,
++            environ=self.runtime.environ,
++            cwd=self.root / "project",
++        )
++        self.assertIs(runtime.doctor_binary_callback, cli.launch.doctor_binary_report)
++        self.assertIs(runtime.doctor_daemon_callback, cli.launch.inspect_shared_daemon)
++
+ 
+ if __name__ == "__main__":
+     unittest.main()
+@@ -810,6 +845,77 @@ class SecretReadinessSurfaceTests(CLITestCase):
+         self.assertNotIn("not-an-assignment", output)
+ 
+ 
++class DoctorBinaryParityTests(CLITestCase):
++    """Real launch resolver callback behind Doctor, temp fixture artifact."""
++
++    def _fixture_runtime(self, sha256: str) -> cli.Runtime:
++        install = self.root / "install" / "versions" / "2.1.217"
++        install.parent.mkdir(parents=True, exist_ok=True)
++        install.write_bytes(b"#!/bin/fake-claude\n")
++        install.chmod(0o755)
++        link = self.root / "bin" / "claude"
++        link.parent.mkdir(parents=True, exist_ok=True)
++        link.symlink_to(install)
++        fixture = {
++            "claude": {
++                "validated_version": "2.1.217",
++                "executable": {
++                    "configured_path": str(link),
++                    "resolved_path": str(install),
++                    "sha256": sha256,
++                    "inspection": "test fixture",
++                    "inspected_at": "2026-07-22",
++                },
++            }
++        }
++        runtime = cli.Runtime(
++            asset_root=CATALOG_ROOT,
++            environ=self.runtime.environ,
++            cwd=self.root / "project",
++            doctor_callback=lambda _runtime: [],
++            doctor_daemon_callback=lambda: cli.launch.DaemonStatus(
++                state="absent", summary="fixture daemon absent"
++            ),
++        )
++        # Real callback (the Runtime default) against the fixture contract.
++        self.assertIs(runtime.doctor_binary_callback, cli.launch.doctor_binary_report)
++        runtime.catalog.docs["native-contract"] = fixture
++        return runtime
++
++    def test_doctor_ready_with_intact_fixture_artifact(self) -> None:
++        import hashlib
++
++        sha256 = hashlib.sha256(b"#!/bin/fake-claude\n").hexdigest()
++        runtime = self._fixture_runtime(sha256)
++        output = io.StringIO()
++        code = cli.main(
++            ["doctor"],
++            runtime=runtime,
++            output_stream=output,
++            interactive=False,
++        )
++        self.assertEqual(code, 0)
++        self.assertIn("Ready", output.getvalue())
++        self.assertIn("Managed Claude 2.1.217 verified", output.getvalue())
++        self.assertIn("resolves to the inspected artifact", output.getvalue())
++
++    def test_doctor_blocked_with_tampered_fixture_hash(self) -> None:
++        runtime = self._fixture_runtime("0" * 64)
++        output = io.StringIO()
++        code = cli.main(
++            ["doctor"],
++            runtime=runtime,
++            output_stream=output,
++            interactive=False,
++        )
++        self.assertEqual(code, 1)
++        self.assertIn("BLOCKED", output.getvalue())
++        self.assertNotIn("Ready", output.getvalue())
++        # Same failure text launch would raise: parity, not a parallel check.
++        self.assertIn("content hash does not match", output.getvalue())
++        self.assertIn("re-run the native-contract inspection", output.getvalue())
++
++
+ class BareLaunchStreamTests(unittest.TestCase):
+     """_open_tty_streams resolution: prefer /dev/tty, fall back to real TTYs."""
+ 
+diff --git a/home-manager/claude-multi/tests/test_compiler.py b/home-manager/claude-multi/tests/test_compiler.py
+index cc36a79..5f1fe2a 100644
+--- a/home-manager/claude-multi/tests/test_compiler.py
++++ b/home-manager/claude-multi/tests/test_compiler.py
+@@ -11,6 +11,7 @@ from claude_multi import catalog, compiler, composition, strict_json
+ CATALOG_ROOT = Path(__file__).resolve().parents[1]
+ GOLDENS = CATALOG_ROOT / "tests" / "goldens" / "default"
+ FIXED_SESSION = "11111111-1111-4111-8111-111111111111"
++OTHER_SESSION = "22222222-2222-4222-8222-222222222222"
+ SETTINGS_PATH = Path("/trusted/settings.json")
+ 
+ 
+@@ -19,7 +20,7 @@ def _compile(passthrough=None, action=None):
+     resolved = composition.resolve(bundle.docs, bundle.default_composition)
+     snap = composition.snapshot(resolved)
+     digest = strict_json.bundle_digest(snap)
+-    lead_path = compiler.lead_prompt_path(Path("/state"), digest)
++    lead_path = compiler.lead_prompt_path(Path("/state"), digest, FIXED_SESSION)
+     result = compiler.compile_launch(
+         docs=bundle.docs,
+         prompt_bodies=bundle.prompt_bodies,
+@@ -32,6 +33,27 @@ def _compile(passthrough=None, action=None):
+     return bundle, resolved, result
+ 
+ 
++class LeadPromptPathTests(unittest.TestCase):
++    def test_session_scoped_and_deterministic(self) -> None:
++        digest_a = "sha256:" + "a" * 64
++        digest_b = "sha256:" + "b" * 64
++        path = compiler.lead_prompt_path(Path("/state"), digest_a, FIXED_SESSION)
++        # resume of the same UUID is stable
++        self.assertEqual(
++            path, compiler.lead_prompt_path(Path("/state"), digest_a, FIXED_SESSION)
++        )
++        self.assertIn(FIXED_SESSION, path.name)
++        self.assertIn(digest_a.removeprefix("sha256:")[:16], path.name)
++        # fresh launches with different UUIDs never collide
++        self.assertNotEqual(
++            path, compiler.lead_prompt_path(Path("/state"), digest_a, OTHER_SESSION)
++        )
++        # composition transition for the same UUID lands on the new digest
++        self.assertNotEqual(
++            path, compiler.lead_prompt_path(Path("/state"), digest_b, FIXED_SESSION)
++        )
++
++
+ class GoldenTests(unittest.TestCase):
+     def test_agents_json_golden(self) -> None:
+         _, _, result = _compile()
+@@ -46,7 +68,10 @@ class GoldenTests(unittest.TestCase):
+     def test_lead_appendix_golden(self) -> None:
+         bundle, resolved, _ = _compile()
+         appendix = compiler.generate_lead_appendix(
+-            resolved, bundle.docs["providers"]["providers"]
++            resolved,
++            bundle.docs["providers"]["providers"],
++            session_id=FIXED_SESSION,
++            composition_name="default",
+         )
+         expected = (GOLDENS / "lead-appendix.md").read_bytes()
+         self.assertEqual(appendix.encode("utf-8"), expected)
+@@ -148,11 +173,20 @@ class AgentDefinitionTests(unittest.TestCase):
+         self.assertIn("must not receive its sole verdict", prompt)
+         self.assertIn("One writer owns an overlapping file scope", prompt)
+         self.assertIn("never pass a per-invocation model override", prompt)
++        # G0' sentinel: exact session UUID, no-substitution clause, relaunch.
++        self.assertIn(f"Managed session: {FIXED_SESSION}", prompt)
++        self.assertIn("Never substitute a native or generic agent", prompt)
++        self.assertIn(
++            f"`claude-multi --composition default -r {FIXED_SESSION}`", prompt
++        )
+ 
+     def test_independence_rules_match_enabled_families(self) -> None:
+         bundle, resolved, _ = _compile()
+         appendix = compiler.generate_lead_appendix(
+-            resolved, bundle.docs["providers"]["providers"]
++            resolved,
++            bundle.docs["providers"]["providers"],
++            session_id=FIXED_SESSION,
++            composition_name="default",
+         )
+         # Reviewer families enabled: anthropic (opus), openai (gpt55).
+         self.assertIn("anthropic-family variant while a reviewer from openai", appendix)
+@@ -175,7 +209,10 @@ class AgentDefinitionTests(unittest.TestCase):
+                 slot["preferred"] = True
+         resolved = composition.resolve(bundle.docs, document)
+         appendix = compiler.generate_lead_appendix(
+-            resolved, bundle.docs["providers"]["providers"]
++            resolved,
++            bundle.docs["providers"]["providers"],
++            session_id=FIXED_SESSION,
++            composition_name="default",
+         )
+         self.assertIn(
+             "No enabled cross-family reviewer for anthropic-authored changes",
+@@ -193,7 +230,10 @@ class AgentDefinitionTests(unittest.TestCase):
+         ][:2]
+         resolved = composition.resolve(bundle.docs, document)
+         reduced = compiler.generate_lead_appendix(
+-            resolved, bundle.docs["providers"]["providers"]
++            resolved,
++            bundle.docs["providers"]["providers"],
++            session_id=FIXED_SESSION,
++            composition_name="default",
+         )
+         self.assertNotIn("cm-reviewer-opus-xhigh", reduced)
+         self.assertIn("cm-analyst-sol-high", reduced)
+@@ -262,7 +302,7 @@ class EnvironmentTests(unittest.TestCase):
+             passthrough=[],
+             settings_path=SETTINGS_PATH,
+             lead_prompt_path=compiler.lead_prompt_path(
+-                Path("/state"), strict_json.bundle_digest(snap)
++                Path("/state"), strict_json.bundle_digest(snap), FIXED_SESSION
+             ),
+         )
+ 
+@@ -285,6 +325,10 @@ class EnvironmentTests(unittest.TestCase):
+                 "CLAUDE_CODE_MAX_OUTPUT_TOKENS",
+                 "CLAUDE_CODE_ENABLE_GATEWAY_MODEL_DISCOVERY",
+                 "CLAUDE_CODE_AUTO_COMPACT_WINDOW",
++                "CLAUDE_CONFIG_DIR",
++                "CLAUDE_CODE_MAX_SUBAGENT_SPAWN_DEPTH",
++                "CLAUDE_CODE_MAX_CONCURRENT_SUBAGENTS",
++                "CLAUDE_CODE_DISABLE_EXPLORE_PLAN_AGENTS",
+             ),
+         )
+         self.assertEqual(
+@@ -297,9 +341,43 @@ class EnvironmentTests(unittest.TestCase):
+             result.env_set["ANTHROPIC_DEFAULT_OPUS_MODEL"], "claude-opus-4-8[1m]"
+         )
+         self.assertEqual(result.env_set["CLAUDE_MULTI_GATEWAY"], "1")
++        self.assertEqual(result.env_set["DISABLE_AUTOUPDATER"], "1")
+         self.assertEqual(result.env_set["CLAUDE_CODE_MAX_CONTEXT_TOKENS"], "272000")
+         self.assertNotIn("ANTHROPIC_AUTH_TOKEN", result.env_set)
+ 
++    def test_nested_spawn_keys_never_compiled_while_pending(self) -> None:
++        _, _, result = _compile()
++        contract = catalog.load_catalog(CATALOG_ROOT).docs["native-contract"]
++        self.assertEqual(contract["nested_subagents"]["decision"], "pending")
++        for key in (
++            "CLAUDE_CODE_MAX_SUBAGENT_SPAWN_DEPTH",
++            "CLAUDE_CODE_MAX_CONCURRENT_SUBAGENTS",
++        ):
++            self.assertNotIn(key, result.env_set)
++            self.assertIn(key, result.env_unset)
++
++    def test_g0_reserved_lead_env_keys_rejected(self) -> None:
++        import copy
++
++        bundle = catalog.load_catalog(CATALOG_ROOT)
++        for key in (
++            "CLAUDE_CONFIG_DIR",
++            "DISABLE_AUTOUPDATER",
++            "CLAUDE_CODE_MAX_SUBAGENT_SPAWN_DEPTH",
++            "CLAUDE_CODE_MAX_CONCURRENT_SUBAGENTS",
++            "CLAUDE_CODE_DISABLE_EXPLORE_PLAN_AGENTS",
++        ):
++            with self.subTest(key=key):
++                docs = copy.deepcopy(bundle.docs)
++                docs["models"]["models"]["fable"]["lead"]["env"][key] = "1"
++                resolved = composition.resolve(docs, bundle.default_composition)
++                with self.assertRaisesRegex(
++                    compiler.CompilerError, "compiler-owned and reserved"
++                ):
++                    compiler.compile_environment(
++                        docs["gateway"], docs["providers"]["providers"], resolved
++                    )
++
+     def test_lead_env_applied_after_unset(self) -> None:
+         import copy
+ 
+@@ -316,7 +394,9 @@ class EnvironmentTests(unittest.TestCase):
+             session_action=compiler.build_fresh(FIXED_SESSION),
+             passthrough=[],
+             settings_path=SETTINGS_PATH,
+-            lead_prompt_path=compiler.lead_prompt_path(Path("/state"), digest),
++            lead_prompt_path=compiler.lead_prompt_path(
++                Path("/state"), digest, FIXED_SESSION
++            ),
+         )
+         self.assertIn("CLAUDE_CODE_AUTO_COMPACT_WINDOW", result.env_unset)
+         self.assertEqual(
+diff --git a/home-manager/claude-multi/tests/test_composition.py b/home-manager/claude-multi/tests/test_composition.py
+index 471125a..8f176e3 100644
+--- a/home-manager/claude-multi/tests/test_composition.py
++++ b/home-manager/claude-multi/tests/test_composition.py
+@@ -189,7 +189,10 @@ class KimiReviewerTests(unittest.TestCase):
+         bundle, document = self._kimi_reviewer_doc()
+         resolved = composition.resolve(bundle.docs, document)
+         appendix = compiler.generate_lead_appendix(
+-            resolved, bundle.docs["providers"]["providers"]
++            resolved,
++            bundle.docs["providers"]["providers"],
++            session_id="11111111-1111-4111-8111-111111111111",
++            composition_name="default",
+         )
+         self.assertIn("openai-family variant while a reviewer from moonshot", appendix)
+         self.assertIn("moonshot-family variant while a reviewer from openai", appendix)
+diff --git a/home-manager/claude-multi/tests/test_launch.py b/home-manager/claude-multi/tests/test_launch.py
+index fc4bb4e..c5f3738 100644
+--- a/home-manager/claude-multi/tests/test_launch.py
++++ b/home-manager/claude-multi/tests/test_launch.py
+@@ -89,6 +89,11 @@ class LaunchTestCase(unittest.TestCase):
+                 "contingency": "main-thread-append-system-prompt-file",
+                 "decision_gate": "P1",
+             },
++            "generic_agent_aliases": {
++                "values": ["claude"],
++                "status": "provisionally-trusted",
++                "evidence": "test fixture",
++            },
+         }
+         # Docs copy that consumes the fixture native contract.
+         self.docs = dict(self.bundle.docs)
+@@ -114,7 +119,7 @@ class LaunchTestCase(unittest.TestCase):
+             passthrough=[],
+             settings_path=Path("/trusted/settings.json"),
+             lead_prompt_path=compiler.lead_prompt_path(
+-                self.root / "state", self.digest
++                self.root / "state", self.digest, FIXED_ID
+             ),
+         )
+ 
+@@ -132,53 +137,288 @@ class LaunchTestCase(unittest.TestCase):
+ 
+ 
+ class ResolveClaudeTests(LaunchTestCase):
+-    def test_resolves_and_validates(self) -> None:
+-        resolved = launch.resolve_claude(self.native_contract)
+-        self.assertEqual(resolved.name, "2.1.216")
+-
+-    def test_hash_mismatch_fails_closed(self) -> None:
+-        tampered = {
++    def _contract(self, **executable_overrides):
++        return {
+             **self.native_contract,
+             "claude": {
+                 **self.native_contract["claude"],
+                 "executable": {
+                     **self.native_contract["claude"]["executable"],
+-                    "sha256": "0" * 64,
++                    **executable_overrides,
+                 },
+             },
+         }
++
++    def test_verifies_inspected_artifact_and_reports_status(self) -> None:
++        status = launch.resolve_claude(self.native_contract)
++        self.assertEqual(status.inspected_path.name, "2.1.216")
++        self.assertEqual(status.validated_version, "2.1.216")
++        self.assertEqual(
++            status.sha256,
++            self.native_contract["claude"]["executable"]["sha256"],
++        )
++        self.assertEqual(
++            status.configured_path,
++            Path(self.native_contract["claude"]["executable"]["configured_path"]),
++        )
++        self.assertEqual(status.configured_target, status.inspected_path)
++        self.assertTrue(status.configured_matches)
++        self.assertIsNone(status.advisory)
++
++    def test_moved_symlink_does_not_block_when_artifact_intact(self) -> None:
++        newer = self.root / "install" / "versions" / "2.1.218"
++        newer.write_bytes(b"#!/bin/fake-claude-newer\n")
++        newer.chmod(0o755)
++        link = self.root / "bin" / "claude"
++        link.unlink()
++        link.symlink_to(newer)
++        status = launch.resolve_claude(self.native_contract)
++        self.assertEqual(status.inspected_path.name, "2.1.216")
++        self.assertFalse(status.configured_matches)
++        self.assertEqual(status.configured_target, newer)
++        self.assertIn("2.1.218", status.advisory)
++
++    def test_unresolvable_symlink_is_advisory_only(self) -> None:
++        (self.root / "bin" / "claude").unlink()
++        status = launch.resolve_claude(self.native_contract)
++        self.assertTrue(status.inspected_path.is_file())
++        self.assertIsNone(status.configured_target)
++        self.assertFalse(status.configured_matches)
++        self.assertIn("unresolvable", status.advisory)
++
++    def test_missing_artifact_fails_closed(self) -> None:
++        (self.root / "bin" / "claude").unlink()
++        (self.root / "install" / "versions" / "2.1.216").unlink()
++        with self.assertRaisesRegex(LaunchError, "missing"):
++            launch.resolve_claude(self.native_contract)
++
++    def test_symlinked_artifact_fails_closed(self) -> None:
++        artifact = self.root / "install" / "versions" / "2.1.216"
++        real = self.root / "install" / "real-2.1.216"
++        artifact.rename(real)
++        artifact.symlink_to(real)
++        with self.assertRaisesRegex(LaunchError, "symlink"):
++            launch.resolve_claude(self.native_contract)
++
++    def test_non_regular_artifact_fails_closed(self) -> None:
++        artifact = self.root / "install" / "versions" / "2.1.216"
++        artifact.unlink()
++        artifact.mkdir()
++        with self.assertRaisesRegex(LaunchError, "regular file"):
++            launch.resolve_claude(self.native_contract)
++
++    def test_wrong_basename_fails_closed(self) -> None:
++        other = self.root / "install" / "versions" / "claude"
++        other.write_bytes(b"#!/bin/fake-claude\n")
++        other.chmod(0o755)
++        tampered = self._contract(
++            resolved_path=str(other),
++            sha256=hashlib.sha256(other.read_bytes()).hexdigest(),
++        )
++        with self.assertRaisesRegex(LaunchError, "does not match trusted version"):
++            launch.resolve_claude(tampered)
++
++    def test_hash_mismatch_fails_closed(self) -> None:
++        tampered = self._contract(sha256="0" * 64)
+         with self.assertRaisesRegex(LaunchError, "hash"):
+             launch.resolve_claude(tampered)
+ 
+-    def test_resolved_path_drift_fails_closed(self) -> None:
++    def test_non_executable_artifact_fails_closed(self) -> None:
++        artifact = self.root / "install" / "versions" / "2.1.216"
++        artifact.chmod(0o644)
++        with self.assertRaisesRegex(LaunchError, "not executable"):
++            launch.resolve_claude(self.native_contract)
++
++    def test_hash_called_on_each_resolution(self) -> None:
++        from unittest import mock
++
++        with mock.patch.object(
++            launch.hashlib, "sha256", wraps=launch.hashlib.sha256
++        ) as spy:
++            launch.resolve_claude(self.native_contract)
++            launch.resolve_claude(self.native_contract)
++        self.assertEqual(spy.call_count, 2)
++
++
++class DoctorBinaryReportTests(LaunchTestCase):
++    def test_clean_fixture_reports_version_and_no_problems(self) -> None:
++        problems, info = launch.doctor_binary_report(self.native_contract)
++        self.assertEqual(problems, [])
++        self.assertTrue(any("2.1.216" in line for line in info))
++        self.assertTrue(any("resolves to the inspected artifact" in line for line in info))
++
++    def test_advisory_drift_names_newer_unqualified_version(self) -> None:
++        newer = self.root / "install" / "versions" / "2.1.218"
++        newer.write_bytes(b"#!/bin/fake-claude-newer\n")
++        newer.chmod(0o755)
++        link = self.root / "bin" / "claude"
++        link.unlink()
++        link.symlink_to(newer)
++        problems, info = launch.doctor_binary_report(self.native_contract)
++        self.assertEqual(problems, [])
++        self.assertTrue(any("2.1.218" in line for line in info))
++        self.assertTrue(any("advisory drift only" in line for line in info))
++
++    def test_failure_matches_launch_failure_exactly(self) -> None:
+         tampered = {
+             **self.native_contract,
+             "claude": {
+                 **self.native_contract["claude"],
+                 "executable": {
+                     **self.native_contract["claude"]["executable"],
+-                    "resolved_path": "/elsewhere/claude",
++                    "sha256": "0" * 64,
+                 },
+             },
+         }
+-        with self.assertRaisesRegex(LaunchError, "drifted"):
++        with self.assertRaises(LaunchError) as raised:
+             launch.resolve_claude(tampered)
++        problems, info = launch.doctor_binary_report(tampered)
++        self.assertEqual(info, [])
++        self.assertEqual(len(problems), 1)
++        self.assertIn(str(raised.exception), problems[0])
++
++    def test_malformed_contract_is_a_problem_not_a_crash(self) -> None:
++        for bad in (
++            {},
++            {"claude": {}},
++            {"claude": {"executable": {}}},
++            {"claude": {"validated_version": 1, "executable": None}},
++        ):
++            with self.subTest(bad=bad):
++                problems, info = launch.doctor_binary_report(bad)
++                self.assertEqual(info, [])
++                self.assertEqual(len(problems), 1)
++                self.assertIn("malformed native-contract record", problems[0])
++
++
++class SharedDaemonTests(LaunchTestCase):
++    def _domain(self) -> Path:
++        domain = self.root / f"cc-daemon-{os.geteuid()}"
++        domain.mkdir()
++        return domain
++
++    def test_absent_domain_is_informational(self) -> None:
++        status = launch.inspect_shared_daemon(
++            domain_dir=self.root / "no-such-daemon", uid=os.geteuid()
++        )
++        self.assertEqual(status.state, "absent")
++        self.assertIsNone(status.pid)
++        self.assertIsNone(status.version)
++
++    def test_domain_without_metadata_is_socket_present(self) -> None:
++        domain = self._domain()
++        status = launch.inspect_shared_daemon(domain_dir=domain, uid=os.geteuid())
++        self.assertEqual(status.state, "socket-present")
++        self.assertIn("no non-transcript", status.summary)
++
++    def test_metadata_exposes_pid_and_version(self) -> None:
++        domain = self._domain()
++        (domain / "metadata.json").write_bytes(b'{"pid": 4321, "version": "2.1.217"}')
++        status = launch.inspect_shared_daemon(domain_dir=domain, uid=os.geteuid())
++        self.assertEqual(status.state, "metadata")
++        self.assertEqual(status.pid, 4321)
++        self.assertEqual(status.version, "2.1.217")
++
++    def test_unparseable_metadata_is_informational(self) -> None:
++        domain = self._domain()
++        (domain / "metadata.json").write_bytes(b"not json at all")
++        status = launch.inspect_shared_daemon(domain_dir=domain, uid=os.geteuid())
++        self.assertEqual(status.state, "unparseable")
++        self.assertIsNone(status.pid)
++
++    def test_oversized_metadata_rejected_before_read(self) -> None:
++        domain = self._domain()
++        (domain / "metadata.json").write_bytes(b'{"pid": 1} ' + b"x" * 70000)
++        status = launch.inspect_shared_daemon(domain_dir=domain, uid=os.geteuid())
++        self.assertEqual(status.state, "unparseable")
++        self.assertIsNone(status.pid)
++
++    def test_wrong_owner_domain_rejected(self) -> None:
++        domain = self._domain()
++        nobody = 65534 if os.geteuid() != 65534 else 65533
++        status = launch.inspect_shared_daemon(domain_dir=domain, uid=nobody)
++        self.assertEqual(status.state, "unsafe")
++        self.assertIsNone(status.pid)
++
++    def test_symlinked_domain_rejected(self) -> None:
++        real = self._domain()
++        link = self.root / "cc-daemon-link"
++        link.symlink_to(real)
++        status = launch.inspect_shared_daemon(domain_dir=link, uid=os.geteuid())
++        self.assertEqual(status.state, "unsafe")
++
++    def test_symlinked_metadata_rejected(self) -> None:
++        domain = self._domain()
++        real = self.root / "real-metadata.json"
++        real.write_bytes(b'{"pid": 1}')
++        (domain / "metadata.json").symlink_to(real)
++        status = launch.inspect_shared_daemon(domain_dir=domain, uid=os.geteuid())
++        self.assertEqual(status.state, "unparseable")
++        self.assertIsNone(status.pid)
++
++    def test_nonregular_metadata_rejected(self) -> None:
++        domain = self._domain()
++        (domain / "metadata.json").mkdir()
++        status = launch.inspect_shared_daemon(domain_dir=domain, uid=os.geteuid())
++        self.assertEqual(status.state, "unparseable")
++
++    def test_ansi_escape_in_version_never_rendered(self) -> None:
++        domain = self._domain()
++        (domain / "metadata.json").write_bytes(
++            b'{"pid": 7, "version": "2.1.217\\u001b[2J evil"}'
++        )
++        status = launch.inspect_shared_daemon(domain_dir=domain, uid=os.geteuid())
++        self.assertEqual(status.state, "metadata")
++        self.assertEqual(status.pid, 7)
++        self.assertIsNone(status.version)
++        self.assertNotIn("\x1b", status.summary)
++
++    def test_version_capped_at_64_safe_chars(self) -> None:
++        domain = self._domain()
++        (domain / "metadata.json").write_bytes(
++            b'{"pid": 7, "version": "' + b"a" * 65 + b'"}'
++        )
++        status = launch.inspect_shared_daemon(domain_dir=domain, uid=os.geteuid())
++        self.assertIsNone(status.version)
++        (domain / "metadata.json").write_bytes(
++            b'{"pid": 7, "version": "' + b"a" * 64 + b'"}'
++        )
++        status = launch.inspect_shared_daemon(domain_dir=domain, uid=os.geteuid())
++        self.assertEqual(status.version, "a" * 64)
+ 
+-    def test_missing_executable_fails_closed(self) -> None:
+-        (self.root / "bin" / "claude").unlink()
+-        (self.root / "install" / "versions" / "2.1.216").unlink()
+-        with self.assertRaises(LaunchError):
+-            launch.resolve_claude(self.native_contract)
+ 
+-    def test_hash_called_on_each_resolution(self) -> None:
+-        from unittest import mock
++class MetadataReadTests(LaunchTestCase):
++    def test_valid_owned_regular_file_reads(self) -> None:
++        path = self.root / "metadata.json"
++        path.write_bytes(b'{"pid": 1}')
++        self.assertEqual(
++            launch._read_metadata_bytes(path, os.geteuid()), b'{"pid": 1}'
++        )
+ 
+-        with mock.patch.object(
+-            launch.hashlib, "sha256", wraps=launch.hashlib.sha256
+-        ) as spy:
+-            launch.resolve_claude(self.native_contract)
+-            launch.resolve_claude(self.native_contract)
+-        self.assertEqual(spy.call_count, 2)
++    def test_wrong_owner_fails_closed(self) -> None:
++        path = self.root / "metadata.json"
++        path.write_bytes(b'{"pid": 1}')
++        nobody = 65534 if os.geteuid() != 65534 else 65533
++        with self.assertRaises(ValueError):
++            launch._read_metadata_bytes(path, nobody)
++
++    def test_symlink_fails_closed(self) -> None:
++        real = self.root / "real.json"
++        real.write_bytes(b'{"pid": 1}')
++        link = self.root / "metadata.json"
++        link.symlink_to(real)
++        with self.assertRaises((ValueError, OSError)):
++            launch._read_metadata_bytes(link, os.geteuid())
++
++    def test_nonregular_fails_closed(self) -> None:
++        with self.assertRaises((ValueError, OSError)):
++            launch._read_metadata_bytes(self.root, os.geteuid())
++
++    def test_oversized_fails_closed(self) -> None:
++        path = self.root / "metadata.json"
++        path.write_bytes(b"x" * 70000)
++        with self.assertRaises(ValueError):
++            launch._read_metadata_bytes(path, os.geteuid())
+ 
+ 
+ class ReadinessTests(LaunchTestCase):
+@@ -256,6 +496,7 @@ class PerformLaunchTests(LaunchTestCase):
+         if environ is None:
+             environ = {"PATH": "/usr/bin", "CLAUDE_CODE_SUBAGENT_MODEL": "x",
+                        "CLAUDE_CODE_MAX_CONTEXT_TOKENS": "999999",
++                       "CLAUDE_CODE_DISABLE_EXPLORE_PLAN_AGENTS": "x",
+                        "ANTHROPIC_AUTH_TOKEN": "inherited-must-be-replaced"}
+         server = _serve(200)
+         try:
+@@ -292,6 +533,7 @@ class PerformLaunchTests(LaunchTestCase):
+         self.assertEqual(env["ANTHROPIC_AUTH_TOKEN"], "a" * 64)
+         self.assertEqual(env["PATH"], "/usr/bin")
+         self.assertNotIn("CLAUDE_CODE_SUBAGENT_MODEL", env)
++        self.assertNotIn("CLAUDE_CODE_DISABLE_EXPLORE_PLAN_AGENTS", env)
+         self.assertEqual(env["CLAUDE_CODE_MAX_CONTEXT_TOKENS"], "272000")
+         # session snapshot persisted before exec and carries no token
+         stored = self.store.load(FIXED_ID)
+@@ -321,6 +563,34 @@ class PerformLaunchTests(LaunchTestCase):
+         self.assertFalse(self.store.exists(FIXED_ID))
+         self.assertFalse(result.lead_prompt_path.exists())
+ 
++    def test_binary_failure_aborts_before_readiness_and_state(self) -> None:
++        tampered = {
++            **self.native_contract,
++            "claude": {
++                **self.native_contract["claude"],
++                "executable": {
++                    **self.native_contract["claude"]["executable"],
++                    "sha256": "0" * 64,
++                },
++            },
++        }
++        result = self._compile_result()
++        with self.assertRaisesRegex(LaunchError, "hash"):
++            launch.perform_launch(
++                result,
++                record=self._record(),
++                store=self.store,
++                native_contract=tampered,
++                gateway=self.bundle.docs["gateway"],
++                readiness=lambda *a, **k: self.fail("readiness must not run"),
++                execve=lambda *_a: self.fail("execve must not run"),
++                environ={},
++                home=self.home,
++            )
++        self.assertFalse(self.store.exists(FIXED_ID))
++        self.assertFalse(result.lead_prompt_path.exists())
++        self.assertIsNone(self.store.last("/project/path"))
++
+     def test_execve_signal_identity_preserved(self) -> None:
+         result = self._compile_result()
+ 
+@@ -408,7 +678,7 @@ class PerformLaunchTests(LaunchTestCase):
+             passthrough=[],
+             settings_path=Path("/trusted/settings.json"),
+             lead_prompt_path=compiler.lead_prompt_path(
+-                self.root / "state", strict_json.bundle_digest(snap)
++                self.root / "state", strict_json.bundle_digest(snap), FIXED_ID
+             ),
+         )
+         outcome, captured = self._perform(
+@@ -454,6 +724,73 @@ class PerformLaunchTests(LaunchTestCase):
+                 home=self.home,
+             )
+ 
++    def test_overlapping_same_composition_launches_write_distinct_sentinels(self) -> None:
++        other_id = "22222222-2222-4222-8222-222222222222"
++        result_a = self._compile_result()
++        result_b = compiler.compile_launch(
++            docs=self.docs,
++            prompt_bodies=self.bundle.prompt_bodies,
++            resolved=self.resolved,
++            session_action=compiler.build_fresh(other_id),
++            passthrough=[],
++            settings_path=Path("/trusted/settings.json"),
++            lead_prompt_path=compiler.lead_prompt_path(
++                self.root / "state", self.digest, other_id
++            ),
++        )
++        self.assertNotEqual(result_a.lead_prompt_path, result_b.lead_prompt_path)
++        record_b = sessions.make_record(
++            session_id=other_id,
++            cwd="/project/path",
++            composition_name="default",
++            snapshot=self.snapshot,
++            catalog_version=1,
++            catalog_hash="sha256:" + "0" * 64,
++            launcher_version="2.0.0",
++            now="2026-07-21T00:00:00Z",
++        )
++        self._perform(result_a, self._record())
++        self._perform(result_b, record_b)
++        # Neither launch overwrote the other's exact sentinel.
++        self.assertTrue(result_a.lead_prompt_path.exists())
++        self.assertTrue(result_b.lead_prompt_path.exists())
++        self.assertIn(FIXED_ID, result_a.lead_prompt_path.read_text())
++        self.assertIn(other_id, result_b.lead_prompt_path.read_text())
++        self.assertNotIn(other_id, result_a.lead_prompt_path.read_text())
++
++    def test_transition_new_digest_never_prunes_previous_sentinel(self) -> None:
++        import copy
++
++        result_a = self._compile_result()
++        self._perform(result_a, self._record())
++        previous = result_a.lead_prompt_path
++        self.assertTrue(previous.exists())
++        # Resume the same UUID under a changed composition (new digest).
++        document = copy.deepcopy(self.bundle.default_composition)
++        document["slots"] = [
++            {"role": "cm-lead", "model": "fable"},
++            {"role": "cm-analyst", "model": "kimi-k3", "preferred": True},
++            {"role": "cm-implementer", "model": "kimi-k3", "preferred": True},
++        ]
++        resolved_b = composition.resolve(self.bundle.docs, document)
++        snap_b = composition.snapshot(resolved_b)
++        result_b = compiler.compile_launch(
++            docs=self.docs,
++            prompt_bodies=self.bundle.prompt_bodies,
++            resolved=resolved_b,
++            session_action=compiler.build_resume(FIXED_ID),
++            passthrough=[],
++            settings_path=Path("/trusted/settings.json"),
++            lead_prompt_path=compiler.lead_prompt_path(
++                self.root / "state", strict_json.bundle_digest(snap_b), FIXED_ID
++            ),
++        )
++        self.assertNotEqual(previous, result_b.lead_prompt_path)
++        self.assertIn(FIXED_ID, result_b.lead_prompt_path.name)
++        self._perform(result_b, self._record())
++        self.assertTrue(previous.exists())
++        self.assertTrue(result_b.lead_prompt_path.exists())
++
+ 
+ if __name__ == "__main__":
+     unittest.main()
+diff --git a/home-manager/claude-multi/tests/test_native_contract.py b/home-manager/claude-multi/tests/test_native_contract.py
+index 7ae9a92..cfbbe20 100644
+--- a/home-manager/claude-multi/tests/test_native_contract.py
++++ b/home-manager/claude-multi/tests/test_native_contract.py
+@@ -80,7 +80,8 @@ class ForkContractTests(unittest.TestCase):
+             passthrough=[],
+             settings_path=Path("/trusted/settings.json"),
+             lead_prompt_path=compiler.lead_prompt_path(
+-                Path("/state"), strict_json.bundle_digest(composition.snapshot(resolved))
++                Path("/state"), strict_json.bundle_digest(composition.snapshot(resolved)),
++                OLD_ID,
+             ),
+         )
+         self.assertIn("--resume", result.argv)
+@@ -143,6 +144,32 @@ class PassthroughContractTests(unittest.TestCase):
+         self.assertIn("composition lead/model", str(raised.exception))
+ 
+ 
++class PromotedContractConsumptionTests(unittest.TestCase):
++    """The promoted 2.1.217 record changes no fail-closed consumption."""
++
++    def test_promoted_record_still_selects_contingency(self) -> None:
++        record = _docs()["native-contract"]
++        self.assertEqual(record["claude"]["validated_version"], "2.1.217")
++        self.assertEqual(compiler.effective_lead_mode(record), compiler.CONTINGENCY_MODE)
++
++    def test_no_session_config_capability_claimed_verified(self) -> None:
++        record = _docs()["native-contract"]
++        statuses = {
++            entry["status"]
++            for entry in record["session_config"]["capabilities"].values()
++        }
++        self.assertEqual(statuses, {"pending"})
++        self.assertEqual(record["session_config"]["status"], "pending")
++        self.assertEqual(record["nested_subagents"]["decision"], "pending")
++        self.assertEqual(
++            {
++                record["nested_subagents"]["depth_key"]["status"],
++                record["nested_subagents"]["concurrency_key"]["status"],
++            },
++            {"unverified"},
++        )
++
++
+ class RealProbeGateTests(unittest.TestCase):
+     """The real Claude probe stays skipped in this workflow."""
+ 
+diff --git a/home-manager/claude-multi/tests/test_native_policy.py b/home-manager/claude-multi/tests/test_native_policy.py
+index 1552402..b098363 100644
+--- a/home-manager/claude-multi/tests/test_native_policy.py
++++ b/home-manager/claude-multi/tests/test_native_policy.py
+@@ -20,7 +20,8 @@ class PolicyMatrixTests(unittest.TestCase):
+         for explore, plan, gp in itertools.product(explores, plans, general):
+             with self.subTest(explore=explore, plan=plan, general_purpose=gp):
+                 env, denies = compiler.compile_native_policy(
+-                    {"explore": explore, "plan": plan, "general_purpose": gp}
++                    {"explore": explore, "plan": plan, "general_purpose": gp},
++                    ["claude"],
+                 )
+                 both_non_native = explore != "native" and plan != "native"
+                 if both_non_native:
+@@ -43,7 +44,7 @@ class PolicyMatrixTests(unittest.TestCase):
+                     self.assertIn("Agent(general-purpose)", denies)
+                 else:
+                     self.assertNotIn("Agent(general-purpose)", denies)
+-                # stable deny order: Explore, Plan, general-purpose
++                # stable deny order: Explore, Plan, general-purpose, aliases
+                 expected: list[str] = []
+                 if not both_non_native and explore != "native":
+                     expected.append("Agent(Explore)")
+@@ -51,15 +52,40 @@ class PolicyMatrixTests(unittest.TestCase):
+                     expected.append("Agent(Plan)")
+                 if gp == "off":
+                     expected.append("Agent(general-purpose)")
++                expected.append("Agent(claude)")
+                 self.assertEqual(denies, expected)
+ 
+-    def test_default_seed_policy(self) -> None:
++    def test_generic_aliases_sorted_and_deduplicated(self) -> None:
++        _, denies = compiler.compile_native_policy(
++            {"explore": "native", "plan": "native", "general_purpose": "on"},
++            ["claude", "beta", "claude"],
++        )
++        self.assertEqual(denies, ["Agent(beta)", "Agent(claude)"])
++
++    def test_generic_alias_never_duplicates_builtin_deny(self) -> None:
++        _, denies = compiler.compile_native_policy(
++            {"explore": "replace", "plan": "native", "general_purpose": "off"},
++            ["general-purpose", "Explore"],
++        )
++        self.assertEqual(denies, ["Agent(Explore)", "Agent(general-purpose)"])
++
++    def test_no_aliases_preserves_builtin_only_order(self) -> None:
+         env, denies = compiler.compile_native_policy(
+             {"explore": "replace", "plan": "native", "general_purpose": "off"}
+         )
+         self.assertEqual(env, {})
+         self.assertEqual(denies, ["Agent(Explore)", "Agent(general-purpose)"])
+ 
++    def test_default_seed_policy(self) -> None:
++        env, denies = compiler.compile_native_policy(
++            {"explore": "replace", "plan": "native", "general_purpose": "off"},
++            ["claude"],
++        )
++        self.assertEqual(env, {})
++        self.assertEqual(
++            denies, ["Agent(Explore)", "Agent(general-purpose)", "Agent(claude)"]
++        )
++
+     def test_both_disabled_uses_env_var(self) -> None:
+         env, denies = compiler.compile_native_policy(
+             {"explore": "off", "plan": "off", "general_purpose": "on"}
+@@ -88,7 +114,8 @@ class DenyConsolidationTests(unittest.TestCase):
+             passthrough=[],
+             settings_path=Path("/trusted/settings.json"),
+             lead_prompt_path=compiler.lead_prompt_path(
+-                Path("/state"), strict_json.bundle_digest(snap)
++                Path("/state"), strict_json.bundle_digest(snap),
++                "11111111-1111-4111-8111-111111111111",
+             ),
+         )
+         occurrences = [
+@@ -97,7 +124,37 @@ class DenyConsolidationTests(unittest.TestCase):
+         self.assertEqual(len(occurrences), 1)
+         self.assertEqual(
+             result.argv[occurrences[0] + 1],
+-            "Agent(Explore) Agent(general-purpose)",
++            "Agent(Explore) Agent(general-purpose) Agent(claude)",
++        )
++
++    def test_deny_list_consumes_contract_generic_aliases(self) -> None:
++        bundle = catalog.load_catalog(CATALOG_ROOT)
++        resolved = composition.resolve(bundle.docs, bundle.default_composition)
++        snap = composition.snapshot(resolved)
++        contract = {
++            **bundle.docs["native-contract"],
++            "generic_agent_aliases": {
++                **bundle.docs["native-contract"]["generic_agent_aliases"],
++                "values": ["claude", "beta"],
++            },
++        }
++        docs = {**bundle.docs, "native-contract": contract}
++        result = compiler.compile_launch(
++            docs=docs,
++            prompt_bodies=bundle.prompt_bodies,
++            resolved=resolved,
++            session_action=compiler.build_fresh("11111111-1111-4111-8111-111111111111"),
++            passthrough=[],
++            settings_path=Path("/trusted/settings.json"),
++            lead_prompt_path=compiler.lead_prompt_path(
++                Path("/state"), strict_json.bundle_digest(snap),
++                "11111111-1111-4111-8111-111111111111",
++            ),
++        )
++        index = result.argv.index("--disallowedTools")
++        self.assertEqual(
++            result.argv[index + 1],
++            "Agent(Explore) Agent(general-purpose) Agent(beta) Agent(claude)",
+         )
+ 
+     def test_policy_env_merged_into_env_set(self) -> None:
+@@ -113,11 +170,43 @@ class DenyConsolidationTests(unittest.TestCase):
+             passthrough=[],
+             settings_path=Path("/trusted/settings.json"),
+             lead_prompt_path=compiler.lead_prompt_path(
+-                Path("/state"), strict_json.bundle_digest(snap)
++                Path("/state"), strict_json.bundle_digest(snap),
++                "11111111-1111-4111-8111-111111111111",
+             ),
+         )
+         self.assertNotIn("CLAUDE_CODE_DISABLE_EXPLORE_PLAN_AGENTS", result.env_set)
+ 
++    def test_policy_env_var_unset_inherited_but_compiled_value_wins(self) -> None:
++        import copy
++
++        bundle = catalog.load_catalog(CATALOG_ROOT)
++        document = copy.deepcopy(bundle.default_composition)
++        document["native_agents"] = {
++            "explore": "off",
++            "plan": "off",
++            "general_purpose": "on",
++        }
++        resolved = composition.resolve(bundle.docs, document)
++        snap = composition.snapshot(resolved)
++        result = compiler.compile_launch(
++            docs=bundle.docs,
++            prompt_bodies=bundle.prompt_bodies,
++            resolved=resolved,
++            session_action=compiler.build_fresh("11111111-1111-4111-8111-111111111111"),
++            passthrough=[],
++            settings_path=Path("/trusted/settings.json"),
++            lead_prompt_path=compiler.lead_prompt_path(
++                Path("/state"), strict_json.bundle_digest(snap),
++                "11111111-1111-4111-8111-111111111111",
++            ),
++        )
++        # Inherited values are always unset; when policy requires the variable
++        # the compiled env_set value is applied after the unset at launch.
++        self.assertIn("CLAUDE_CODE_DISABLE_EXPLORE_PLAN_AGENTS", result.env_unset)
++        self.assertEqual(
++            result.env_set["CLAUDE_CODE_DISABLE_EXPLORE_PLAN_AGENTS"], "1"
++        )
++
+ 
+ if __name__ == "__main__":
+     unittest.main()

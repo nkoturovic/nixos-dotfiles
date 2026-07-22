@@ -1,0 +1,8 @@
+.slim/deepwork/claude-multi-durable-session-config.md
+docs/claude-multi-durable-session-config.md
+docs/claude-multi-durable-session-config-plan.md
+home-manager/claude-multi/src/claude_multi/p0.py
+home-manager/claude-multi/src/claude_multi/p0inner.py
+home-manager/claude-multi/src/claude_multi/probe.py
+home-manager/claude-multi/tests/test_p0.py
+home-manager/claude-multi/tests/test_probe.py

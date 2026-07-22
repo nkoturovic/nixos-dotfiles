@@ -1,0 +1,32 @@
+ M home-manager/claude-multi/catalog/native-contract.json
+ M home-manager/claude-multi/catalog/prompts/cm-analyst.md
+ M home-manager/claude-multi/catalog/prompts/cm-implementer.md
+ M home-manager/claude-multi/catalog/prompts/cm-lead.md
+ M home-manager/claude-multi/catalog/prompts/cm-reviewer.md
+ M home-manager/claude-multi/catalog/roles.json
+ M home-manager/claude-multi/schemas/native-contract.schema.json
+ M home-manager/claude-multi/src/claude_multi/catalog.py
+ M home-manager/claude-multi/src/claude_multi/cli.py
+ M home-manager/claude-multi/src/claude_multi/compiler.py
+ M home-manager/claude-multi/src/claude_multi/dev.py
+ M home-manager/claude-multi/src/claude_multi/launch.py
+ M home-manager/claude-multi/tests/goldens/default/agents-contingency.json
+ M home-manager/claude-multi/tests/goldens/default/argv-fresh.json
+ M home-manager/claude-multi/tests/goldens/default/argv-resume.json
+ M home-manager/claude-multi/tests/goldens/default/env.json
+ M home-manager/claude-multi/tests/goldens/default/lead-appendix.md
+ M home-manager/claude-multi/tests/test_catalog.py
+ M home-manager/claude-multi/tests/test_cli.py
+ M home-manager/claude-multi/tests/test_compiler.py
+ M home-manager/claude-multi/tests/test_composition.py
+ M home-manager/claude-multi/tests/test_launch.py
+ M home-manager/claude-multi/tests/test_native_contract.py
+ M home-manager/claude-multi/tests/test_native_policy.py
+?? docs/claude-multi-durable-session-config-plan.md
+?? docs/claude-multi-durable-session-config.md
+?? docs/claude-multi-rethink-handoff/
+?? home-manager/claude-multi/src/claude_multi/p0.py
+?? home-manager/claude-multi/src/claude_multi/p0inner.py
+?? home-manager/claude-multi/src/claude_multi/probe.py
+?? home-manager/claude-multi/tests/test_p0.py
+?? home-manager/claude-multi/tests/test_probe.py
