@@ -48,8 +48,28 @@ Also: deny merge precedence downgraded to U9; wrong-composition rollback row
 corrected. Verdict after revision: architecture stands (Option 1), proceed to
 M1. No second loop per REVIEW-STRATEGY (no architecture change).
 
-**Next**: user acceptance continues (L1 kill-resume, L2 takeover at next
-upgrade). First acceptance friction fixed same-day below.
+**Next**: Qwen live verification call (user-approved boundary), then
+qwen-sol daily use; U1 takeover proof expected naturally (Claude 2.1.218
+just appeared — the doctor's advisory shows the symlink moved).
+
+## 2026-07-23 — Qwen Cloud provider integration (`c0cb1b3`, activated)
+
+Qwen Cloud (Token Plan) integrated via the product's own pipeline
+(draft → review → promote): provider `qwen` (family alibaba,
+Anthropic-compatible `apps/anthropic` on the token-plan host, **bearer**
+auth — new auth kind; header emission conditional), model `qwen38`
+(Qwen3.8 Max Preview, wire `qwen3.8-max-preview`, context **983616** per
+official docs), `reasoning_effort` pinned **xhigh** (provider maximum)
+via the new `reasoning-effort-xhigh` payload contract — not Kimi's
+output-config-max; no filter-thinking (native thinking always on).
+Selector is preview-free so the production swap is wire_model-only.
+Model id `qwen38` avoids `-max-max` variant IDs. **qwen-sol** user
+composition: qwen lead ultracode + sol preferred variants + qwen-max
+alternates (mirrors kimi-sol structure). Evidence: 1006 tests green
+host + sandbox, package builds, installed catalog verified, gateway
+config renders the qwen section. Also fixed a post-R1 sandbox gap the
+candidate build caught (transition PTY preflight injection). Pending:
+first real verification call (user approval boundary).
 
 ## 2026-07-22 — acceptance fix: name-based resume (`2dbbd1c` + follow-ups, activated)
 
