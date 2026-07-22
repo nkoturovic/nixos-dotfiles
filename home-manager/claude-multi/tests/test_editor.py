@@ -133,7 +133,7 @@ class VariantTests(unittest.TestCase):
     def test_first_variant_is_preferred(self) -> None:
         state = make_state()
         state.document["slots"] = [state.lead_slot()]
-        state.toggle_variant("cm-reviewer", "gpt55", "high")
+        state.toggle_variant("cm-reviewer", "sol", "xhigh")
         variants = state.variants_for_role("cm-reviewer")
         self.assertEqual(len(variants), 1)
         self.assertTrue(variants[0]["preferred"])
@@ -171,7 +171,7 @@ class VariantTests(unittest.TestCase):
 
     def test_role_may_have_zero_variants(self) -> None:
         state = make_state()
-        state.toggle_variant("cm-reviewer", "gpt55", "high", replacement_preferred=("opus", "xhigh"))
+        state.toggle_variant("cm-reviewer", "sol", "xhigh", replacement_preferred=("opus", "xhigh"))
         state.toggle_variant("cm-reviewer", "opus", "xhigh")
         self.assertEqual(state.variants_for_role("cm-reviewer"), [])
 
@@ -293,7 +293,10 @@ class FormEditorRenderTests(unittest.TestCase):
         for section in ("General", "Lead", "Availability", "Roles", "Native agents", "Actions"):
             self.assertIn(section, text)
         self.assertIn("Status: Ready", text)
-        self.assertIn("JSON in $EDITOR", text)
+        self.assertIn("JSON editor", text)
+        self.assertIn("Save or launch  — update · save as · launch once · more…", text)
+        self.assertIn("[ ] general-purpose agent\n", text)
+        self.assertIn("[x] native workflows (ultracode)\n", text)
         self.assertIn("[x] native workflows (ultracode)", text)
 
     def test_modified_marker_and_blocked_status(self) -> None:

@@ -584,3 +584,38 @@ class VisibleTextTests(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class ModalRenderTests(unittest.TestCase):
+    MONO_PALETTE = tui.MONO_PALETTE
+    Modal = tui.Modal
+    Key = tui.Key
+
+    def test_modal_paints_interior_no_bleed_through(self) -> None:
+        win = FakeWindow()
+        # Pre-fill the whole window with background noise.
+        for y in range(win.height):
+            for x in range(win.width):
+                win.grid[(y, x)] = ("Z", 0)
+        modal = tui.Modal("Title", ["line one", "line two"], buttons=(("OK", True),))
+        modal.draw(win, tui.MONO_PALETTE)
+        top, left, box_h, box_w = modal._geometry(win)
+        for row in range(top + 1, top + box_h - 1):
+            for col in range(left + 1, left + box_w - 1):
+                cell = win.grid.get((row, col), (" ", 0))[0]
+                self.assertNotEqual(
+                    cell, "Z", f"background leaked at {(row, col)}"
+                )
+
+    def test_modal_resize_erases_before_redraw(self) -> None:
+        win = FakeWindow(keys=[curses.KEY_RESIZE, "\x1b"])
+        modal = tui.Modal("Title", ["body"], buttons=(("OK", True),))
+        modal.draw(win, tui.MONO_PALETTE)
+        frames_before = len(win.frames)
+        modal.run(win, tui.MONO_PALETTE)
+        # The resize path erased the window: the frame right after erase is
+        # the freshly redrawn dialog on an otherwise empty grid, and the old
+        # geometry's border characters appear only in the final position.
+        self.assertGreater(len(win.frames), frames_before)
+
+

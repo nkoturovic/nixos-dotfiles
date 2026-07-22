@@ -22,7 +22,7 @@
     { "role": "cm-analyst", "model": "kimi-k3", "preferred": false },
     { "role": "cm-implementer", "model": "sol", "preferred": true },
     { "role": "cm-implementer", "model": "kimi-k3", "preferred": false },
-    { "role": "cm-reviewer", "model": "gpt55", "preferred": true },
+    { "role": "cm-reviewer", "model": "sol", "lane": "xhigh", "preferred": true },
     { "role": "cm-reviewer", "model": "opus", "preferred": false }
   ],
   "native_agents": {

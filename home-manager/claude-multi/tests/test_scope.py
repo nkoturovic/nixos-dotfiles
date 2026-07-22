@@ -127,7 +127,7 @@ class CompileScopeAgentFileTests(unittest.TestCase):
     def test_reviewer_independence_sentence_verbatim_with_family(self) -> None:
         _, _, plan = _plan()
         gpt55 = _frontmatter(
-            plan.agent_files[".claude/agents/cm-reviewer-gpt55-high.md"]
+            plan.agent_files[".claude/agents/cm-reviewer-sol-xhigh.md"]
         )["description"]
         self.assertIn(
             "Review independence: a change authored by a openai-family variant "
@@ -472,10 +472,10 @@ class CollisionGateTests(unittest.TestCase):
         (project / ".git").mkdir(parents=True)
         extra = self.root / "extra"
         offender = self._agent_file(
-            extra / ".claude" / "agents", "cm-reviewer-gpt55-high"
+            extra / ".claude" / "agents", "cm-reviewer-sol-xhigh"
         )
         collisions = scope.find_cm_collisions(project, (extra,), self.names)
-        self.assertEqual(collisions, [(offender, "cm-reviewer-gpt55-high")])
+        self.assertEqual(collisions, [(offender, "cm-reviewer-sol-xhigh")])
 
     def test_managed_dir_scanned_when_present(self) -> None:
         managed = self.root / "managed"
@@ -514,13 +514,13 @@ class CollisionGateTests(unittest.TestCase):
         )
         quoted = agents / "quoted-comment.md"
         quoted.write_text(
-            '---\nname: "cm-reviewer-gpt55-high" # project override\n---\n\nbody\n'
+            '---\nname: "cm-reviewer-sol-xhigh" # project override\n---\n\nbody\n'
         )
         collisions = scope.find_cm_collisions(project, (), self.names)
         self.assertEqual(
             collisions,
             [
-                (quoted, "cm-reviewer-gpt55-high"),
+                (quoted, "cm-reviewer-sol-xhigh"),
                 (unquoted, "cm-analyst-sol-high"),
             ],
         )

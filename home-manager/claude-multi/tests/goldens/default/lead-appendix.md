@@ -4,7 +4,7 @@
 - `cm-analyst-kimi-k3-max` — cm-analyst · Kimi K3 · 1M selector · lane max. Use for broad architecture, security, or repository-wide synthesis.
 - `cm-implementer-sol-high` — cm-implementer · GPT-5.6 Sol · lane high · preferred. Use for bounded implementation in an isolated worktree.
 - `cm-implementer-kimi-k3-max` — cm-implementer · Kimi K3 · 1M selector · lane max. Use when implementation requires broad context across many files.
-- `cm-reviewer-gpt55-high` — cm-reviewer · GPT-5.5 · lane high · preferred. Use for routine bounded review.
+- `cm-reviewer-sol-xhigh` — cm-reviewer · GPT-5.6 Sol · lane xhigh · preferred. Use for focused review of bounded small-to-medium changes; prefer xhigh for deeper review within bounded scope.
 - `cm-reviewer-opus-xhigh` — cm-reviewer · Opus 4.8 · 1M selector · lane xhigh. Use for the optional Claude-native independent verdict.
 
 ## Native-agent policy (generated)

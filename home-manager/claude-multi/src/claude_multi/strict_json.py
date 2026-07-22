@@ -150,6 +150,27 @@ def canonical_file_bytes(document: Any) -> bytes:
     return canonical_bytes(document) + b"\n"
 
 
+def pretty_file_bytes(document: Any) -> bytes:
+    """Human-editable JSON for user-facing documents (compositions).
+
+    Indent-2 with sorted keys (stable, diff-friendly) and a trailing
+    newline. Hashes never depend on file formatting — digests use
+    :func:`canonical_bytes` — so this is safe for every store-write of a
+    document a user may open in an editor.
+    """
+
+    return (
+        json.dumps(
+            document,
+            sort_keys=True,
+            indent=2,
+            ensure_ascii=False,
+            allow_nan=False,
+        )
+        + "\n"
+    ).encode("utf-8")
+
+
 def sha256_hex(data: bytes) -> str:
     """Lowercase hex SHA-256 of the given bytes."""
 

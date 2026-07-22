@@ -835,6 +835,11 @@ class Modal:
 
     def draw(self, win: Any, palette: Palette) -> None:
         top, left, box_h, box_w = self._geometry(win)
+        # Paint the full interior first: underlying screen text must never
+        # bleed through the dialog.
+        blank = " " * (box_w - 2)
+        for row in range(top + 1, top + box_h - 1):
+            safe_add(win, row, left + 1, blank)
         horizontal = "+" + "-" * (box_w - 2) + "+"
         safe_add(win, top, left, horizontal, palette.attr("accent"))
         for row in range(top + 1, top + box_h - 1):
@@ -869,6 +874,10 @@ class Modal:
             self.draw(win, palette)
             key = read_key(win)
             if key.kind == "resize":
+                # Erase first: the old frame must not linger at its previous
+                # geometry when the dialog redraws at the new size. The parent
+                # screen repaints itself after the modal returns.
+                win.erase()
                 continue
             if key.kind == "esc":
                 return None
@@ -1432,7 +1441,7 @@ FORM_KEYBAR = (
     ("Enter", "edit"),
     ("Space", "toggle"),
     ("?", "workflows"),
-    ("^G", "JSON in $EDITOR"),
+    ("^G", "JSON editor"),
     ("Esc", "cancel"),
 )
 FORM_DISCARD_TITLE = "Discard unsaved changes?"
@@ -1550,7 +1559,6 @@ class FormEditorScreen:
                 "check",
                 "general-purpose agent",
                 "general_purpose",
-                "on" if state.document["native_agents"]["general_purpose"] == "on" else "off",
             )
         )
         rows.append(
@@ -1558,11 +1566,10 @@ class FormEditorScreen:
                 "check",
                 "native workflows (ultracode)",
                 "workflows",
-                "native" if state.workflows == "native" else "off",
             )
         )
         rows.append(_Row("section", "Actions"))
-        rows.append(_Row("actions", "Save or launch", note="update · save as · launch once · manage"))
+        rows.append(_Row("actions", "Save or launch", note="— update · save as · launch once · more…"))
         return rows
 
     def _focusable(self) -> list[int]:
@@ -1616,7 +1623,7 @@ class FormEditorScreen:
                 if focused:
                     cursor_pos = pos
             elif row.kind == "lead":
-                safe_add(win, y, 2, f"{row.label:<14}{row.note}", attr)
+                safe_add(win, y, 2, f"{row.label:<16}{row.note}", attr)
             elif row.kind == "avail":
                 safe_add(win, y, 2, f"{row.label:<28}{row.note}", attr)
             elif row.kind == "role":
@@ -1650,7 +1657,7 @@ class FormEditorScreen:
                 box.draw(win, y, 2, palette, focused=focused)
                 safe_add(win, y, 2 + 4 + len(row.label) + 1, row.note, palette.attr("dim"))
             elif row.kind == "actions":
-                safe_add(win, y, 2, f"{row.label:<14}{row.note}", attr)
+                safe_add(win, y, 2, f"{row.label:<16}{row.note}", attr)
         errors = self._validation()
         status_row = height - 3
         if errors:

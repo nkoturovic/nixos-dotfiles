@@ -470,7 +470,7 @@ class PerformLaunchTests(LaunchTestCase):
         self.assertEqual(env["PATH"], "/usr/bin")
         self.assertNotIn("CLAUDE_CODE_SUBAGENT_MODEL", env)
         self.assertNotIn("CLAUDE_CODE_DISABLE_EXPLORE_PLAN_AGENTS", env)
-        self.assertEqual(env["CLAUDE_CODE_MAX_CONTEXT_TOKENS"], "272000")
+        self.assertEqual(env["CLAUDE_CODE_MAX_CONTEXT_TOKENS"], "372000")
         # session snapshot persisted before exec and carries no token
         stored = self.store.load(FIXED_ID)
         self.assertNotIn(
@@ -636,7 +636,7 @@ class PerformLaunchTests(LaunchTestCase):
     def test_scalar_present_overrides_inherited_context_at_exec(self) -> None:
         result = self._compile_result()
         _, captured = self._perform(result, self._record())
-        self.assertEqual(captured["env"]["CLAUDE_CODE_MAX_CONTEXT_TOKENS"], "272000")
+        self.assertEqual(captured["env"]["CLAUDE_CODE_MAX_CONTEXT_TOKENS"], "372000")
 
     def test_no_provider_path_taken(self) -> None:
         # The readiness probe only ever touches the loopback stub; a gateway

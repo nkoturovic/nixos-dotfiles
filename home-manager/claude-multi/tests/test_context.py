@@ -51,7 +51,7 @@ class ResolvedScalarTests(unittest.TestCase):
     def test_default_seed_scalar(self) -> None:
         bundle = catalog.load_catalog(CATALOG_ROOT)
         resolved = composition.resolve(bundle.docs, bundle.default_composition)
-        self.assertEqual(resolved.scalar_context_tokens, 272000)
+        self.assertEqual(resolved.scalar_context_tokens, 372000)
 
 
 if __name__ == "__main__":

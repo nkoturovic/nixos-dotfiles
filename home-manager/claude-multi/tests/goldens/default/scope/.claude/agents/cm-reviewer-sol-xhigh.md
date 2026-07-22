@@ -1,8 +1,8 @@
 ---
-name: cm-reviewer-gpt55-high
-description: "Independent concrete change review with severity-ranked findings and an explicit verdict. Model: GPT-5.5 (lane high). Use for routine bounded review. Preferred cm-reviewer variant. Managed cm session: if a selected cm-* type is unavailable, stop; never substitute a generic agent. Review independence: a change authored by a openai-family variant must not receive its sole verdict from another openai-family variant while a cross-family reviewer is enabled."
-model: gpt-multi-gpt55-high
-effort: high
+name: cm-reviewer-sol-xhigh
+description: "Independent concrete change review with severity-ranked findings and an explicit verdict. Model: GPT-5.6 Sol (lane xhigh). Use for focused review of bounded small-to-medium changes; prefer xhigh for deeper review within bounded scope. Preferred cm-reviewer variant. Managed cm session: if a selected cm-* type is unavailable, stop; never substitute a generic agent. Review independence: a change authored by a openai-family variant must not receive its sole verdict from another openai-family variant while a cross-family reviewer is enabled."
+model: gpt-multi-sol-xhigh
+effort: xhigh
 ---
 
 # cm-reviewer — independent change review

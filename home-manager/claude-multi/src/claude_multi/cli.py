@@ -220,7 +220,7 @@ class CompositionStore:
         if errors:
             raise CLIError("cannot save invalid composition: " + "; ".join(errors))
         path = self._path(name)
-        state.atomic_write(path, strict_json.canonical_file_bytes(candidate))
+        state.atomic_write(path, strict_json.pretty_file_bytes(candidate))
         return path
 
     def delete(self, name: str) -> bool:
@@ -788,6 +788,21 @@ def _project_summary(plan: QuickPlan) -> str:
     return f"{discovered} (native precedence; {status})"
 
 
+def _cwd_sessions_summary(runtime: Runtime) -> str | None:
+    """One-line hint of managed sessions recorded for this cwd (card line)."""
+
+    here = [
+        record
+        for record in _session_records(runtime)
+        if record["cwd"] == runtime.cwd
+    ]
+    if not here:
+        return None
+    newest = max(here, key=lambda record: record["created_at"])
+    noun = "session" if len(here) == 1 else "sessions"
+    return f"{len(here)} {noun} here · newest {_record_age(newest)} · S to pick"
+
+
 def render_quick_confirm(
     runtime: Runtime,
     plan: QuickPlan,
@@ -833,6 +848,9 @@ def render_quick_confirm(
         )
         lines.append(f"Durability     {_durability_badge(plan)}")
     lines.append(f"Project        {_project_summary(plan)}")
+    cwd_hint = _cwd_sessions_summary(runtime)
+    if cwd_hint is not None:
+        lines.append(f"Sessions       {cwd_hint}")
     if plan.record is not None:
         catalog_state = "changed" if plan.record["catalog_hash"] != runtime.catalog.bundle_sha256 else "same"
         lines.append(
@@ -1274,6 +1292,11 @@ class _QuickConfirmScreen:
         project_role = "error" if plan.project_collisions else "normal"
         tui.safe_add(win, row, 10, _project_summary(plan), palette.attr(project_role))
         row += 1
+        cwd_hint = _cwd_sessions_summary(runtime)
+        if cwd_hint is not None:
+            tui.safe_add(win, row, 0, "sessions  ", palette.attr("dim"))
+            tui.safe_add(win, row, 10, cwd_hint, palette.attr("accent"))
+            row += 1
         if plan.cross_provider_warning:
             tui.safe_add(win, row, 0, "warning   ", palette.attr("warn"))
             tui.safe_add(win, row, 10, plan.cross_provider_warning, palette.attr("warn"))
@@ -1802,7 +1825,8 @@ SESSIONS_EMPTY = "(no recorded sessions)"
 FORGET_MODAL_TITLE = "Forget session {short}?"
 FORGET_MODAL_BODY = (
     "Deletes: session record + generated scope{scope_note}.\n"
-    "Transcripts are never touched."
+    "If the session is currently running, its agents lose their definition\n"
+    "files until a resume recompiles them. Transcripts are never touched."
 )
 FORGET_DONE = "Forgot {session_id}; record + scope deleted. Transcripts are never touched."
 RESUME_MODAL_TITLE = "Resume session {short}?"
@@ -1849,7 +1873,11 @@ class _SessionsScreen:
     def __init__(self, runtime: Runtime, *, palette: tui.Palette):
         self.runtime = runtime
         self.palette = palette
-        self.records = _session_records(runtime)
+        self.records = sorted(
+            _session_records(runtime),
+            key=lambda record: record["created_at"],
+            reverse=True,
+        )
         self.selected = 0
         self.message = ""
 
@@ -2206,7 +2234,11 @@ def _print_launch_plan(prepared: PreparedLaunch, output_stream: TextIO) -> None:
 def _print_sessions_listing(runtime: Runtime, output_stream: TextIO) -> None:
     """The text sessions listing (line-mode fallback + quick-confirm S key)."""
 
-    records = _session_records(runtime)
+    records = sorted(
+        _session_records(runtime),
+        key=lambda record: record["created_at"],
+        reverse=True,
+    )
     output_stream.write("sessions\n")
     output_stream.write("----------------------------------------\n")
     for record in records:

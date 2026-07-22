@@ -267,7 +267,7 @@ class AgentDefinitionTests(unittest.TestCase):
             "cm-analyst-kimi-k3-max",
             "cm-implementer-sol-high",
             "cm-implementer-kimi-k3-max",
-            "cm-reviewer-gpt55-high",
+            "cm-reviewer-sol-xhigh",
             "cm-reviewer-opus-xhigh",
         ):
             self.assertIn(variant_id, prompt)
@@ -303,11 +303,11 @@ class AgentDefinitionTests(unittest.TestCase):
 
         bundle = catalog.load_catalog(CATALOG_ROOT)
         document = copy.deepcopy(bundle.default_composition)
-        # Remove the GPT-5.5 (openai) reviewer → anthropic loses cross-family review.
+        # Remove the Sol (openai) reviewer → openai loses its cross-family reviewer.
         document["slots"] = [
             slot
             for slot in document["slots"]
-            if not (slot["role"] == "cm-reviewer" and slot["model"] == "gpt55")
+            if not (slot["role"] == "cm-reviewer" and slot["model"] == "sol")
         ]
         for slot in document["slots"]:
             if slot["role"] == "cm-reviewer":
@@ -418,7 +418,7 @@ class EnvironmentTests(unittest.TestCase):
 
     def test_scalar_present_sets_exact_value(self) -> None:
         _, _, result = _compile()
-        self.assertEqual(result.env_set["CLAUDE_CODE_MAX_CONTEXT_TOKENS"], "272000")
+        self.assertEqual(result.env_set["CLAUDE_CODE_MAX_CONTEXT_TOKENS"], "372000")
         self.assertNotIn("CLAUDE_CODE_MAX_CONTEXT_TOKENS", result.env_unset)
 
     def test_env_set_and_unset(self) -> None:
@@ -449,7 +449,7 @@ class EnvironmentTests(unittest.TestCase):
         self.assertEqual(result.env_set["CLAUDE_MULTI_GATEWAY"], "1")
         self.assertEqual(result.env_set["CLAUDE_MULTI_SESSION_ID"], FIXED_SESSION)
         self.assertEqual(result.env_set["DISABLE_AUTOUPDATER"], "1")
-        self.assertEqual(result.env_set["CLAUDE_CODE_MAX_CONTEXT_TOKENS"], "272000")
+        self.assertEqual(result.env_set["CLAUDE_CODE_MAX_CONTEXT_TOKENS"], "372000")
         self.assertNotIn("ANTHROPIC_AUTH_TOKEN", result.env_set)
 
     def test_nested_spawn_keys_never_compiled_while_pending(self) -> None:

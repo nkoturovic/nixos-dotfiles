@@ -37,14 +37,14 @@ class ResolutionTests(unittest.TestCase):
                 "cm-analyst-kimi-k3-max",
                 "cm-implementer-sol-high",
                 "cm-implementer-kimi-k3-max",
-                "cm-reviewer-gpt55-high",
+                "cm-reviewer-sol-xhigh",
                 "cm-reviewer-opus-xhigh",
             ],
         )
         preferred = [variant.id for variant in resolved.variants if variant.preferred]
         self.assertEqual(
             preferred,
-            ["cm-analyst-sol-high", "cm-implementer-sol-high", "cm-reviewer-gpt55-high"],
+            ["cm-analyst-sol-high", "cm-implementer-sol-high", "cm-reviewer-sol-xhigh"],
         )
 
     def test_default_lane_resolution(self) -> None:
@@ -314,7 +314,7 @@ class SnapshotTests(unittest.TestCase):
         snap = composition.snapshot(resolved)
         self.assertEqual(snap["lead"]["model"], "fable")
         self.assertEqual(len(snap["variants"]), 6)
-        self.assertEqual(snap["scalar_context_tokens"], 272000)
+        self.assertEqual(snap["scalar_context_tokens"], 372000)
         self.assertEqual(
             snap["native_agents"],
             {"explore": "replace", "plan": "native", "general_purpose": "off"},
