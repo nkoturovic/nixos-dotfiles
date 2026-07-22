@@ -2652,6 +2652,7 @@ def _resolve_resume_target(runtime: Runtime, value: str) -> str:
         for record in _session_records(runtime)
         if record["composition_name"] == name
     ]
+    matches.sort(key=lambda record: record["created_at"], reverse=True)
     if len(matches) == 1:
         return matches[0]["session_id"]
     if matches:
