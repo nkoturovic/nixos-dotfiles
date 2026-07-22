@@ -2793,3 +2793,23 @@ class ResumeNameResolutionTests(CLITestCase):
         self.assertEqual(
             self.launches[0].record["session_id"], FIXED_ID
         )
+
+
+class VisibleMessageTests(CLITestCase):
+    def test_multi_line_error_keeps_structure(self) -> None:
+        self.save_session(session_id=FIXED_ID)
+        self.save_session(session_id="97a6194a-1111-4222-8333-444455556666")
+        code, out = self.run_cli(["-r", "default"], interactive=True)
+        self.assertEqual(code, 2)
+        self.assertIn("matches 2 managed sessions", out)
+        self.assertNotIn("^J", out)
+        self.assertIn(FIXED_ID, out)
+        # Each candidate renders on its own real line.
+        self.assertTrue(
+            any(line.strip().startswith(FIXED_ID) for line in out.splitlines())
+        )
+
+    def test_visible_message_sanitizes_per_line(self) -> None:
+        hostile = "line one\x1b]0;pwned\x07\nline two"
+        rendered = cli.tui.visible_message(hostile)
+        self.assertEqual(rendered, "line one^[]0;pwned^G\nline two")

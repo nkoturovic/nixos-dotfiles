@@ -426,6 +426,18 @@ def visible_text(text: str) -> str:
     return "".join(out)
 
 
+def visible_message(text: object) -> str:
+    """Newline-preserving variant for launcher-owned multi-line messages.
+
+    Apply at message write points (e.g. the main error writer): each line is
+    neutralized independently (external payloads on any line stay inert),
+    while launcher-owned line structure survives — a multi-line error never
+    collapses into a single ``^J``-mangled line.
+    """
+
+    return "\n".join(visible_text(line) for line in str(text).split("\n"))
+
+
 def safe_add(win: Any, row: int, col: int, text: str, attr: int = 0) -> None:
     """Bounds-checked addstr; writing the last cell raises in curses, so clip.
 

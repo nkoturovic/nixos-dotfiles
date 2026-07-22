@@ -2661,8 +2661,9 @@ def _resolve_resume_target(runtime: Runtime, value: str) -> str:
         ]
         for record in matches:
             lines.append(
-                f"  {record['session_id']}  {record['composition_name']}  "
-                f"{record['created_at']}  {record['cwd']}"
+                f"  {record['session_id']}  "
+                f"{tui.visible_text(record['composition_name'])}  "
+                f"{record['created_at']}  {tui.visible_text(record['cwd'])}"
             )
         raise CLIError("\n".join(lines))
     raise CLIError(
@@ -2788,7 +2789,7 @@ def main(
             no_color=args.no_color,
         )
     except (CLIError, sessions.SessionError, state.StateError, catalog.CatalogError, compiler.CompilerError, composition.CompositionError, launch.LaunchError) as exc:
-        output.write(f"claude-multi: {tui.visible_text(exc)}\n")
+        output.write(f"claude-multi: {tui.visible_message(exc)}\n")
         output.flush()
         return 2
     finally:
