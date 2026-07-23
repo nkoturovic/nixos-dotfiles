@@ -51,6 +51,20 @@ M1. No second loop per REVIEW-STRATEGY (no architecture change).
 **Next**: daily use. U1 takeover proof expected naturally (Claude 2.1.218
 appeared — the doctor's advisory shows the symlink moved).
 
+## 2026-07-23 — compaction race + adopt/resume + cwd filter (`b07d2d4`)
+
+- **Compaction root cause verified** (binary evidence): the auto-compact
+  trigger is unrelated to the composition's MAX_CONTEXT_TOKENS cap —
+  explicit lead values exceeded their caps (kimi 1M, qwen 983K vs 372K)
+  and absent values raced the provider's 400. Compiler now clamps the
+  trigger to 90% of the scalar with explicit lower values respected;
+  compaction always fires before the cap with headroom for the
+  compaction request itself.
+- **Adopt/resume fixed**: adopted records now carry the decoded original
+  project cwd (prefix-matching slug decoder); resume enters it. Records
+  adopted before this fix need forget + re-adopt.
+- **Sessions screen**: C toggles a cwd filter (default: all).
+
 ## 2026-07-23 — FINAL audit + hardening (`bdaae16`, activated)
 
 Final independent audit (Sol xhigh ×2 shards, read-only): 12 findings, all
