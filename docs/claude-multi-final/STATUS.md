@@ -48,8 +48,25 @@ Also: deny merge precedence downgraded to U9; wrong-composition rollback row
 corrected. Verdict after revision: architecture stands (Option 1), proceed to
 M1. No second loop per REVIEW-STRATEGY (no architecture change).
 
-**Next**: qwen-sol daily use (user); U1 takeover proof expected naturally
-(Claude 2.1.218 appeared — the doctor's advisory shows the symlink moved).
+**Next**: daily use. U1 takeover proof expected naturally (Claude 2.1.218
+appeared — the doctor's advisory shows the symlink moved).
+
+## 2026-07-23 — FINAL audit + hardening (`bdaae16`, activated)
+
+Final independent audit (Sol xhigh ×2 shards, read-only): 12 findings, all
+fixed same-pass. Lifecycle: stale-relaunch generation guard in
+`perform_launch`, cleanup fully CAS-by-own-write (pointer restore only while
+owned; fresh branch compares committed bytes), scopes-parent symlink
+validation in destructive paths, mandatory ownership token in
+`restore_exec_failure`. Product: sessions screen non-empty-section landing +
+windowed tables + adopt pointer update, case-insensitive command keys,
+single-sourced `version.json` for cli + proxy `--version` (staleness
+confirmed fixed live), README/HANDOFF/STATUS wording made strictly honest
+(smoke-test, preview lifecycle, durability proof tiers). Also: editor `?`
+before text input, keybars read "help", uniform padding, transition
+title/rule collision. **1015 tests green; sandbox suite builds.** The
+product is final for handoff: every audit layer (R0 design, finisher ×2,
+R1 + delta, qwen review, final ×2) resolved with zero open findings.
 
 ## 2026-07-23 — Qwen live verification: PASSED
 
