@@ -869,15 +869,23 @@ class Modal:
             col += len(label) + 5
         win.refresh()
 
-    def run(self, win: Any, palette: Palette) -> Any:
+    def run(
+        self,
+        win: Any,
+        palette: Palette,
+        background: Callable[[Any], None] | None = None,
+    ) -> Any:
         while True:
             self.draw(win, palette)
             key = read_key(win)
             if key.kind == "resize":
-                # Erase first: the old frame must not linger at its previous
-                # geometry when the dialog redraws at the new size. The parent
-                # screen repaints itself after the modal returns.
-                win.erase()
+                # The old frame must not linger at its previous geometry, but
+                # the screen behind should not stay blank either: repaint the
+                # parent first (when given), then redraw the dialog fresh.
+                if background is not None:
+                    background(win)
+                else:
+                    win.erase()
                 continue
             if key.kind == "esc":
                 return None
@@ -1476,6 +1484,23 @@ class _Row:
     note: str = ""
 
 
+EDITOR_HELP = (
+    "↑↓ — move between fields.\n"
+    "Enter — edit the focused field (text input, select list, or actions).\n"
+    "Space — toggle checkboxes and multi-select variants.\n"
+    "P — prefer a variant (roles).\n"
+    "^G — open the raw composition JSON in the JSON editor.\n"
+    "Esc — back out; asks before discarding unsaved edits.\n"
+    "? — this help, then the workflow guarantees below.\n"
+    "\n"
+    "Key conventions shared with every screen: Esc backs out, Enter is the\n"
+    "primary action, ? opens help. Text fields own printable keys, so this\n"
+    "screen uses arrows instead of j/k and Esc instead of q.\n"
+    "\n"
+    "-- workflow guarantees --------------------------------------------"
+)
+
+
 class FormEditorScreen:
     """The single form-based composition editor (runs on a curses window).
 
@@ -1760,7 +1785,7 @@ class FormEditorScreen:
                 "Confirm availability change",
                 lines,
                 buttons=(("Apply", True), ("Cancel", False)),
-            ).run(win, self.palette)
+            ).run(win, self.palette, background=self._draw)
             if not confirmed:
                 state.message = "Availability change cancelled."
                 return
@@ -1875,7 +1900,7 @@ class FormEditorScreen:
                 title,
                 ["This action is explicit and will not launch Claude."],
                 buttons=(("Apply", True), ("Cancel", False)),
-            ).run(win, self.palette)
+            ).run(win, self.palette, background=self._draw)
             if not confirmed:
                 self.state.message = "Destructive action cancelled."
                 return None
@@ -1980,10 +2005,11 @@ class FormEditorScreen:
 
     def _guarantee_modal(self, win: Any) -> None:
         Modal(
-            "Workflow guarantees",
-            workflow_guarantee_panel(self.state.workflows).splitlines(),
+            "editor — help",
+            EDITOR_HELP.splitlines()
+            + workflow_guarantee_panel(self.state.workflows).splitlines(),
             buttons=(("Close", True),),
-        ).run(win, self.palette)
+        ).run(win, self.palette, background=self._draw)
 
     def run(self, win: Any) -> EditorOutcome | None:
         hide_cursor()
@@ -2022,7 +2048,7 @@ class FormEditorScreen:
                         FORM_DISCARD_TITLE,
                         [FORM_DISCARD_BODY],
                         buttons=(("Discard", True), ("Keep editing", False)),
-                    ).run(win, self.palette)
+                    ).run(win, self.palette, background=self._draw)
                     if not confirmed:
                         continue
                 return None

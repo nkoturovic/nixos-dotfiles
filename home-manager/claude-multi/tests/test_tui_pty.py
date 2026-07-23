@@ -347,7 +347,8 @@ raise SystemExit(main([], runtime=runtime, input_stream=sys.stdin, output_stream
         self.addCleanup(child.close)
         child.read_until(b"composition: default")
         child.send(b"?")
-        child.read_until(b"Workflow guarantees")
+        child.read_until(b"quick-confirm \xe2\x80\x94 help")
+        child.read_until(b"Native workflows (ultracode): ON")
         child.send(b"\n")  # close the Modal
         child.read_until(b"composition: default")
         child.send(b"d")

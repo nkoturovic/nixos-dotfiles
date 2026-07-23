@@ -1187,6 +1187,21 @@ def _apply_outcome_or_failure(
         return _editor_failure_plan(runtime, plan, outcome.document, exc)
 
 
+QUICK_HELP = (
+    "Enter — launch this composition (durable scope).\n"
+    "E — edit the composition (form editor; ^G opens the JSON editor there).\n"
+    "Tab / Shift-Tab — cycle composition presets.\n"
+    "W — toggle native workflows on/off for this launch.\n"
+    "D — details (scalar, providers, catalog hashes, workers).\n"
+    "S — sessions: managed + native picker (resume, switch comp, adopt).\n"
+    "P (line mode) — cycle presets.\n"
+    "? — this help, then the workflow guarantees below.\n"
+    "Q — cancel.\n"
+    "\n"
+    "-- workflow guarantees --------------------------------------------"
+)
+
+
 class _QuickConfirmScreen:
     """Curses quick-confirm: composition card + KeyBar (UX section 1).
 
@@ -1500,7 +1515,7 @@ class _QuickConfirmScreen:
                 width=60,
             ),
             buttons=(("Close", True),),
-        ).run(win, self.palette)
+        ).run(win, self.palette, background=self._draw)
 
     def _edit(self, win: Any) -> str | None:
         editor_state = _editor_state_for_plan(self.runtime, self.plan)
@@ -1572,10 +1587,11 @@ class _QuickConfirmScreen:
                     else self.plan.document.get("workflows", "native")
                 )
                 tui.Modal(
-                    "Workflow guarantees",
-                    workflow_guarantee_panel(mode).splitlines(),
+                    "quick-confirm — help",
+                    QUICK_HELP.splitlines()
+                    + workflow_guarantee_panel(mode).splitlines(),
                     buttons=(("Close", True),),
-                ).run(win, self.palette)
+                ).run(win, self.palette, background=self._draw)
                 continue
             if (
                 self.plan.record is not None
@@ -1717,7 +1733,9 @@ def _line_quick_confirm(
                 if plan.resolved is not None
                 else plan.document.get("workflows", "native")
             )
-            output_stream.write(workflow_guarantee_panel(mode) + "\n")
+            output_stream.write(
+                QUICK_HELP + workflow_guarantee_panel(mode) + "\n"
+            )
             continue
         if key == "s":
             _print_sessions_listing(runtime, output_stream)
@@ -1857,7 +1875,26 @@ SESSIONS_KEYBAR = (
     ("T", "switch comp"),
     ("F", "forget"),
     ("L", "adopt"),
+    ("?", "help"),
     ("Q", "quit"),
+)
+
+SESSIONS_HELP = (
+    "managed (claude-multi): sessions launched here or adopted; their agents,\n"
+    "policy, and workflow mode are durable files that survive Claude restarts.\n"
+    "  R resume — reopen with the same transcript and composition.\n"
+    "  T switch comp — transition: same transcript, different composition\n"
+    "    (semantic diff first; the session must be exited; relaunches exactly).\n"
+    "  F forget — delete the launcher record + generated scope; the Claude\n"
+    "    transcript is never touched.\n"
+    "\n"
+    "native (unmanaged): plain-Claude sessions discovered by name/time only —\n"
+    "the launcher never opens their files. They have no managed guarantees\n"
+    "until adopted.\n"
+    "  L adopt — link one into a composition you choose; it becomes managed\n"
+    "    (resume and switch comp then apply).\n"
+    "\n"
+    "Arrow keys move between and within sections. ? closes this panel."
 )
 SESSIONS_EMPTY = "(no recorded sessions)"
 FORGET_MODAL_TITLE = "Forget session {short}?"
@@ -2007,7 +2044,15 @@ class _SessionsScreen:
                 selected=native_selected,
                 min_widths=[13, 8, 9, 8, 19],
             )
-            table.draw(win, row, 0, width, palette, max_rows=max(1, height - row - 3))
+            table.draw(
+                win,
+                row,
+                0,
+                width,
+                palette,
+                # reserve: table header (+1), actions line, message, keybar
+                max_rows=max(1, height - row - 4),
+            )
         active = self._active()
         if active:
             item = active[self.selected]
@@ -2032,7 +2077,7 @@ class _SessionsScreen:
             FORGET_MODAL_TITLE.format(short=short),
             FORGET_MODAL_BODY.format(scope_note=scope_note).splitlines(),
             buttons=(("Forget", True), ("Cancel", False)),
-        ).run(win, self.palette)
+        ).run(win, self.palette, background=self._draw)
         if not confirmed:
             self.message = "Forget cancelled."
             return
@@ -2129,6 +2174,13 @@ class _SessionsScreen:
                     self.selected = 0
                 continue
             item = active[self.selected]
+            if key.kind == "char" and key.ch == "?":
+                tui.Modal(
+                    "sessions — help",
+                    SESSIONS_HELP.splitlines(),
+                    buttons=(("Close", True),),
+                ).run(win, self.palette, background=self._draw)
+                continue
             if self.section == "native":
                 if key.kind == "char" and key.ch == "l":
                     self._adopt(win, item)
@@ -2147,7 +2199,7 @@ class _SessionsScreen:
                     RESUME_MODAL_TITLE.format(short=f"{record['session_id'][:8]}…"),
                     lines,
                     buttons=(("Resume", True), ("Cancel", False)),
-                ).run(win, self.palette)
+                ).run(win, self.palette, background=self._draw)
                 if confirmed:
                     return ("resume", record)
                 self.message = "Resume cancelled."
@@ -2162,6 +2214,19 @@ class _SessionsScreen:
                 continue
 
 
+TRANSITION_HELP = (
+    "A transition changes a session's composition while keeping its transcript:\n"
+    "agents, models, effort, workflow mode, and policy are recomputed and the\n"
+    "session relaunches with `claude --resume <uuid>` — same conversation, new\n"
+    "composition.\n"
+    "\n"
+    "Rules: review the semantic diff above first. The session's process must\n"
+    "have EXITED (not merely idle) before anything is mutated — exit the TUI,\n"
+    "then confirm. If the relaunch fails, the previous composition and record\n"
+    "are restored and an exact recovery command is shown."
+)
+
+
 class _TransitionScreen:
     """Semantic diff view + exited-confirmation Modal (TRANSITIONS section 3).
 
@@ -2169,7 +2234,7 @@ class _TransitionScreen:
     Returns True only on explicit confirmation; Esc cancels (False).
     """
 
-    KEYBAR = (("Enter", "confirm exited"), ("Esc", "cancel"))
+    KEYBAR = (("Enter", "confirm exited"), ("?", "help"), ("Esc", "cancel"))
 
     def __init__(self, diff: list[str], *, palette: tui.Palette):
         self.diff = diff
@@ -2206,6 +2271,13 @@ class _TransitionScreen:
                 continue
             if key.kind == "ctrl" and key.ch == "c":
                 raise KeyboardInterrupt
+            if key.kind == "char" and key.ch == "?":
+                tui.Modal(
+                    "transition — help",
+                    TRANSITION_HELP.splitlines(),
+                    buttons=(("Close", True),),
+                ).run(win, self.palette, background=self._draw)
+                continue
             if key.kind == "esc" or (key.kind == "char" and key.ch == "q"):
                 return False
             if key.kind == "up" or (key.kind == "char" and key.ch == "k"):
@@ -2220,7 +2292,7 @@ class _TransitionScreen:
                         TRANSITION_MODAL_TITLE,
                         TRANSITION_MODAL_BODY.splitlines(),
                         buttons=(("It has exited", True), ("Cancel", False)),
-                    ).run(win, self.palette)
+                    ).run(win, self.palette, background=self._draw)
                 )
 
 
