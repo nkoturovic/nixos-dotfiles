@@ -317,6 +317,17 @@ def compile_environment(
         env_set["CLAUDE_CODE_MAX_CONTEXT_TOKENS"] = str(resolved.scalar_context_tokens)
     # Trusted lead environment is applied only after the explicit unsets.
     env_set.update(resolved.lead.env)
+    if resolved.scalar_context_tokens is not None:
+        # Auto-compaction must fire BEFORE the composition's actual context
+        # cap — with headroom for the compaction request itself. A lead env
+        # value that exceeds 90% of the scalar (or is absent) would let the
+        # provider 400 win the race and wedge the session (observed live:
+        # sol-direct at 99%; kimi/qwen-sol's explicit values exceed the cap).
+        # Lower explicit values (earlier compaction) are respected.
+        headroom_window = int(resolved.scalar_context_tokens * 0.9)
+        explicit = resolved.lead.env.get("CLAUDE_CODE_AUTO_COMPACT_WINDOW")
+        if explicit is None or int(explicit) > headroom_window:
+            env_set["CLAUDE_CODE_AUTO_COMPACT_WINDOW"] = str(headroom_window)
     env_unset = [
         "CLAUDE_CODE_SUBAGENT_MODEL",
         "CLAUDE_CODE_MAX_OUTPUT_TOKENS",

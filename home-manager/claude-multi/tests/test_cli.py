@@ -3136,3 +3136,90 @@ class ProxyVersionConsistencyTests(unittest.TestCase):
         with __import__("contextlib").redirect_stdout(out):
             proxy.main(["--version"])
         self.assertIn(__version__, out.getvalue())
+
+
+class AdoptOriginalCwdTests(CLITestCase):
+    def test_decode_project_slug_with_dashed_names(self) -> None:
+        home = Path(self.runtime.environ["HOME"])
+        project = home / "projects" / "occams-agent-flow"
+        project.mkdir(parents=True)
+        slug = str(project).replace("/", "-")
+        self.assertEqual(cli._decode_project_slug(slug), project)
+        self.assertIsNone(cli._decode_project_slug("-no-such-place-anywhere"))
+
+    def test_adopt_records_decoded_original_cwd(self) -> None:
+        home = Path(self.runtime.environ["HOME"])
+        project = home / "projects" / "real-project"
+        project.mkdir(parents=True)
+        slug = str(project).replace("/", "-")
+        native_id = "aaaaaaaa-1111-4111-8111-111111111111"
+        projects = home / ".claude" / "projects" / slug
+        projects.mkdir(parents=True)
+        (projects / f"{native_id}.jsonl").write_bytes(b"{}\n")
+        resolved_cwd = cli._original_cwd_for_adopt(self.runtime, native_id)
+        self.assertEqual(resolved_cwd, str(project))
+
+    def test_adopt_without_transcript_keeps_launch_cwd(self) -> None:
+        self.assertEqual(
+            cli._original_cwd_for_adopt(
+                self.runtime, "bbbbbbbb-2222-4222-8222-222222222222"
+            ),
+            self.runtime.cwd,
+        )
+
+
+class ResumeChdirTests(CLITestCase):
+    def test_resume_enters_record_cwd(self) -> None:
+        import os as _os
+
+        Path(self.runtime.cwd).mkdir(parents=True, exist_ok=True)
+        store = self.runtime.session_store
+        record = self.save_session()
+        captured = {}
+
+        def fake_execve(path, argv, env):
+            captured["cwd"] = _os.getcwd()
+            return 0
+
+        other = Path(self.runtime.environ["HOME"]) / "projects" / "other"
+        other.mkdir(parents=True)
+        cli.launch.perform_launch(
+            self.launches[0].result
+            if self.launches
+            else self._fresh_compiled(record),
+            record=record,
+            store=store,
+            native_contract=self.runtime.catalog.docs["native-contract"],
+            gateway=self.runtime.catalog.docs["gateway"],
+            execve=fake_execve,
+            readiness=lambda *a, **k: "t" * 64,
+        )
+        self.assertEqual(captured["cwd"], record["cwd"])
+
+    def _fresh_compiled(self, record):
+        document = self.runtime.compositions.load("default")
+        prepared = self.runtime.prepare(
+            document, action="resume", passthrough=[], session_id=record["session_id"]
+        )
+        return prepared.result
+
+
+class CwdFilterToggleTests(CLITestCase):
+    def test_filter_shows_only_current_directory(self) -> None:
+        here = self.save_session()
+        other = self.save_session(
+            session_id="97a6194a-1111-4222-8333-444455556666"
+        )
+        # Move the second record to another cwd.
+        record = self.runtime.session_store.load(other["session_id"])
+        record["cwd"] = "/somewhere/else"
+        self.runtime.session_store.save(record)
+        screen = cli._SessionsScreen(
+            self.runtime, palette=cli.tui.MONO_PALETTE
+        )
+        self.assertEqual(len(screen.records), 2)
+        screen.cwd_filter = True
+        screen._reload()
+        self.assertEqual(
+            [r["session_id"] for r in screen.records], [here["session_id"]]
+        )

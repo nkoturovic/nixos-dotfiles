@@ -506,8 +506,32 @@ def perform_launch(
         base_environ.pop(key, None)
     final_env = {**base_environ, **result.env_set, "ANTHROPIC_AUTH_TOKEN": token}
     argv = [str(executable), *result.argv]
+
+    # Claude locates transcripts under the session's ORIGINAL project
+    # directory; resuming from another cwd reports the session as missing.
+    # Adopted records carry the decoded original cwd; managed records carry
+    # their launch cwd. Enter it before exec when it differs. A returning
+    # execve (injected/test boundary) restores the launcher's cwd; the real
+    # one never returns.
+    original_cwd = os.getcwd()
+    record_cwd = record.get("cwd")
+    if (
+        isinstance(record_cwd, str)
+        and record_cwd
+        and record_cwd != original_cwd
+        and os.path.isdir(record_cwd)
+    ):
+        try:
+            os.chdir(record_cwd)
+        except OSError as exc:
+            raise LaunchError(
+                f"cannot enter the session's project directory "
+                f"{record_cwd}: {exc}"
+            ) from exc
     try:
-        return execve(str(executable), argv, final_env)
+        outcome = execve(str(executable), argv, final_env)
+        os.chdir(original_cwd)
+        return outcome
     except OSError:
         # The session never started; converge state per action kind, then
         # re-raise. See the module docstring for the cleanup contract.

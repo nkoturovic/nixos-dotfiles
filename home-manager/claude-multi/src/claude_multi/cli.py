@@ -1876,6 +1876,7 @@ SESSIONS_KEYBAR = (
     ("T", "switch comp"),
     ("F", "forget"),
     ("L", "adopt"),
+    ("C", "cwd filter"),
     ("?", "help"),
     ("Q", "quit"),
 )
@@ -1978,6 +1979,7 @@ class _SessionsScreen:
         self.section = "managed"
         self.selected = 0
         self.message = ""
+        self.cwd_filter = False
         self._reload()
 
     def _reload(self) -> None:
@@ -1987,6 +1989,14 @@ class _SessionsScreen:
             reverse=True,
         )
         self.native = _discover_native_sessions(self.runtime)
+        if self.cwd_filter:
+            slug = self.runtime.cwd.replace("/", "-")
+            self.records = [
+                record for record in self.records if record["cwd"] == self.runtime.cwd
+            ]
+            self.native = [
+                item for item in self.native if item["slug"] == slug
+            ]
         # Land on a non-empty section (zero-managed with native present, or
         # after forgetting the last managed record).
         if self.section == "managed" and not self.records and self.native:
@@ -2027,7 +2037,10 @@ class _SessionsScreen:
         win.erase()
         palette = self.palette
         height, width = win.getmaxyx()
-        tui.safe_add(win, 1, 2, SESSIONS_TITLE, palette.attr("accent") | curses.A_BOLD)
+        title = SESSIONS_TITLE + (
+            " · cwd filter ON" if self.cwd_filter else ""
+        )
+        tui.safe_add(win, 1, 2, title, palette.attr("accent") | curses.A_BOLD)
         tui.safe_add(win, 2, 2, "─" * min(width - 1, 62), palette.attr("dim"))
         row = 3
         managed_rows = self._managed_rows()
@@ -2147,7 +2160,7 @@ class _SessionsScreen:
         resolved = self.runtime.resolve_document(document)
         record = sessions.make_record(
             session_id=item["session_id"],
-            cwd=self.runtime.cwd,
+            cwd=_original_cwd_for_adopt(self.runtime, item["session_id"]),
             composition_name=document["name"],
             snapshot=composition.snapshot(resolved),
             catalog_version=self.runtime.catalog_version,
@@ -2209,6 +2222,14 @@ class _SessionsScreen:
                     self.selected = 0
                 continue
             item = active[self.selected]
+            if key.kind == "char" and key.ch.lower() == "c":
+                self.cwd_filter = not self.cwd_filter
+                self._reload()
+                self.message = (
+                    "showing only this directory" if self.cwd_filter
+                    else "showing all sessions"
+                )
+                continue
             if self.section == "native":
                 if key.kind == "char" and key.ch.lower() == "l":
                     self._adopt(win, item)
@@ -2824,7 +2845,7 @@ def handle_command(
             resolved = runtime.resolve_document(document)
             record = sessions.make_record(
                 session_id=args.uuid,
-                cwd=runtime.cwd,
+                cwd=_original_cwd_for_adopt(runtime, args.uuid),
                 composition_name=document["name"],
                 snapshot=composition.snapshot(resolved),
                 catalog_version=runtime.catalog_version,
@@ -3403,3 +3424,77 @@ def main(
 
 if __name__ == "__main__":
     raise SystemExit(main())
+
+
+def _slug_for_session(runtime: Runtime, session_id: str) -> str | None:
+    """The projects-dir slug for a native session id (metadata-only lookup)."""
+
+    home = Path(runtime.environ.get("HOME") or Path.home())
+    projects = home / ".claude" / "projects"
+    try:
+        for project_dir in projects.iterdir():
+            if not project_dir.is_dir():
+                continue
+            if (project_dir / f"{session_id}.jsonl").exists():
+                return project_dir.name
+    except OSError:
+        return None
+    return None
+
+
+def _decode_project_slug(slug: str) -> Path | None:
+    """Decode a Claude projects-dir slug back to a real directory.
+
+    The slug is the absolute path with "/" replaced by "-"; real components
+    may themselves contain dashes, so we walk actual directory names and
+    descend only into children whose name is a prefix of the remaining slug.
+    Bounded (64 candidates per level); prefers the shallowest full match.
+    """
+
+    if not slug.startswith("-"):
+        return None
+    candidates: list[tuple[Path, str]] = [(Path("/"), slug[1:])]
+    for _depth in range(24):
+        finals = [path for path, remaining in candidates if remaining == ""]
+        if finals:
+            finals.sort(key=lambda path: len(path.parts))
+            return finals[0]
+        following: list[tuple[Path, str]] = []
+        for base, remaining in candidates:
+            try:
+                children = [child for child in base.iterdir() if child.is_dir()]
+            except OSError:
+                continue
+            for child in children:
+                name = child.name
+                if remaining == name:
+                    following.append((child, ""))
+                elif remaining.startswith(name + "-"):
+                    following.append((child, remaining[len(name) + 1 :]))
+        if not following:
+            return None
+        candidates = list(dict.fromkeys(following))[:64]
+    return None
+
+
+def _original_cwd_for_adopt(runtime: Runtime, session_id: str) -> str:
+    """Resolve the session's true project cwd at adopt/link time.
+
+    Claude locates transcripts under the ORIGINAL project directory, so an
+    adopted record must carry it — resuming from any other cwd reports the
+    session as missing. Fails with an actionable message when the slug
+    cannot be located or decoded.
+    """
+
+    slug = _slug_for_session(runtime, session_id)
+    if slug is None:
+        # No local transcript dir (e.g. another machine's session): keep the
+        # launch cwd; a resume will fail natively with the real cause.
+        return runtime.cwd
+    decoded = _decode_project_slug(slug)
+    if decoded is None:
+        raise CLIError(
+            f"cannot locate the project directory for session slug {slug!r}; "
+            "cd into the session's original project and adopt from there"
+        )
+    return str(decoded)

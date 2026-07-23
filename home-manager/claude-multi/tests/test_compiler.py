@@ -507,10 +507,70 @@ class EnvironmentTests(unittest.TestCase):
             ),
         )
         self.assertIn("CLAUDE_CODE_AUTO_COMPACT_WINDOW", result.env_unset)
+        # Clamped to 90% of the 372K scalar so compaction fires before the
+        # provider cap — an explicit value above the cap can never trigger.
         self.assertEqual(
-            result.env_set["CLAUDE_CODE_AUTO_COMPACT_WINDOW"], "1048576"
+            result.env_set["CLAUDE_CODE_AUTO_COMPACT_WINDOW"], "334800"
         )
 
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class CompactionWindowClampTests(unittest.TestCase):
+    def _compile(self, document):
+        bundle = catalog.load_catalog(CATALOG_ROOT)
+        resolved = composition.resolve(bundle.docs, document)
+        digest = strict_json.bundle_digest(composition.snapshot(resolved))
+        return compiler.compile_launch(
+            docs=bundle.docs,
+            prompt_bodies=bundle.prompt_bodies,
+            resolved=resolved,
+            session_action=compiler.build_fresh(FIXED_SESSION),
+            passthrough=[],
+            settings_path=SETTINGS_PATH,
+            lead_prompt_path=compiler.lead_prompt_path(
+                Path("/state"), digest, FIXED_SESSION
+            ),
+        )
+
+    def test_absent_window_derives_ninety_percent_of_scalar(self) -> None:
+        import copy
+
+        bundle = catalog.load_catalog(CATALOG_ROOT)
+        document = copy.deepcopy(bundle.default_composition)
+        # default (fable lead) has no explicit window; scalar is 372000.
+        result = self._compile(document)
+        self.assertEqual(
+            result.env_set["CLAUDE_CODE_AUTO_COMPACT_WINDOW"], "334800"
+        )
+
+    def test_lower_explicit_window_is_respected(self) -> None:
+        import copy
+
+        bundle = catalog.load_catalog(CATALOG_ROOT)
+        document = copy.deepcopy(bundle.default_composition)
+        # A composition-level earlier trigger beats the 90% default.
+        # Lead env comes from the model entry; simulate via a lower value on
+        # the resolved lead env by compiling with a patched document model.
+        docs = copy.deepcopy(bundle.docs)
+        docs["models"]["models"]["fable"]["lead"]["env"][
+            "CLAUDE_CODE_AUTO_COMPACT_WINDOW"
+        ] = "200000"
+        resolved = composition.resolve(docs, document)
+        digest = strict_json.bundle_digest(composition.snapshot(resolved))
+        result = compiler.compile_launch(
+            docs=docs,
+            prompt_bodies=bundle.prompt_bodies,
+            resolved=resolved,
+            session_action=compiler.build_fresh(FIXED_SESSION),
+            passthrough=[],
+            settings_path=SETTINGS_PATH,
+            lead_prompt_path=compiler.lead_prompt_path(
+                Path("/state"), digest, FIXED_SESSION
+            ),
+        )
+        self.assertEqual(
+            result.env_set["CLAUDE_CODE_AUTO_COMPACT_WINDOW"], "200000"
+        )
