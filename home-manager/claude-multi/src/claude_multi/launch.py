@@ -469,6 +469,19 @@ def perform_launch(
         else:
             if pre_existing is None:
                 raise LaunchError(f"resume session {session_id} has no managed record")
+            # Stale-relaunch guard (final audit L1): the record on disk must
+            # not have advanced beyond the one this launch was compiled for.
+            current = strict_json.loads(pre_existing)
+            if (
+                isinstance(current, dict)
+                and current.get("scope_generation", 0) > record["scope_generation"]
+            ):
+                raise LaunchError(
+                    f"session {session_id} advanced to generation "
+                    f"{current['scope_generation']} concurrently; this launch "
+                    f"was compiled for generation {record['scope_generation']} "
+                    "— re-run the transition"
+                )
             prior_pointer = store.read_pointer_bytes(record["cwd"])
 
         # Contingency is the only lead delivery: the prompt file is always
@@ -511,16 +524,20 @@ def perform_launch(
                         _resume_failure_scope(
                             store, session_id, pre_existing, result, trusted
                         )
-                # The pointer restore is separately ownership-guarded
-                # (compare-and-restore only while it names this session).
-                store.restore_pointer_bytes(
-                    record["cwd"], session_id, prior_pointer
-                )
+                    # The pointer rollback belongs to the same ownership
+                    # check: when a newer attempt owns the record, its
+                    # pointer update stands (final audit L2).
+                    store.restore_pointer_bytes(
+                        record["cwd"], session_id, prior_pointer
+                    )
             else:
-                store.forget(session_id)
-                store.clear_last(record["cwd"], session_id)
-                if scope_written:
-                    scope.remove_scope(store.root, session_id)
+                # Fresh UUIDs are unknowable, but compare anyway before
+                # deleting: a record this launch no longer owns is left alone.
+                if store.read_record_bytes(session_id) == committed_bytes:
+                    store.forget(session_id)
+                    store.clear_last(record["cwd"], session_id)
+                    if scope_written:
+                        scope.remove_scope(store.root, session_id)
         finally:
             lock.release()
         raise

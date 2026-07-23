@@ -308,7 +308,10 @@ def remove_scope(state_root: Path | str, session_id: str) -> bool:
     """Remove a session's live scope and any stale staging dir. Idempotent."""
 
     _check_session_id(session_id)
-    scopes_root = Path(state_root) / "scopes"
+    # Validate the scopes PARENT before any destructive work beneath it: a
+    # symlinked ancestor must fail closed here, never be followed (final
+    # audit L3).
+    scopes_root = state.ensure_private_dir(Path(state_root) / "scopes")
     removed = False
     for candidate in (
         scopes_root / session_id,

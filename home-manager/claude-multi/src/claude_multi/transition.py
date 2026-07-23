@@ -469,7 +469,7 @@ def restore_exec_failure(
     session_id: str,
     prior_record_bytes: bytes,
     *,
-    expected_record_bytes: bytes | None = None,
+    expected_record_bytes: bytes,
     dir_fsync: Callable[[Path], None] | None = None,
 ) -> None:
     """Restore prior state after the relaunch execve raised ``OSError``.
@@ -493,18 +493,24 @@ def restore_exec_failure(
         raise TransitionError(
             f"session id {session_id!r} is not a managed-session UUID"
         )
+    if expected_record_bytes is None:
+        raise TransitionError(
+            "restore_exec_failure requires the exact committed record bytes "
+            "(ownership token); refusing an unconditional rollback"
+        )
     lock = store.lifecycle_lock(session_id)
     lock.acquire(blocking=True)
     try:
-        if expected_record_bytes is not None:
-            current_bytes = store.read_record_bytes(session_id)
-            if current_bytes != expected_record_bytes:
-                # A newer attempt committed since the failing execute; it owns
-                # the record and the scope now — restore nothing.
-                return
+        current_bytes = store.read_record_bytes(session_id)
+        if current_bytes != expected_record_bytes:
+            # A newer attempt committed since the failing execute; it owns
+            # the record and the scope now — restore nothing.
+            return
         store.restore_record_bytes(session_id, prior_record_bytes)
         sync = dir_fsync if dir_fsync is not None else scope._fsync_directory
-        scopes_root = Path(store.root) / "scopes"
+        # Validate the scopes parent before destructive work beneath it: a
+        # symlinked ancestor fails closed here (final audit L3).
+        scopes_root = state.ensure_private_dir(Path(store.root) / "scopes")
         live = scopes_root / session_id
         prev = scopes_root / f".{session_id}.prev"
         staging = scopes_root / f".{session_id}.new"

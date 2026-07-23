@@ -124,8 +124,14 @@ nix build --offline --no-link --file home-manager/claude-multi/package.nix
 nix build --offline --no-link --file home-manager/claude-multi/tests/default.nix
 ```
 
-No command in the normal paths contacts a provider. The optional
-`claude-multi-dev smoke-test` requires explicit `--allow-provider-call`.
+No command in the normal paths contacts a provider. `claude-multi-dev
+smoke-test` currently has no provider transport wired; the bounded
+verification path is one consent-gated request through the gateway, e.g.
+`curl -H "x-api-key: $(cat ~/.config/claude-multi/api-key)" \
+  -H "anthropic-version: 2023-06-01" -H "content-type: application/json" \
+  -d '{"model":"<alias>","max_tokens":8,"messages":[{"role":"user","content":"OK"}]}' \
+  http://127.0.0.1:8317/v1/messages` — run only with explicit user approval,
+one call at a time.
 
 **Durable-scope status (2026-07-22):** 809 offline tests green (1
 intentional skip). On-disk agent discovery through `--add-dir` proven

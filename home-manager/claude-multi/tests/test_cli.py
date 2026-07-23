@@ -3108,3 +3108,31 @@ class NativeDiscoveryTests(CLITestCase):
         self.assertEqual(
             [r["session_id"] for r in screen.records], [item["session_id"]]
         )
+
+
+class VersionConsistencyTests(unittest.TestCase):
+    def test_package_version_matches_version_json(self) -> None:
+        import json
+        from claude_multi import __version__
+
+        document = json.loads(
+            (cli.default_asset_root() / "version.json").read_text(encoding="utf-8")
+        )
+        self.assertEqual(__version__, document["launcher_version"])
+
+    def test_cli_version_flag_uses_package_version(self) -> None:
+        parser = cli.build_parser()
+        with self.assertRaises(SystemExit) as ctx:
+            parser.parse_args(["--version"])
+        self.assertEqual(ctx.exception.code, 0)
+
+
+class ProxyVersionConsistencyTests(unittest.TestCase):
+    def test_proxy_version_matches_package(self) -> None:
+        import io
+        from claude_multi import __version__, proxy
+
+        out = io.StringIO()
+        with __import__("contextlib").redirect_stdout(out):
+            proxy.main(["--version"])
+        self.assertIn(__version__, out.getvalue())

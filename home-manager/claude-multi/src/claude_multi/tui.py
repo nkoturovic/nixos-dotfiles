@@ -1448,7 +1448,7 @@ FORM_KEYBAR = (
     ("↑↓", "move"),
     ("Enter", "edit"),
     ("Space", "toggle"),
-    ("?", "workflows"),
+    ("?", "help"),
     ("^G", "JSON editor"),
     ("Esc", "cancel"),
 )
@@ -1596,6 +1596,18 @@ class FormEditorScreen:
         rows.append(_Row("section", "Actions"))
         rows.append(_Row("actions", "Save or launch", note="— update · save as · launch once · more…"))
         return rows
+
+    def _focusable(self) -> list[int]:
+        return [i for i, row in enumerate(self._rows) if row.kind != "section"]
+
+    def _move_focus(self, delta: int) -> None:
+        focusable = self._focusable()
+        if not focusable:
+            return
+        current = focusable.index(self.focus) if self.focus in focusable else 0
+        self.focus = focusable[(current + delta) % len(focusable)]
+
+    # -- drawing -----------------------------------------------------------
 
     def _focusable(self) -> list[int]:
         return [i for i, row in enumerate(self._rows) if row.kind != "section"]
@@ -2052,6 +2064,9 @@ class FormEditorScreen:
                     if not confirmed:
                         continue
                 return None
+            if key.kind == "char" and key.ch == "?":
+                self._guarantee_modal(win)
+                continue
             if row.kind == "text":
                 if key.kind == "up" or (key.kind == "btab"):
                     self._move_focus(-1)
@@ -2061,9 +2076,6 @@ class FormEditorScreen:
                     if row.payload.handle(key):
                         field = "name" if row.label == "Name" else "description"
                         self.state.document[field] = row.payload.value
-                continue
-            if key.kind == "char" and key.ch == "?":
-                self._guarantee_modal(win)
                 continue
             if key.kind == "up" or key.kind == "btab":
                 self._move_focus(-1)

@@ -586,3 +586,17 @@ class FormEditorJsonTests(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class EditorHelpKeyTests(unittest.TestCase):
+    def test_question_mark_opens_help_even_with_text_row_focused(self) -> None:
+        state = make_state()
+        screen = tui.FormEditorScreen(state)
+        # Drive the real loop: ? (opens help), Esc (closes help), Esc (leaves editor).
+        win = FakeWindow(["?", ESC, ESC], height=30, width=90)
+        screen.run(win)
+        help_frames = [f for f in win.frames if "editor — help" in f]
+        self.assertTrue(help_frames, "help modal must open on ?")
+        self.assertNotIn("?", state.document["name"])
+        # The editor was still open after the help closed (no bounce).
+        self.assertIn("claude-multi / Edit default", win.frames[-1])

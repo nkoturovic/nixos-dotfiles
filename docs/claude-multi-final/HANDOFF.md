@@ -8,9 +8,11 @@ This note hands daily operation of `claude-multi` to a **qwen-sol** session
 `claude-multi` compiles a chosen composition into per-session durable files
 (`~/.local/state/claude-multi/scopes/<uuid>/{.claude/agents/*.md,
 settings.json}`) and launches ordinary Claude Code pointed at them with
-`--add-dir` + `--settings`. Agent definitions live on disk, so they survive
-Claude supervisor restarts/upgrades (the incident that killed the old
-argv-mode `--agents`). Plain `claude` is untouched.
+`--add-dir` + `--settings`. Agent definitions live on disk and are
+re-discovered on every process start (documented for backgrounded/respawned
+sessions and binary-consistent for supervisor takeover; the final takeover
+proof is the next natural upgrade — see U1 below). Plain `claude` is
+untouched.
 
 ## Daily use
 
@@ -30,7 +32,7 @@ argv-mode `--agents`). Plain `claude` is untouched.
 
 ## Composition: qwen-sol
 
-Qwen3.8 Max lead (ultracode, thinking always on, `reasoning_effort: xhigh`
+Qwen3.8 Max Preview lead (ultracode, thinking always on, `reasoning_effort: xhigh`
 — the provider maximum), Sol preferred analyst/implementer/reviewer
 variants, Qwen-max alternates. Cross-family review: Sol (openai) reviews
 Qwen (alibaba) work and vice versa. Context bound 372K (conservative;

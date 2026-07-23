@@ -72,7 +72,7 @@ auth — new auth kind; header emission conditional), model `qwen38`
 official docs), `reasoning_effort` pinned **xhigh** (provider maximum)
 via the new `reasoning-effort-xhigh` payload contract — not Kimi's
 output-config-max; no filter-thinking (native thinking always on).
-Selector is preview-free so the production swap is wire_model-only.
+Selector is preview-free so the selector survives the production swap; the revision steps are the D21 sequence (wire_model, context, effort tiers, one live call, display).
 Model id `qwen38` avoids `-max-max` variant IDs. **qwen-sol** user
 composition: qwen lead ultracode + sol preferred variants + qwen-max
 alternates (mirrors kimi-sol structure). Evidence: 1006 tests green

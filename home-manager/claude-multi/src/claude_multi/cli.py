@@ -35,6 +35,7 @@ from . import (
     tui,
     validate as schema_validate,
 )
+from . import __version__ as _pkg_version
 from .tui import (
     EditorError,
     EditorOutcome,
@@ -436,7 +437,7 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--no-color", action="store_true", help="disable all color output (the NO_COLOR environment variable is also honored)")
     parser.add_argument("--legacy", action="store_true", help="launch with the pre-durable argv form (compatibility hatch; agents may vanish on supervisor restart)")
     parser.add_argument("--print-launch", action="store_true", help="print the exact Claude argv and env summary instead of launching (the gateway token is never shown)")
-    parser.add_argument("--version", action="version", version="claude-multi 2.1.0")
+    parser.add_argument("--version", action="version", version=f"claude-multi {_pkg_version}")
 
     commands = parser.add_subparsers(dest="command")
     compose_parser = commands.add_parser("compose", help="manage saved compositions")
@@ -1236,37 +1237,37 @@ class _QuickConfirmScreen:
         height, width = win.getmaxyx()
         plan = self.plan
         runtime = self.runtime
-        row = 0
-        tui.safe_add(win, row, 0, "claude-multi", palette.attr("accent") | curses.A_BOLD)
+        row = 1
+        tui.safe_add(win, row, 2, "claude-multi", palette.attr("accent") | curses.A_BOLD)
         action = plan.action.title()
         if plan.record is not None:
             action += f" · {plan.record['session_id'][:8]}…"
         tui.safe_add(
             win,
             row,
-            13,
+            15,
             f"— composition: {plan.document.get('name', '<invalid>')} · {plan.source} · {action}",
             palette.attr("normal"),
         )
         row += 1
-        tui.safe_add(win, row, 0, "─" * min(width - 1, 60), palette.attr("dim"))
+        tui.safe_add(win, row, 2, "─" * min(width - 1, 60), palette.attr("dim"))
         row += 1
         if plan.resolved is not None:
             resolved = plan.resolved
-            tui.safe_add(win, row, 0, "lead      ", palette.attr("dim"))
+            tui.safe_add(win, row, 2, "lead      ", palette.attr("dim"))
             lead_text = f"{resolved.lead.display} · effort {resolved.lead.effort}"
-            tui.safe_add(win, row, 10, lead_text)
+            tui.safe_add(win, row, 12, lead_text)
             tui.Badge(f"workflows: {resolved.workflows}", "accent").draw(
-                win, row, 10 + len(lead_text) + 3, palette
+                win, row, 12 + len(lead_text) + 3, palette
             )
             row += 1
             roles = {variant.role for variant in resolved.variants}
-            tui.safe_add(win, row, 0, "agents    ", palette.attr("dim"))
+            tui.safe_add(win, row, 2, "agents    ", palette.attr("dim"))
             tui.safe_add(
-                win, row, 10, f"{len(resolved.variants)} selected · {len(roles)} roles · "
+                win, row, 12, f"{len(resolved.variants)} selected · {len(roles)} roles · "
             )
             tui.Badge(_durability_badge(plan), "ok").draw(
-                win, row, 10 + len(f"{len(resolved.variants)} selected · {len(roles)} roles · "), palette
+                win, row, 12 + len(f"{len(resolved.variants)} selected · {len(roles)} roles · "), palette
             )
             row += 1
             table = tui.Table(
@@ -1291,38 +1292,38 @@ class _QuickConfirmScreen:
                 for slot in plan.document.get("slots", [])
                 if isinstance(slot, dict)
             )
-            tui.safe_add(win, row, 0, "lead      ", palette.attr("dim"))
+            tui.safe_add(win, row, 2, "lead      ", palette.attr("dim"))
             tui.safe_add(
-                win, row, 10, "unresolved" if has_lead else "none selected", palette.attr("error")
+                win, row, 12, "unresolved" if has_lead else "none selected", palette.attr("error")
             )
             row += 1
-            tui.safe_add(win, row, 0, "agents    ", palette.attr("dim"))
-            tui.Badge(_durability_badge(plan), "ok").draw(win, row, 10, palette)
+            tui.safe_add(win, row, 2, "agents    ", palette.attr("dim"))
+            tui.Badge(_durability_badge(plan), "ok").draw(win, row, 12, palette)
             row += 1
         if plan.resolved is not None:
-            tui.safe_add(win, row, 0, "policy    ", palette.attr("dim"))
-            tui.safe_add(win, row, 10, _policy_summary(runtime, plan.resolved))
+            tui.safe_add(win, row, 2, "policy    ", palette.attr("dim"))
+            tui.safe_add(win, row, 12, _policy_summary(runtime, plan.resolved))
             row += 1
-        tui.safe_add(win, row, 0, "project   ", palette.attr("dim"))
+        tui.safe_add(win, row, 2, "project   ", palette.attr("dim"))
         project_role = "error" if plan.project_collisions else "normal"
-        tui.safe_add(win, row, 10, _project_summary(plan), palette.attr(project_role))
+        tui.safe_add(win, row, 12, _project_summary(plan), palette.attr(project_role))
         row += 1
         cwd_hint = _cwd_sessions_summary(runtime)
         if cwd_hint is not None:
-            tui.safe_add(win, row, 0, "sessions  ", palette.attr("dim"))
-            tui.safe_add(win, row, 10, cwd_hint, palette.attr("accent"))
+            tui.safe_add(win, row, 2, "sessions  ", palette.attr("dim"))
+            tui.safe_add(win, row, 12, cwd_hint, palette.attr("accent"))
             row += 1
         if plan.cross_provider_warning:
-            tui.safe_add(win, row, 0, "warning   ", palette.attr("warn"))
-            tui.safe_add(win, row, 10, plan.cross_provider_warning, palette.attr("warn"))
+            tui.safe_add(win, row, 2, "warning   ", palette.attr("warn"))
+            tui.safe_add(win, row, 12, plan.cross_provider_warning, palette.attr("warn"))
             row += 1
         if self.details:
             row += self._draw_details(win, row, height, width)
         row += 1
         if plan.ready:
-            tui.Badge("Status  Ready", "ok").draw(win, row, 0, palette)
+            tui.Badge("Status  Ready", "ok").draw(win, row, 2, palette)
         else:
-            tui.Badge("Status  BLOCKED", "error").draw(win, row, 0, palette)
+            tui.Badge("Status  BLOCKED", "error").draw(win, row, 2, palette)
         row += 1
         errors = [
             *plan.errors,
@@ -1339,7 +1340,7 @@ class _QuickConfirmScreen:
             for line in wrapped:
                 if row >= height - 2:
                     break
-                tui.safe_add(win, row, 2, line, palette.attr("error"))
+                tui.safe_add(win, row, 4, line, palette.attr("error"))
                 row += 1
         keybar = self._keybar()
         keybar.draw(win, height - 1, palette)
@@ -1463,7 +1464,7 @@ class _QuickConfirmScreen:
             if len(self.runtime.compositions.names()) > 1:
                 bindings.append(("Tab", "preset"))
             bindings.append(("W", "wf on/off"))
-        bindings.extend((("D", "details"), ("S", "sessions"), ("?", "workflows"), ("Q", "cancel")))
+        bindings.extend((("D", "details"), ("S", "sessions"), ("?", "help"), ("Q", "cancel")))
         return tui.KeyBar(bindings)
 
     # -- sessions picker ----------------------------------------------------
@@ -1552,7 +1553,7 @@ class _QuickConfirmScreen:
                 tui.safe_add(win, 2, 0, "Resize, or press Q to cancel.")
                 win.refresh()
                 key = tui.read_key(win)
-                if key.kind == "esc" or (key.kind == "char" and key.ch == "q"):
+                if key.kind == "esc" or (key.kind == "char" and key.ch.lower() == "q"):
                     return None
                 if key.kind == "ctrl" and key.ch == "c":
                     raise KeyboardInterrupt
@@ -1563,12 +1564,12 @@ class _QuickConfirmScreen:
                 continue
             if key.kind == "ctrl" and key.ch == "c":
                 raise KeyboardInterrupt
-            if key.kind == "esc" or (key.kind == "char" and key.ch == "q"):
+            if key.kind == "esc" or (key.kind == "char" and key.ch.lower() == "q"):
                 return None
-            if key.kind == "char" and key.ch == "d":
+            if key.kind == "char" and key.ch.lower() == "d":
                 self.details = not self.details
                 continue
-            if key.kind == "char" and key.ch == "s":
+            if key.kind == "char" and key.ch.lower() == "s":
                 outcome = self._open_sessions(win)
                 if outcome is None:
                     continue
@@ -1577,7 +1578,7 @@ class _QuickConfirmScreen:
             if preset_delta is not None:
                 self.plan = _cycle_preset(self.runtime, self.plan, preset_delta)
                 continue
-            if key.kind == "char" and key.ch == "w":
+            if key.kind == "char" and key.ch.lower() == "w":
                 self.plan = _toggle_workflows(self.runtime, self.plan)
                 continue
             if key.kind == "char" and key.ch == "?":
@@ -1600,7 +1601,7 @@ class _QuickConfirmScreen:
             ):
                 self._recorded_only_modal(win)
                 continue
-            if (key.kind == "char" and key.ch == "e") or (
+            if (key.kind == "char" and key.ch.lower() == "e") or (
                 key.kind == "enter" and not self.plan.ready
             ):
                 if self.plan.record is not None:
@@ -1894,7 +1895,7 @@ SESSIONS_HELP = (
     "  L adopt — link one into a composition you choose; it becomes managed\n"
     "    (resume and switch comp then apply).\n"
     "\n"
-    "Arrow keys move between and within sections. ? closes this panel."
+    "Arrow keys move between and within sections; Esc closes this panel."
 )
 SESSIONS_EMPTY = "(no recorded sessions)"
 FORGET_MODAL_TITLE = "Forget session {short}?"
@@ -1913,6 +1914,17 @@ TRANSITION_MODAL_BODY = (
     "\n"
     "Has the target process exited?"
 )
+
+
+def _windowed(
+    rows: list[list[str]], selected: int, max_rows: int
+) -> tuple[list[list[str]], int]:
+    """Slice rows so `selected` stays visible; returns (slice, translated)."""
+
+    if len(rows) <= max_rows:
+        return rows, selected
+    start = min(max(0, selected - max_rows + 1), len(rows) - max_rows)
+    return rows[start : start + max_rows], selected - start
 
 
 def _record_age(record: dict[str, Any], *, now: datetime | None = None) -> str:
@@ -1975,6 +1987,12 @@ class _SessionsScreen:
             reverse=True,
         )
         self.native = _discover_native_sessions(self.runtime)
+        # Land on a non-empty section (zero-managed with native present, or
+        # after forgetting the last managed record).
+        if self.section == "managed" and not self.records and self.native:
+            self.section = "native"
+        elif self.section == "native" and not self.native and self.records:
+            self.section = "managed"
         active = self.records if self.section == "managed" else self.native
         self.selected = min(self.selected, max(0, len(active) - 1))
 
@@ -2009,38 +2027,45 @@ class _SessionsScreen:
         win.erase()
         palette = self.palette
         height, width = win.getmaxyx()
-        tui.safe_add(win, 0, 0, SESSIONS_TITLE, palette.attr("accent") | curses.A_BOLD)
-        tui.safe_add(win, 1, 0, "─" * min(width - 1, 60), palette.attr("dim"))
+        tui.safe_add(win, 1, 2, SESSIONS_TITLE, palette.attr("accent") | curses.A_BOLD)
+        tui.safe_add(win, 2, 2, "─" * min(width - 1, 62), palette.attr("dim"))
         row = 3
         managed_rows = self._managed_rows()
         if not managed_rows:
-            tui.safe_add(win, row, 0, SESSIONS_EMPTY, palette.attr("dim"))
+            tui.safe_add(win, row, 2, SESSIONS_EMPTY, palette.attr("dim"))
             row += 2
         else:
-            tui.safe_add(win, row - 1, 0, "managed (claude-multi)", palette.attr("dim"))
-            managed_selected = self.selected if self.section == "managed" else -1
+            tui.safe_add(win, row - 1, 2, "managed (claude-multi)", palette.attr("dim"))
+            managed_max = min(len(managed_rows), height - 9)
+            shown_rows, managed_selected = _windowed(
+                managed_rows, self.selected if self.section == "managed" else -1, managed_max
+            )
             table = tui.Table(
                 ["session", "composition", "mode", "cwd", "created"],
-                managed_rows,
+                shown_rows,
                 selected=managed_selected,
                 min_widths=[13, 10, 11, 8, 19],
             )
-            shown = min(len(managed_rows), height - 9)
-            table.draw(win, row, 0, width, palette, max_rows=shown)
-            row += shown + 2
+            table.draw(win, row, 0, width, palette, max_rows=managed_max)
+            row += managed_max + 2
         if self.native:
             tui.safe_add(
                 win,
                 row,
-                0,
+                2,
                 "native (unmanaged, discovered names+times only) · press L to adopt",
                 palette.attr("dim"),
             )
             row += 1
-            native_selected = self.selected if self.section == "native" else -1
+            native_max = max(1, height - row - 4)
+            shown_rows, native_selected = _windowed(
+                self._native_rows(),
+                self.selected if self.section == "native" else -1,
+                native_max,
+            )
             table = tui.Table(
                 ["session", "", "", "project", "active"],
-                self._native_rows(),
+                shown_rows,
                 selected=native_selected,
                 min_widths=[13, 8, 9, 8, 19],
             )
@@ -2051,7 +2076,7 @@ class _SessionsScreen:
                 width,
                 palette,
                 # reserve: table header (+1), actions line, message, keybar
-                max_rows=max(1, height - row - 4),
+                max_rows=native_max,
             )
         active = self._active()
         if active:
@@ -2060,9 +2085,9 @@ class _SessionsScreen:
                 label = _record_actions_label(item)
             else:
                 label = "L adopt into a composition · then resume/transition apply"
-            tui.safe_add(win, height - 3, 0, label, palette.attr("dim"))
+            tui.safe_add(win, height - 3, 2, label, palette.attr("dim"))
         if self.message:
-            tui.safe_add(win, height - 2, 0, self.message, palette.attr("warn"))
+            tui.safe_add(win, height - 2, 2, self.message, palette.attr("warn"))
         tui.KeyBar(SESSIONS_KEYBAR).draw(win, height - 1, palette)
         win.refresh()
 
@@ -2130,6 +2155,9 @@ class _SessionsScreen:
             launcher_version=self.runtime.launcher_version,
         )
         self.runtime.session_store.link(record)
+        self.runtime.session_store.update_last(
+            self.runtime.cwd, item["session_id"]
+        )
         self.message = (
             f"Adopted {item['session_id'][:8]}… into cm:{document['name']}; "
             "it is now managed — resume or transition apply"
@@ -2154,9 +2182,16 @@ class _SessionsScreen:
                 continue
             if key.kind == "ctrl" and key.ch == "c":
                 raise KeyboardInterrupt
-            if key.kind == "esc" or (key.kind == "char" and key.ch == "q"):
+            if key.kind == "esc" or (key.kind == "char" and key.ch.lower() == "q"):
                 return None
             active = self._active()
+            if key.kind == "char" and key.ch == "?":
+                tui.Modal(
+                    "sessions — help",
+                    SESSIONS_HELP.splitlines(),
+                    buttons=(("Close", True),),
+                ).run(win, self.palette, background=self._draw)
+                continue
             if not active:
                 continue
             if key.kind == "up" or (key.kind == "char" and key.ch == "k"):
@@ -2174,15 +2209,8 @@ class _SessionsScreen:
                     self.selected = 0
                 continue
             item = active[self.selected]
-            if key.kind == "char" and key.ch == "?":
-                tui.Modal(
-                    "sessions — help",
-                    SESSIONS_HELP.splitlines(),
-                    buttons=(("Close", True),),
-                ).run(win, self.palette, background=self._draw)
-                continue
             if self.section == "native":
-                if key.kind == "char" and key.ch == "l":
+                if key.kind == "char" and key.ch.lower() == "l":
                     self._adopt(win, item)
                 elif key.kind == "char" and key.ch in ("r", "t", "f"):
                     self.message = (
@@ -2191,7 +2219,7 @@ class _SessionsScreen:
                     )
                 continue
             record = item
-            if key.kind == "char" and key.ch == "r":
+            if key.kind == "char" and key.ch.lower() == "r":
                 lines: list[str] = []
                 if record["mode"] != "durable":
                     lines = LEGACY_RESUME_NOTE.split("; ")
@@ -2204,12 +2232,12 @@ class _SessionsScreen:
                     return ("resume", record)
                 self.message = "Resume cancelled."
                 continue
-            if key.kind == "char" and key.ch == "t":
+            if key.kind == "char" and key.ch.lower() == "t":
                 name = self._choose_composition(win, record)
                 if name is not None:
                     return ("transition", record, name)
                 continue
-            if key.kind == "char" and key.ch == "f":
+            if key.kind == "char" and key.ch.lower() == "f":
                 self._forget(win, record)
                 continue
 
@@ -2245,12 +2273,12 @@ class _TransitionScreen:
         win.erase()
         palette = self.palette
         height, width = win.getmaxyx()
-        tui.safe_add(win, 0, 0, "transition — semantic diff", palette.attr("accent") | curses.A_BOLD)
-        tui.safe_add(win, 1, 0, "─" * min(width - 1, 60), palette.attr("dim"))
+        tui.safe_add(win, 1, 2, "transition — semantic diff", palette.attr("accent") | curses.A_BOLD)
+        tui.safe_add(win, 2, 2, "─" * min(width - 3, 60), palette.attr("dim"))
         visible = max(1, height - 4)
         self.scroll = max(0, min(self.scroll, max(0, len(self.diff) - visible)))
         for offset, line in enumerate(self.diff[self.scroll : self.scroll + visible]):
-            tui.safe_add(win, 2 + offset, 0, line)
+            tui.safe_add(win, 2 + offset, 2, line)
         if len(self.diff) > visible:
             tui.safe_add(
                 win,
@@ -2278,7 +2306,7 @@ class _TransitionScreen:
                     buttons=(("Close", True),),
                 ).run(win, self.palette, background=self._draw)
                 continue
-            if key.kind == "esc" or (key.kind == "char" and key.ch == "q"):
+            if key.kind == "esc" or (key.kind == "char" and key.ch.lower() == "q"):
                 return False
             if key.kind == "up" or (key.kind == "char" and key.ch == "k"):
                 self.scroll -= 1

@@ -527,7 +527,8 @@ class ExecuteRelaunchTests(TransitionTestCase):
         plan = self._prepare(_lead_to_kimi)
         outcome = transition.execute(plan, confirm_exited=True, environ={})
         transition.restore_exec_failure(
-            self.store, FIXED_ID, outcome.prior_record_bytes
+            self.store, FIXED_ID, outcome.prior_record_bytes,
+        expected_record_bytes=outcome.committed_record_bytes,
         )
         self.assertEqual(self.store.read_record_bytes(FIXED_ID), prior_bytes)
         self.assertEqual(
@@ -547,7 +548,8 @@ class ExecuteRelaunchTests(TransitionTestCase):
         self.assertTrue(self._live().exists())
         self.assertFalse(self._prev().exists())
         transition.restore_exec_failure(
-            self.store, FIXED_ID, outcome.prior_record_bytes
+            self.store, FIXED_ID, outcome.prior_record_bytes,
+        expected_record_bytes=outcome.committed_record_bytes,
         )
         self.assertEqual(self.store.read_record_bytes(FIXED_ID), prior_bytes)
         self.assertFalse(self._live().exists())
@@ -560,7 +562,8 @@ class ExecuteRelaunchTests(TransitionTestCase):
         staging = self._staging()
         state.ensure_private_dir(staging)
         transition.restore_exec_failure(
-            self.store, FIXED_ID, outcome.prior_record_bytes
+            self.store, FIXED_ID, outcome.prior_record_bytes,
+        expected_record_bytes=outcome.committed_record_bytes,
         )
         self.assertFalse(staging.exists())
 
@@ -580,13 +583,15 @@ class ExecuteRelaunchTests(TransitionTestCase):
                 FIXED_ID,
                 outcome.prior_record_bytes,
                 dir_fsync=failing_fsync,
+            expected_record_bytes=outcome.committed_record_bytes,
             )
         self.assertEqual(self.store.read_record_bytes(FIXED_ID), prior_bytes)
 
     def test_exec_failure_restore_rejects_non_uuid_before_path_access(self) -> None:
         with self.assertRaisesRegex(TransitionError, "managed-session UUID"):
             transition.restore_exec_failure(
-                self.store, "../escape", b"not-used"
+                self.store, "../escape", b"not-used",
+                expected_record_bytes=b"not-used",
             )
 
     def test_symlinked_live_scope_fails_closed_before_mutation(self) -> None:
