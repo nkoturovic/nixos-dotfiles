@@ -30,6 +30,12 @@
   sol-direct.
 - catalog_version 3 → 4; launcher 2.4.1 → 2.5.0. Gateway re-render +
   serving of `claude-opus-5` verified post-activation.
+- **Live verification: PASSED.** One consent-gated call through the
+  gateway (`POST /v1/messages`, model `claude-multi-opus-5`, one real
+  provider request, user-approved): alias accepted and routed, exact
+  instruction followed ("OPUS5-OK"), clean `end_turn` completion with
+  native usage fields. Full chain catalog → render → gateway → Anthropic
+  (Opus 5) proven.
 - **CLIProxy registry gap found and fixed:** the vendored model registry
   predated the release, hiding the new aliases from `/v1/models` (routing
   itself was unaffected). Third local patch
