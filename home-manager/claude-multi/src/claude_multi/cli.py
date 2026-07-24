@@ -12,6 +12,7 @@ import argparse
 import copy
 import curses
 import errno
+import io
 import os
 import shutil
 import stat
@@ -113,8 +114,14 @@ TRANSITION_PREFLIGHT_REFUSAL = (
 class PreparedLaunch:
     result: compiler.CompileResult
     record: dict[str, Any]
-    resolved: composition.ResolvedComposition
+    resolved: composition.ResolvedComposition | None
     document: dict[str, Any]
+    model_relaunch: bool = False
+    expected_launch_epoch: int | None = None
+    expected_mutation_token: str | None = None
+    expected_source_scope_generation: int | None = None
+    expected_source_composition_hash: str | None = None
+    precommitted: bool = False
 
 
 @dataclass
@@ -280,6 +287,16 @@ class Runtime:
         self.catalog = catalog.load_catalog(self.asset_root)
         config = sessions.config_root(self.environ)
         state_path = sessions.state_root(self.environ)
+        # Single hook-command authority: the stable shim under the state root.
+        # Compiled scopes embed the shim's constant path (never a package or
+        # store path), so scope bytes survive package rebuilds; the shim is
+        # refreshed here so hooks always reach the newest resolved launcher.
+        self.resolved_hook_command = scope_mod.resolve_hook_command(
+            self.environ, self.asset_root
+        )
+        self.hook_command = str(
+            scope_mod.ensure_hook_shim(state_path, self.resolved_hook_command)
+        )
         self.compositions = CompositionStore(
             config,
             schema=strict_json.load(
@@ -326,6 +343,7 @@ class Runtime:
             # disableWorkflows; fail closed before anything is compiled.
             raise CLIError(LEGACY_WORKFLOWS_OFF_REFUSAL)
         prior_record: dict[str, Any] | None = None
+        model_relaunch = False
         if action == "fresh":
             launch_id = self.session_store.new_id()
             session_action = compiler.build_fresh(launch_id)
@@ -333,9 +351,33 @@ class Runtime:
         elif action == "resume":
             if session_id is None:
                 raise CLIError("resume requires a managed session ID")
-            prior_record = self.session_store.load(session_id)
-            launch_id = session_id
-            session_action = compiler.build_resume(session_id)
+            prior_record = self.session_store.resolve(session_id)
+            if prior_record["session_type"] != sessions.SESSION_TYPE_MANAGED:
+                raise CLIError(
+                    "ordinary gateway sessions must be resumed with "
+                    "`claude-multi direct --resume` or `claude-gateway --resume`"
+                )
+            launch_id = sessions.managed_id(prior_record)
+            identity_state = prior_record.get(
+                "identity_state", sessions.IDENTITY_UNVERIFIED
+            )
+            if prior_record.get("pending_forks"):
+                raise CLIError(
+                    f"session {launch_id} has an unresolved native fork; adopt the "
+                    "fork UUID before resuming the parent"
+                )
+            if identity_state == sessions.IDENTITY_REPAIR_NEEDED:
+                if "observed_cwd" in prior_record or "observed_model" not in prior_record:
+                    raise CLIError(
+                        f"session {launch_id} has unresolved runtime/CWD identity; "
+                        "repair it with `claude-multi sessions relink-runtime "
+                        f"{launch_id} {sessions.runtime_session_id(prior_record)} "
+                        "[--cwd PATH]` before resuming"
+                    )
+                model_relaunch = True
+            session_action = compiler.build_resume(
+                launch_id, sessions.runtime_session_id(prior_record)
+            )
             forked_from = prior_record["forked_from"]
         elif action == "fork":
             # The managed triple-flag fork path is deleted: fork natively and
@@ -362,6 +404,7 @@ class Runtime:
             mode = "legacy"
             generation = 0
 
+        launch_epoch = 1 if prior_record is None else prior_record.get("launch_epoch", 0) + 1
         snapshot = composition.snapshot(resolved)
         digest = strict_json.bundle_digest(snapshot)
         result = self.compile_callback(
@@ -380,21 +423,176 @@ class Runtime:
                 if durable
                 else None
             ),
+            hook_command=self.hook_command,
+            launch_epoch=launch_epoch,
         )
-        record = sessions.make_record(
-            session_id=launch_id,
-            cwd=self.cwd,
-            composition_name=document["name"],
-            snapshot=snapshot,
-            catalog_version=self.catalog_version,
-            catalog_hash=self.catalog.bundle_sha256,
-            launcher_version=self.launcher_version,
-            forked_from=forked_from,
-            mode=mode,
-            scope_generation=generation,
-            workflows=resolved.workflows,
+        if prior_record is None:
+            record = sessions.make_record(
+                managed_id=launch_id,
+                cwd=self.cwd,
+                composition_name=document["name"],
+                snapshot=snapshot,
+                catalog_version=self.catalog_version,
+                catalog_hash=self.catalog.bundle_sha256,
+                launcher_version=self.launcher_version,
+                forked_from=forked_from,
+                mode=mode,
+                scope_generation=generation,
+                workflows=resolved.workflows,
+                launch_epoch=launch_epoch,
+            )
+        else:
+            record = {
+                **prior_record,
+                "composition_name": document["name"],
+                "composition_hash": strict_json.bundle_digest(snapshot),
+                "snapshot": snapshot,
+                "mode": mode,
+                "scope_generation": generation,
+                "launch_epoch": launch_epoch,
+                "workflows": resolved.workflows,
+                "catalog_version": self.catalog_version,
+                "catalog_hash": self.catalog.bundle_sha256,
+                "launcher_version": self.launcher_version,
+            }
+        return PreparedLaunch(
+            result,
+            record,
+            resolved,
+            copy.deepcopy(document),
+            model_relaunch=model_relaunch,
+            expected_launch_epoch=(
+                prior_record.get("launch_epoch", 0)
+                if prior_record is not None
+                else None
+            ),
+            expected_mutation_token=(
+                prior_record.get("mutation_token")
+                if prior_record is not None
+                else None
+            ),
+            expected_source_scope_generation=(
+                prior_record.get("scope_generation")
+                if prior_record is not None
+                else None
+            ),
+            expected_source_composition_hash=(
+                prior_record.get("composition_hash")
+                if prior_record is not None
+                else None
+            ),
         )
-        return PreparedLaunch(result, record, resolved, copy.deepcopy(document))
+
+    def prepare_direct(
+        self,
+        *,
+        action: str,
+        model_id: str | None,
+        passthrough: list[str],
+        session_id: str | None = None,
+    ) -> PreparedLaunch:
+        """Prepare an ordinary gateway session with no composition semantics."""
+
+        prior: dict[str, Any] | None = None
+        pin_model = action == "fresh" or model_id is not None
+        model_relaunch = action == "resume" and model_id is not None
+        if action == "fresh":
+            stable_id = self.session_store.new_id()
+            runtime_id = stable_id
+            selected_model = model_id or "sol"
+            session_action = compiler.build_fresh(stable_id, runtime_id)
+        elif action == "resume":
+            if session_id is None:
+                raise CLIError("direct resume requires a session identifier")
+            prior = self.session_store.resolve(session_id)
+            if prior["session_type"] != sessions.SESSION_TYPE_ORDINARY:
+                raise CLIError(
+                    "managed compositions must be resumed with `claude-multi -r`"
+                )
+            stable_id = sessions.managed_id(prior)
+            identity_state = prior.get(
+                "identity_state", sessions.IDENTITY_UNVERIFIED
+            )
+            if prior.get("pending_forks"):
+                raise CLIError(
+                    f"session {stable_id} has an unresolved native fork; adopt the "
+                    "fork UUID before resuming the parent"
+                )
+            if identity_state == sessions.IDENTITY_REPAIR_NEEDED:
+                if "observed_cwd" in prior or "observed_model" not in prior:
+                    raise CLIError(
+                        f"session {stable_id} has unresolved runtime/CWD identity; "
+                        "repair it with `claude-multi sessions relink-runtime "
+                        f"{stable_id} {sessions.runtime_session_id(prior)} "
+                        "[--cwd PATH]` before resuming"
+                    )
+                if model_id is None:
+                    raise CLIError(
+                        f"session {stable_id} observed an unsafe model/profile change; "
+                        "explicitly relaunch it with `claude-gateway -r "
+                        f"{stable_id} --model {prior['ordinary_model']}`"
+                    )
+                model_relaunch = True
+            runtime_id = sessions.runtime_session_id(prior)
+            selected_model = model_id or prior["ordinary_model"]
+            session_action = compiler.build_resume(stable_id, runtime_id)
+        else:
+            raise CLIError(f"unknown direct launch action {action!r}")
+
+        launch_epoch = 1 if prior is None else prior.get("launch_epoch", 0) + 1
+        profile = compiler.direct_context_profile(self.catalog.docs, selected_model)
+        scope_dir = scope_mod.scope_dir(self.session_store.root, stable_id)
+        result = compiler.compile_direct_launch(
+            docs=self.catalog.docs,
+            session_action=session_action,
+            model_id=selected_model,
+            passthrough=passthrough,
+            scope_dir=scope_dir,
+            hook_command=self.hook_command,
+            state_root=self.session_store.root,
+            pin_model=pin_model,
+            launch_epoch=launch_epoch,
+        )
+        if prior is None:
+            record = sessions.make_ordinary_record(
+                managed_id=stable_id,
+                runtime_session_id=runtime_id,
+                cwd=self.cwd,
+                model=selected_model,
+                context_profile=profile,
+                catalog_version=self.catalog_version,
+                catalog_hash=self.catalog.bundle_sha256,
+                launcher_version=self.launcher_version,
+                launch_epoch=launch_epoch,
+            )
+        else:
+            record = {
+                **prior,
+                "ordinary_model": selected_model,
+                "context_profile": profile,
+                "mode": "durable",
+                "scope_generation": prior.get("scope_generation", 0) + 1,
+                "launch_epoch": launch_epoch,
+                "catalog_version": self.catalog_version,
+                "catalog_hash": self.catalog.bundle_sha256,
+                "launcher_version": self.launcher_version,
+            }
+        return PreparedLaunch(
+            result,
+            record,
+            None,
+            {"name": "ordinary-gateway"},
+            model_relaunch=model_relaunch,
+            expected_launch_epoch=(
+                prior.get("launch_epoch", 0) if prior is not None else None
+            ),
+            expected_mutation_token=(
+                prior.get("mutation_token") if prior is not None else None
+            ),
+            expected_source_scope_generation=(
+                prior.get("scope_generation") if prior is not None else None
+            ),
+        )
 
     def perform(self, prepared: PreparedLaunch) -> Any:
         if self.launch_callback is not None:
@@ -407,6 +605,16 @@ class Runtime:
             gateway=self.catalog.docs["gateway"],
             environ=self.environ,
             trusted=self.catalog,
+            allow_model_relaunch=prepared.model_relaunch,
+            expected_launch_epoch=prepared.expected_launch_epoch,
+            expected_mutation_token=prepared.expected_mutation_token,
+            expected_source_scope_generation=(
+                prepared.expected_source_scope_generation
+            ),
+            expected_source_composition_hash=(
+                prepared.expected_source_composition_hash
+            ),
+            precommitted=prepared.precommitted,
         )
 
 
@@ -440,6 +648,19 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--version", action="version", version=f"claude-multi {_pkg_version}")
 
     commands = parser.add_subparsers(dest="command")
+    direct_parser = commands.add_parser(
+        "direct", help="launch an ordinary gateway session without a composition"
+    )
+    direct_parser.add_argument("--model", dest="direct_model")
+    direct_parser.add_argument("--print-launch", action="store_true")
+    direct_identity = direct_parser.add_mutually_exclusive_group()
+    direct_identity.add_argument(
+        "-c", "--continue", dest="direct_continue", action="store_true"
+    )
+    direct_identity.add_argument(
+        "-r", "--resume", dest="direct_resume", metavar="UUID"
+    )
+
     compose_parser = commands.add_parser("compose", help="manage saved compositions")
     compose_commands = compose_parser.add_subparsers(dest="compose_command", required=True)
     compose_commands.add_parser("list", help="list compositions")
@@ -463,9 +684,27 @@ def build_parser() -> argparse.ArgumentParser:
     for action in ("show", "forget"):
         item = session_commands.add_parser(action, help=f"{action} a managed session")
         item.add_argument("uuid")
-    link = session_commands.add_parser("link", help="adopt a native session without inspecting Claude state")
+    link = session_commands.add_parser(
+        "link", help="adopt a native session without inspecting Claude state"
+    )
     link.add_argument("uuid", nargs="?")
-    link.add_argument("--composition", dest="link_composition")
+    link_target = link.add_mutually_exclusive_group()
+    link_target.add_argument("--composition", dest="link_composition")
+    link_target.add_argument("--model", dest="link_model")
+    link.add_argument(
+        "--cwd",
+        dest="link_cwd",
+        help="authoritative original project directory (validated against metadata)",
+    )
+    relink = session_commands.add_parser(
+        "relink-runtime",
+        help="repair a managed record with the authoritative native runtime UUID",
+    )
+    relink.add_argument("uuid", help="stable managed ID (or an existing alias)")
+    relink.add_argument("runtime_uuid", help="UUID shown by native /status or /resume")
+    relink.add_argument(
+        "--cwd", dest="repair_cwd", help="also replace the recorded original project CWD"
+    )
     transition_parser = session_commands.add_parser(
         "transition",
         help="change a session's composition: semantic diff, exited-confirmation, relaunch",
@@ -484,6 +723,11 @@ def build_parser() -> argparse.ArgumentParser:
         "skips the interactive confirmation",
     )
 
+    event_parser = commands.add_parser("session-event", help=argparse.SUPPRESS)
+    event_parser.add_argument("event", choices=("start", "end"))
+    event_parser.add_argument("--managed-id", required=True)
+    event_parser.add_argument("--launch-epoch", type=int, default=None)
+
     commands.add_parser("models", help="list trusted catalog models")
     show = commands.add_parser("show", help="show the effective composition summary")
     show.add_argument("show_composition", nargs="?")
@@ -496,6 +740,13 @@ def build_parser() -> argparse.ArgumentParser:
         metavar="UUID",
         dest="doctor_repair",
         help="converge a session's scope to its record authority",
+    )
+    doctor_actions.add_argument(
+        "--repair-all",
+        action="store_true",
+        dest="doctor_repair_all",
+        help="converge every durable session's scope (and refresh its record "
+        "snapshot) against the installed catalog",
     )
     doctor_actions.add_argument(
         "--prune",
@@ -604,6 +855,21 @@ def build_quick_plan(
     cross_provider_warning: str | None = None,
 ) -> QuickPlan:
     errors: list[str] = []
+    if record is not None:
+        stable_id = sessions.managed_id(record)
+        identity_state = record.get("identity_state", sessions.IDENTITY_UNVERIFIED)
+        if record.get("pending_forks"):
+            errors.append(
+                f"session {stable_id} has an unresolved native fork; adopt the "
+                "fork UUID before resuming the parent"
+            )
+        elif identity_state == sessions.IDENTITY_REPAIR_NEEDED and (
+            "observed_cwd" in record or "observed_model" not in record
+        ):
+            errors.append(
+                f"session {stable_id} has unresolved runtime/CWD identity; repair "
+                "it with `claude-multi sessions relink-runtime` before resuming"
+            )
     resolved = None
     try:
         resolved = runtime.resolve_document(document)
@@ -626,15 +892,14 @@ def build_quick_plan(
     # Q10 visibility: project agents load natively; an exact cm-* collision
     # would silently shadow a guaranteed definition, so it blocks here with
     # the same fail-closed language the durable launch gate uses.
-    project_files = _project_agent_files(runtime.cwd)
+    plan_cwd = record["cwd"] if record is not None else runtime.cwd
+    project_files = _project_agent_files(plan_cwd)
     project_collisions: list[str] = []
     if resolved is not None:
         generated = {variant.id for variant in resolved.variants}
         project_collisions = [
-            _collision_error(path, name, runtime.cwd)
-            for path, name in scope_mod.find_cm_collisions(
-                runtime.cwd, [], generated
-            )
+            _collision_error(path, name, plan_cwd)
+            for path, name in scope_mod.find_cm_collisions(plan_cwd, [], generated)
         ]
     errors.extend(project_collisions)
     return QuickPlan(
@@ -713,7 +978,7 @@ def managed_plan(runtime: Runtime, record: dict[str, Any]) -> QuickPlan:
             warning = RESUME_PROVIDER_DRIFT_WARNING.format(
                 new_provider=runtime.catalog.providers[new_provider]["display"],
                 old_provider=runtime.catalog.providers[old_provider]["display"],
-                uuid=record["session_id"],
+                uuid=sessions.managed_id(record),
             )
     return build_quick_plan(
         runtime,
@@ -732,7 +997,11 @@ def remembered_document(runtime: Runtime) -> tuple[dict[str, Any], str]:
     if session_id:
         try:
             record = runtime.session_store.load(session_id)
-            return runtime.compositions.load(record["composition_name"]), "Last used in this directory"
+            if record["session_type"] == sessions.SESSION_TYPE_MANAGED:
+                return (
+                    runtime.compositions.load(record["composition_name"]),
+                    "Last used in this directory",
+                )
         except (sessions.SessionError, CLIError):
             pass
     return runtime.compositions.load("default"), "User default" if runtime.compositions.has_user("default") else "Trusted default"
@@ -814,7 +1083,7 @@ def render_quick_confirm(
     lines = ["claude-multi", ""]
     action = plan.action.title()
     if plan.record is not None:
-        action += f" · {plan.record['session_id']}"
+        action += f" · {sessions.managed_id(plan.record)}"
     lines.append(f"Action         {action}")
     lines.append(
         f"Composition    {tui.visible_text(plan.document.get('name', '<invalid>'))} · {plan.source}"
@@ -877,7 +1146,7 @@ def render_quick_confirm(
             # R1 P1: the old "C current" choice lived here; the transition
             # engine is the one path to a changed composition.
             lines.append(
-                f"Change         {RESUME_RECORDED_NOTE.format(uuid=plan.record['session_id'])}"
+                f"Change         {RESUME_RECORDED_NOTE.format(uuid=sessions.managed_id(plan.record))}"
             )
         if plan.action == "resume" and plan.record["mode"] != "durable":
             lines.append(f"Note           {LEGACY_RESUME_NOTE}")
@@ -1053,7 +1322,7 @@ def _apply_editor_outcome(
         # plans (the quick-confirm redirects before the editor opens).
         raise CLIError(
             "managed resume plans do not accept editor outcomes; "
-            + RESUME_RECORDED_NOTE.format(uuid=plan.record["session_id"])
+            + RESUME_RECORDED_NOTE.format(uuid=sessions.managed_id(plan.record))
         )
     if action in ("save", "update"):
         runtime.resolve_document(document)
@@ -1241,7 +1510,7 @@ class _QuickConfirmScreen:
         tui.safe_add(win, row, 2, "claude-multi", palette.attr("accent") | curses.A_BOLD)
         action = plan.action.title()
         if plan.record is not None:
-            action += f" · {plan.record['session_id'][:8]}…"
+            action += f" · {sessions.managed_id(plan.record)[:8]}…"
         tui.safe_add(
             win,
             row,
@@ -1406,7 +1675,7 @@ class _QuickConfirmScreen:
                     win,
                     row,
                     10,
-                    RESUME_RECORDED_NOTE.format(uuid=plan.record["session_id"]),
+                    RESUME_RECORDED_NOTE.format(uuid=sessions.managed_id(plan.record)),
                 )
                 row += 1
             tui.safe_add(win, row, 0, "live      ", palette.attr("dim"))
@@ -1492,7 +1761,7 @@ class _QuickConfirmScreen:
                 plan.document,
                 action="resume",
                 passthrough=self.passthrough,
-                session_id=record["session_id"],
+                session_id=sessions.managed_id(record),
                 legacy_requested=self.plan.legacy_requested,
             )
             return ("perform", prepared)
@@ -1512,7 +1781,7 @@ class _QuickConfirmScreen:
         tui.Modal(
             "Recorded-only resume",
             textwrap.wrap(
-                RESUME_RECORDED_NOTE.format(uuid=self.plan.record["session_id"]),
+                RESUME_RECORDED_NOTE.format(uuid=sessions.managed_id(self.plan.record)),
                 width=60,
             ),
             buttons=(("Close", True),),
@@ -1617,7 +1886,7 @@ class _QuickConfirmScreen:
                         action=self.plan.action,
                         passthrough=self.passthrough,
                         session_id=(
-                            self.plan.record["session_id"] if self.plan.record else None
+                            sessions.managed_id(self.plan.record) if self.plan.record else None
                         ),
                         legacy_requested=self.plan.legacy_requested,
                     )
@@ -1648,7 +1917,7 @@ def _curses_quick_confirm(
     if result[0] == "transition":
         _, record, name = result
         namespace = argparse.Namespace(
-            uuid=record["session_id"],
+            uuid=sessions.managed_id(record),
             transition_composition=name,
             its_exited=False,
         )
@@ -1769,7 +2038,7 @@ def _line_quick_confirm(
             # R1 P1: the recorded/current switch is gone; resume always uses
             # the recorded composition. Name the one path to change it.
             output_stream.write(
-                RESUME_RECORDED_NOTE.format(uuid=plan.record["session_id"]) + "\n"
+                RESUME_RECORDED_NOTE.format(uuid=sessions.managed_id(plan.record)) + "\n"
             )
             continue
         if key == "e" or (key == "" and not plan.ready):
@@ -1777,7 +2046,7 @@ def _line_quick_confirm(
                 # R1 P1: managed plans never edit the launchable intent; the
                 # editor on a managed resume was the same override vector.
                 output_stream.write(
-                    RESUME_RECORDED_NOTE.format(uuid=plan.record["session_id"]) + "\n"
+                    RESUME_RECORDED_NOTE.format(uuid=sessions.managed_id(plan.record)) + "\n"
                 )
                 continue
             editor_state = _editor_state_for_plan(runtime, plan)
@@ -1804,7 +2073,7 @@ def _line_quick_confirm(
             plan = updated
             continue
         if key == "" and plan.ready:
-            session_id = plan.record["session_id"] if plan.record else None
+            session_id = sessions.managed_id(plan.record) if plan.record else None
             try:
                 prepared = runtime.prepare(
                     plan.document,
@@ -1819,52 +2088,94 @@ def _line_quick_confirm(
             return runtime.perform(prepared)
 
 
-def _session_records(runtime: Runtime) -> list[dict[str, Any]]:
-    records = []
+def _session_record_scan(
+    runtime: Runtime,
+) -> tuple[list[dict[str, Any]], list[str], set[str]]:
+    """Readable records, load problems, and every UUID-shaped record key."""
+
+    records: list[dict[str, Any]] = []
+    problems: list[str] = []
+    record_ids: set[str] = set()
     for path in sorted(runtime.session_store.sessions_dir.glob("*.json")):
         session_id = path.stem
         if not sessions.UUID4.fullmatch(session_id):
             continue
+        record_ids.add(session_id)
         try:
             records.append(runtime.session_store.load(session_id))
-        except sessions.SessionError:
-            continue
+        except sessions.SessionError as exc:
+            problems.append(f"session record {session_id} is unreadable: {exc}")
+    return records, problems, record_ids
+
+
+def _session_records(runtime: Runtime) -> list[dict[str, Any]]:
+    records, _problems, _record_ids = _session_record_scan(runtime)
     return records
 
 
-def _discover_native_sessions(runtime: Runtime, *, limit: int = 20) -> list[dict[str, Any]]:
-    """Metadata-only discovery of unmanaged native sessions.
-
-    Boundary (deliberate): directory names, filename stems, and mtimes only —
-    session/transcript files are never opened. Anything unexpected degrades
-    to an empty list, so a layout change can never break managed sessions.
-    """
+def _discover_native_sessions(
+    runtime: Runtime, *, limit: int = 20, cwd_filter: str | None = None
+) -> list[dict[str, Any]]:
+    """Metadata-only, UUID-deduplicated discovery of unmanaged sessions."""
 
     home = Path(runtime.environ.get("HOME") or Path.home())
     projects = home / ".claude" / "projects"
-    managed = {record["session_id"] for record in _session_records(runtime)}
-    found: list[dict[str, Any]] = []
+    records, _record_problems, record_ids = _session_record_scan(runtime)
+    managed_runtime_ids: set[str] = set(record_ids)
+    for record in records:
+        managed_runtime_ids.add(record["runtime_session_id"])
+        managed_runtime_ids.update(
+            item["session_id"] for item in record.get("runtime_aliases", [])
+        )
+    by_id: dict[str, dict[str, Any]] = {}
     try:
         for project_dir in projects.iterdir():
             if not project_dir.is_dir():
                 continue
             for entry in project_dir.glob("*.jsonl"):
                 session_id = entry.stem
-                if not sessions.UUID4.fullmatch(session_id) or session_id in managed:
+                if (
+                    not sessions.UUID4.fullmatch(session_id)
+                    or session_id in managed_runtime_ids
+                ):
                     continue
                 try:
                     mtime = entry.stat().st_mtime
                 except OSError:
                     continue
-                found.append(
-                    {
-                        "session_id": session_id,
-                        "slug": project_dir.name,
-                        "mtime": mtime,
-                    }
+                item = by_id.setdefault(
+                    session_id,
+                    {"session_id": session_id, "slugs": set(), "mtime": mtime},
                 )
+                item["slugs"].add(project_dir.name)
+                item["mtime"] = max(item["mtime"], mtime)
     except OSError:
         return []
+
+    found: list[dict[str, Any]] = []
+    for item in by_id.values():
+        slugs = tuple(sorted(item["slugs"]))
+        current_slug = _native_project_slug(runtime.cwd)
+        cwd_candidates = {
+            path
+            for slug in slugs
+            for path in _decode_project_slug_candidates(slug)
+        }
+        if current_slug in slugs:
+            cwd = runtime.cwd
+        else:
+            cwd = str(next(iter(cwd_candidates))) if len(cwd_candidates) == 1 else None
+        if cwd_filter is not None and cwd != cwd_filter:
+            continue
+        found.append(
+            {
+                "session_id": item["session_id"],
+                "slugs": slugs,
+                "slug": slugs[0] if len(slugs) == 1 else "(ambiguous)",
+                "cwd": cwd,
+                "mtime": item["mtime"],
+            }
+        )
     found.sort(key=lambda item: item["mtime"], reverse=True)
     return found[:limit]
 
@@ -1988,14 +2299,13 @@ class _SessionsScreen:
             key=lambda record: record["created_at"],
             reverse=True,
         )
-        self.native = _discover_native_sessions(self.runtime)
+        self.native = _discover_native_sessions(
+            self.runtime,
+            cwd_filter=self.runtime.cwd if self.cwd_filter else None,
+        )
         if self.cwd_filter:
-            slug = self.runtime.cwd.replace("/", "-")
             self.records = [
                 record for record in self.records if record["cwd"] == self.runtime.cwd
-            ]
-            self.native = [
-                item for item in self.native if item["slug"] == slug
             ]
         # Land on a non-empty section (zero-managed with native present, or
         # after forgetting the last managed record).
@@ -2009,8 +2319,8 @@ class _SessionsScreen:
     def _managed_rows(self) -> list[list[str]]:
         return [
             [
-                f"{record['session_id'][:12]}…",
-                f"cm:{record['composition_name']}",
+                _record_identity_label(record, short=True),
+                _record_target_label(record),
                 _record_mode_label(record),
                 record["cwd"],
                 _record_age(record),
@@ -2057,7 +2367,7 @@ class _SessionsScreen:
                 ["session", "composition", "mode", "cwd", "created"],
                 shown_rows,
                 selected=managed_selected,
-                min_widths=[13, 10, 11, 8, 19],
+                min_widths=[27, 10, 11, 8, 19],
             )
             table.draw(win, row, 0, width, palette, max_rows=managed_max)
             row += managed_max + 2
@@ -2105,7 +2415,7 @@ class _SessionsScreen:
         win.refresh()
 
     def _forget(self, win: Any, record: dict[str, Any]) -> None:
-        session_id = record["session_id"]
+        session_id = sessions.managed_id(record)
         short = f"{session_id[:8]}…"
         scope_exists = scope_mod.scope_dir(
             self.runtime.session_store.root, session_id
@@ -2119,16 +2429,14 @@ class _SessionsScreen:
         if not confirmed:
             self.message = "Forget cancelled."
             return
-        # Same effects as `sessions forget` (remove_scope validates the name).
-        scope_mod.remove_scope(self.runtime.session_store.root, session_id)
-        self.runtime.session_store.forget(session_id)
-        self.runtime.session_store.clear_last(self.runtime.cwd, session_id)
-        self.records = _session_records(self.runtime)
-        self.selected = min(self.selected, max(0, len(self.records) - 1))
+        # Same serialized effects as `sessions forget`.
+        self.runtime.session_store.forget_session(session_id)
+        self._reload()
+        self.selected = min(self.selected, max(0, len(self._active()) - 1))
         self.message = FORGET_DONE.format(session_id=session_id)
 
     def _choose_composition(self, win: Any, record: dict[str, Any]) -> str | None:
-        short = f"{record['session_id'][:8]}…"
+        short = f"{sessions.managed_id(record)[:8]}…"
         names = self.runtime.compositions.names()
         chooser = tui.SelectList(
             TRANSITION_SELECT_TITLE.format(short=short),
@@ -2158,19 +2466,19 @@ class _SessionsScreen:
             return
         document = self.runtime.compositions.load(names[index])
         resolved = self.runtime.resolve_document(document)
+        stable_id = self.runtime.session_store.new_id()
         record = sessions.make_record(
-            session_id=item["session_id"],
+            managed_id=stable_id,
+            runtime_session_id=item["session_id"],
             cwd=_original_cwd_for_adopt(self.runtime, item["session_id"]),
             composition_name=document["name"],
             snapshot=composition.snapshot(resolved),
             catalog_version=self.runtime.catalog_version,
             catalog_hash=self.runtime.catalog.bundle_sha256,
             launcher_version=self.runtime.launcher_version,
+            identity_state=sessions.IDENTITY_AUTHORITATIVE,
         )
         self.runtime.session_store.link(record)
-        self.runtime.session_store.update_last(
-            self.runtime.cwd, item["session_id"]
-        )
         self.message = (
             f"Adopted {item['session_id'][:8]}… into cm:{document['name']}; "
             "it is now managed — resume or transition apply"
@@ -2181,7 +2489,7 @@ class _SessionsScreen:
             (
                 i
                 for i, record in enumerate(self.records)
-                if record["session_id"] == item["session_id"]
+                if record["runtime_session_id"] == item["session_id"]
             ),
             0,
         )
@@ -2205,6 +2513,14 @@ class _SessionsScreen:
                     buttons=(("Close", True),),
                 ).run(win, self.palette, background=self._draw)
                 continue
+            if key.kind == "char" and key.ch.lower() == "c":
+                self.cwd_filter = not self.cwd_filter
+                self._reload()
+                self.message = (
+                    "showing only this directory" if self.cwd_filter
+                    else "showing all sessions"
+                )
+                continue
             if not active:
                 continue
             if key.kind == "up" or (key.kind == "char" and key.ch == "k"):
@@ -2222,14 +2538,6 @@ class _SessionsScreen:
                     self.selected = 0
                 continue
             item = active[self.selected]
-            if key.kind == "char" and key.ch.lower() == "c":
-                self.cwd_filter = not self.cwd_filter
-                self._reload()
-                self.message = (
-                    "showing only this directory" if self.cwd_filter
-                    else "showing all sessions"
-                )
-                continue
             if self.section == "native":
                 if key.kind == "char" and key.ch.lower() == "l":
                     self._adopt(win, item)
@@ -2245,7 +2553,7 @@ class _SessionsScreen:
                 if record["mode"] != "durable":
                     lines = LEGACY_RESUME_NOTE.split("; ")
                 confirmed = tui.Modal(
-                    RESUME_MODAL_TITLE.format(short=f"{record['session_id'][:8]}…"),
+                    RESUME_MODAL_TITLE.format(short=f"{sessions.managed_id(record)[:8]}…"),
                     lines,
                     buttons=(("Resume", True), ("Cancel", False)),
                 ).run(win, self.palette, background=self._draw)
@@ -2254,6 +2562,12 @@ class _SessionsScreen:
                 self.message = "Resume cancelled."
                 continue
             if key.kind == "char" and key.ch.lower() == "t":
+                if record["session_type"] == sessions.SESSION_TYPE_ORDINARY:
+                    self.message = (
+                        "ordinary gateway sessions have no composition; relaunch "
+                        "with claude-gateway --resume ID --model MODEL"
+                    )
+                    continue
                 name = self._choose_composition(win, record)
                 if name is not None:
                     return ("transition", record, name)
@@ -2408,6 +2722,14 @@ def _sessions_list_tui(
         return 0
     if result[0] == "resume":
         record = result[1]
+        if record["session_type"] == sessions.SESSION_TYPE_ORDINARY:
+            prepared = runtime.prepare_direct(
+                action="resume",
+                model_id=None,
+                passthrough=passthrough,
+                session_id=sessions.managed_id(record),
+            )
+            return runtime.perform(prepared)
         plan = managed_plan(runtime, record)
         if not plan.ready:
             output_stream.write(render_quick_confirm(runtime, plan, width=_stream_width(output_stream)))
@@ -2421,14 +2743,14 @@ def _sessions_list_tui(
             plan.document,
             action="resume",
             passthrough=passthrough,
-            session_id=record["session_id"],
+            session_id=sessions.managed_id(record),
             legacy_requested=legacy_requested,
         )
         return runtime.perform(prepared)
     if result[0] == "transition":
         _, record, name = result
         namespace = argparse.Namespace(
-            uuid=record["session_id"],
+            uuid=sessions.managed_id(record),
             transition_composition=name,
             its_exited=False,
         )
@@ -2443,6 +2765,24 @@ def _sessions_list_tui(
     raise CLIError(f"unknown sessions action {result[0]!r}")
 
 
+def _record_identity_label(record: dict[str, Any], *, short: bool = False) -> str:
+    stable = sessions.managed_id(record)
+    runtime_id = record["runtime_session_id"]
+    same = stable == runtime_id
+    if short:
+        stable = stable[:8] + "…"
+        runtime_id = runtime_id[:8] + "…"
+    if same:
+        return stable
+    return f"{stable} → runtime {runtime_id}"
+
+
+def _record_target_label(record: dict[str, Any]) -> str:
+    if record["session_type"] == sessions.SESSION_TYPE_ORDINARY:
+        return f"gateway:{record['ordinary_model']}"
+    return f"cm:{record['composition_name']}"
+
+
 def _record_mode_label(record: dict[str, Any]) -> str:
     """UX §4 mode column: durable with generation, or legacy."""
 
@@ -2454,6 +2794,8 @@ def _record_mode_label(record: dict[str, Any]) -> str:
 def _record_actions_label(record: dict[str, Any]) -> str:
     """UX §4 per-row action hints; legacy rows state the one-time upgrade."""
 
+    if record["session_type"] == sessions.SESSION_TYPE_ORDINARY:
+        return "[r]esume [f]orget · cross-profile model changes relaunch explicitly"
     if record["mode"] == "durable":
         return "[r]esume [t]ransition [f]orget"
     return "[r]esume (upgrades to durable) [f]orget"
@@ -2519,9 +2861,9 @@ def _print_launch_plan(prepared: PreparedLaunch, output_stream: TextIO) -> None:
     )
     output_stream.write(
         f"launch mode: {'durable' if result.durable else 'legacy argv'} · "
-        f"record mode: {prepared.record['mode']} · composition "
-        f"{tui.visible_text(prepared.record['composition_name'])} · session "
-        f"{prepared.record['session_id']}\n"
+        f"record mode: {prepared.record['mode']} · target "
+        f"{tui.visible_text(_record_target_label(prepared.record))} · session "
+        f"{_record_identity_label(prepared.record)}\n"
     )
 
 
@@ -2540,7 +2882,7 @@ def _print_sessions_listing(runtime: Runtime, output_stream: TextIO) -> None:
         # the whole row is sanitized single-line output.
         output_stream.write(
             tui.visible_text(
-                f"{record['session_id']}  cm:{record['composition_name']}  "
+                f"{_record_identity_label(record)}  {_record_target_label(record)}  "
                 f"{_record_mode_label(record)}  {record['cwd']}  "
                 f"{record['created_at']}  {_record_actions_label(record)}"
             )
@@ -2587,7 +2929,6 @@ def _sessions_transition(
     if not sessions.UUID4.fullmatch(args.uuid):
         raise CLIError(f"{args.uuid!r} is not a UUIDv4")
     transition = _transition_module()
-    runtime.session_store.load(args.uuid)  # the record must exist
     document = runtime.compositions.load(args.transition_composition)
     try:
         plan = transition.prepare(
@@ -2646,18 +2987,24 @@ def _sessions_transition(
             outcome.record,
             plan.target_resolved,
             copy.deepcopy(document),
+            expected_launch_epoch=outcome.record.get("launch_epoch", 0),
+            expected_mutation_token=outcome.record.get("mutation_token"),
+            expected_source_scope_generation=outcome.record.get("scope_generation"),
+            expected_source_composition_hash=outcome.record.get("composition_hash"),
+            precommitted=True,
         )
         try:
             return runtime.perform(prepared)
-        except OSError as exc:
+        except Exception as exc:
             transition.restore_exec_failure(
                 runtime.session_store,
-                args.uuid,
+                plan.session_id,
                 outcome.prior_record_bytes,
                 expected_record_bytes=outcome.committed_record_bytes,
             )
+            kind = "exec failed" if isinstance(exc, OSError) else "launch failed"
             raise CLIError(
-                f"relaunch exec failed ({exc}); the prior scope generation "
+                f"relaunch {kind} ({exc}); the prior scope generation "
                 f"and record were restored. Retry with: {plan.command_text}"
             ) from exc
     raise CLIError(f"unknown transition outcome kind {outcome.kind!r}")
@@ -2710,6 +3057,142 @@ def _run_editor_command(
         return 0
 
 
+_SESSION_START_SOURCES = frozenset({"startup", "resume", "clear", "compact", "fork"})
+
+
+def _direct_model_for_selector(
+    runtime: Runtime, selector: str
+) -> tuple[str, str] | None:
+    return compiler.direct_model_for_selector(runtime.catalog.docs, selector)
+
+
+def _write_session_start_context(output_stream: TextIO, message: str) -> None:
+    response = {
+        "hookSpecificOutput": {
+            "hookEventName": "SessionStart",
+            "additionalContext": message,
+        }
+    }
+    output_stream.write(strict_json.canonical_file_bytes(response).decode("utf-8"))
+
+
+def _handle_session_event(
+    runtime: Runtime,
+    args: argparse.Namespace,
+    *,
+    input_stream: TextIO,
+    output_stream: TextIO,
+) -> int:
+    """Consume one official hook event without opening transcript_path."""
+
+    try:
+        payload = strict_json.loads(input_stream.read())
+    except strict_json.StrictJSONError as exc:
+        raise CLIError(f"invalid session hook JSON: {exc}") from exc
+    if not isinstance(payload, dict):
+        raise CLIError("session hook payload is not an object")
+    stable_id = args.managed_id
+    if not sessions.UUID4.fullmatch(stable_id):
+        raise CLIError(f"managed id {stable_id!r} is not a UUIDv4")
+    launch_epoch = args.launch_epoch
+    if launch_epoch is not None and launch_epoch < 0:
+        raise CLIError("launch epoch must be non-negative")
+    observed = payload.get("session_id")
+    if not isinstance(observed, str) or not sessions.UUID4.fullmatch(observed):
+        raise CLIError(f"hook session_id {observed!r} is not a UUIDv4")
+
+    if args.event == "start":
+        event_name = payload.get("hook_event_name")
+        if event_name not in (None, "SessionStart"):
+            raise CLIError(f"expected SessionStart payload, got {event_name!r}")
+        source = payload.get("source")
+        if source not in _SESSION_START_SOURCES:
+            raise CLIError(f"unknown SessionStart source {source!r}")
+        cwd = payload.get("cwd")
+        if cwd is not None and (not isinstance(cwd, str) or not cwd.startswith("/")):
+            raise CLIError(f"hook cwd {cwd!r} is not an absolute path")
+        model = payload.get("model")
+        if model is not None and not isinstance(model, str):
+            raise CLIError("hook model must be a string when present")
+        current = runtime.session_store.load(stable_id)
+        reconciled_model = model
+        reconciled_profile: str | None = None
+        if model and current["session_type"] == sessions.SESSION_TYPE_ORDINARY:
+            resolved_model = _direct_model_for_selector(runtime, model)
+            if resolved_model is None:
+                reconciled_model = None
+            else:
+                reconciled_model, reconciled_profile = resolved_model
+        elif model:
+            lead_id = current["snapshot"]["lead"]["model"]
+            lead_model = runtime.catalog.models[lead_id]
+            equivalent = {
+                lead_model["wire_model"],
+                current["snapshot"]["lead"]["client_selector"],
+            }
+            if model in equivalent:
+                reconciled_model = current["snapshot"]["lead"]["client_selector"]
+        record = runtime.session_store.reconcile_runtime(
+            stable_id,
+            observed_runtime_id=observed,
+            source=source,
+            cwd=cwd,
+            model=reconciled_model,
+            model_profile=reconciled_profile,
+            observed_model=model,
+            launch_epoch=launch_epoch,
+        )
+        if source == "fork" and any(
+            item.get("session_id") == observed
+            for item in record.get("pending_forks", [])
+        ):
+            _write_session_start_context(
+                output_stream,
+                "This native fork does not yet have an independent durable "
+                "claude-multi scope. Exit it, then adopt its runtime UUID "
+                f"{observed} before relying on managed composition guarantees.",
+            )
+        elif (
+            record["identity_state"] == sessions.IDENTITY_REPAIR_NEEDED
+            and "observed_model" in record
+        ):
+            if record["session_type"] == sessions.SESSION_TYPE_MANAGED:
+                _write_session_start_context(
+                    output_stream,
+                    "Claude reported model "
+                    f"{record['observed_model']!r}, which differs from the recorded "
+                    "managed lead. Exit and resume the recorded composition with "
+                    f"`claude-multi -r {stable_id}`; use `claude-multi sessions "
+                    f"transition {stable_id} --composition NAME` for an intentional "
+                    "lead change.",
+                )
+            else:
+                _write_session_start_context(
+                    output_stream,
+                    "Claude reported model "
+                    f"{record['observed_model']!r}, which is not safe under the "
+                    f"active {record['context_profile']!r} context/compaction profile. "
+                    "Exit and explicitly relaunch with a supported catalog model, "
+                    f"for example `claude-gateway -r {stable_id} --model "
+                    f"{record['ordinary_model']}`.",
+                )
+        return 0
+
+    event_name = payload.get("hook_event_name")
+    if event_name not in (None, "SessionEnd"):
+        raise CLIError(f"expected SessionEnd payload, got {event_name!r}")
+    reason = payload.get("reason")
+    if not isinstance(reason, str) or not reason:
+        raise CLIError("SessionEnd reason is missing")
+    runtime.session_store.record_session_end(
+        stable_id,
+        observed_runtime_id=observed,
+        reason=reason,
+        launch_epoch=launch_epoch,
+    )
+    return 0
+
+
 def handle_command(
     runtime: Runtime,
     args: argparse.Namespace,
@@ -2718,7 +3201,54 @@ def handle_command(
     output_stream: TextIO,
     interactive: bool,
     no_color: bool = False,
+    passthrough: list[str] | None = None,
 ) -> int:
+    if args.command == "session-event":
+        return _handle_session_event(
+            runtime,
+            args,
+            input_stream=input_stream,
+            output_stream=output_stream,
+        )
+
+    if args.command == "direct":
+        identifier = args.direct_resume
+        action = "fresh"
+        if args.direct_continue:
+            identifier = runtime.session_store.last(
+                runtime.cwd, session_type=sessions.SESSION_TYPE_ORDINARY
+            )
+            if identifier is None:
+                raise CLIError(
+                    "no remembered ordinary gateway session in this directory"
+                )
+            action = "resume"
+        elif identifier is not None:
+            action = "resume"
+        if action == "resume" and args.direct_model is not None:
+            # Cross-profile relaunch swaps the scope's fence/compaction policy:
+            # surface the same live-process caution a managed transition gates.
+            prior_record = runtime.session_store.resolve(identifier)
+            new_profile = compiler.direct_context_profile(
+                runtime.catalog.docs, args.direct_model
+            )
+            if new_profile != prior_record["context_profile"]:
+                output_stream.write(
+                    f"note: cross-profile relaunch ({prior_record['context_profile']}"
+                    f" -> {new_profile}) replaces the session scope before the new "
+                    "process starts; make sure the previous process has exited.\n"
+                )
+        prepared = runtime.prepare_direct(
+            action=action,
+            model_id=args.direct_model,
+            passthrough=list(passthrough or []),
+            session_id=identifier,
+        )
+        if args.print_launch:
+            _print_launch_plan(prepared, output_stream)
+            return 0
+        return runtime.perform(prepared)
+
     if args.command == "compose":
         command = args.compose_command
         if command == "list":
@@ -2791,25 +3321,51 @@ def handle_command(
             _print_sessions_listing(runtime, output_stream)
             return 0
         if command == "show":
-            record = runtime.session_store.load(args.uuid)
+            record = runtime.session_store.resolve(args.uuid)
             output_stream.write(strict_json.canonical_file_bytes(record).decode("utf-8"))
             return 0
         if command == "forget":
-            # remove_scope validates the name (fail closed on unsafe input)
-            # before anything is unlinked.
-            scope_removed = scope_mod.remove_scope(
-                runtime.session_store.root, args.uuid
-            )
-            removed = runtime.session_store.forget(args.uuid)
-            runtime.session_store.clear_last(runtime.cwd, args.uuid)
+            try:
+                record = runtime.session_store.resolve(args.uuid)
+            except sessions.SessionError as exc:
+                if "no managed session matches" not in str(exc):
+                    raise
+                output_stream.write(f"Not found: {args.uuid}\n")
+                return 0
+            stable_id = sessions.managed_id(record)
+            removed, scope_removed = runtime.session_store.forget_session(stable_id)
             if not removed:
                 output_stream.write(f"Not found: {args.uuid}\n")
                 return 0
-            output_stream.write(f"Forgot: {args.uuid}\n")
+            output_stream.write(f"Forgot: {stable_id}\n")
             output_stream.write(
                 "Deleted: session record + generated scope"
                 + ("" if scope_removed else " (no generated scope existed)")
                 + ". Transcripts are never touched.\n"
+            )
+            return 0
+        if command == "relink-runtime":
+            if not sessions.UUID4.fullmatch(args.runtime_uuid):
+                raise CLIError(f"{args.runtime_uuid!r} is not a UUIDv4")
+            record = runtime.session_store.resolve(args.uuid)
+            stable_id = sessions.managed_id(record)
+            repaired_cwd: str | None = None
+            if args.repair_cwd is not None:
+                repaired_cwd = str(Path(args.repair_cwd).resolve())
+                if not Path(repaired_cwd).is_dir():
+                    raise CLIError(
+                        f"repair CWD {repaired_cwd!r} is not an accessible directory"
+                    )
+            updated = runtime.session_store.relink_runtime(
+                stable_id,
+                observed_runtime_id=args.runtime_uuid,
+                cwd=repaired_cwd,
+            )
+            if updated.get("mode") == "durable":
+                _doctor_repair(runtime, stable_id, io.StringIO())
+            output_stream.write(
+                f"Reconciled managed {stable_id} to runtime "
+                f"{updated['runtime_session_id']} at CWD {updated['cwd']}.\n"
             )
             return 0
         if command == "transition":
@@ -2826,43 +3382,85 @@ def handle_command(
                 output_stream.write(
                     "Only sessions launched through claude-multi (or adopted) appear in\n"
                     "the sessions list. To adopt a native/plain-Claude session:\n"
-                    "  1. find its UUID natively — `claude --resume` picker or the\n"
-                    "     `claude agents` view shows every session with its id\n"
-                    "  2. adopt it: claude-multi sessions link <uuid> [--composition NAME]\n"
-                    "     (defaults to this directory's remembered composition)\n"
-                    "Then `claude-multi -r <uuid>` resumes it managed (durable upgrade).\n"
+                    "  managed: claude-multi sessions link <uuid> --composition NAME\n"
+                    "  ordinary: claude-multi sessions link <uuid> --model MODEL\n"
+                    "Add `--cwd PATH` when native project-slug decoding is ambiguous.\n"
                 )
                 return 0
             if not sessions.UUID4.fullmatch(args.uuid):
                 raise CLIError(f"{args.uuid!r} is not a UUIDv4")
+            if args.link_model is not None:
+                profile = compiler.direct_context_profile(
+                    runtime.catalog.docs, args.link_model
+                )
+                adopted_cwd = _original_cwd_for_adopt(
+                    runtime, args.uuid, explicit_cwd=args.link_cwd
+                )
+                stable_id = runtime.session_store.new_id()
+                record = sessions.make_ordinary_record(
+                    managed_id=stable_id,
+                    runtime_session_id=args.uuid,
+                    cwd=adopted_cwd,
+                    model=args.link_model,
+                    context_profile=profile,
+                    catalog_version=runtime.catalog_version,
+                    catalog_hash=runtime.catalog.bundle_sha256,
+                    launcher_version=runtime.launcher_version,
+                    identity_state=sessions.IDENTITY_AUTHORITATIVE,
+                    mode="legacy",
+                    scope_generation=0,
+                )
+                runtime.session_store.link(record)
+                output_stream.write(
+                    f"Linked runtime {args.uuid} as ordinary {stable_id} with "
+                    f"model {args.link_model!r} in profile {profile!r}.\n"
+                )
+                return 0
+
             name = args.link_composition
             if name is None:
                 if not interactive:
-                    raise CLIError("sessions link without a TTY requires --composition NAME")
+                    raise CLIError(
+                        "sessions link without a TTY requires --composition NAME "
+                        "or --model MODEL"
+                    )
                 document, _ = remembered_document(runtime)
             else:
                 document = runtime.compositions.load(name)
+            adopted_cwd = _original_cwd_for_adopt(
+                runtime, args.uuid, explicit_cwd=args.link_cwd
+            )
+            stable_id = runtime.session_store.new_id()
             resolved = runtime.resolve_document(document)
             record = sessions.make_record(
-                session_id=args.uuid,
-                cwd=_original_cwd_for_adopt(runtime, args.uuid),
+                managed_id=stable_id,
+                runtime_session_id=args.uuid,
+                cwd=adopted_cwd,
                 composition_name=document["name"],
                 snapshot=composition.snapshot(resolved),
                 catalog_version=runtime.catalog_version,
                 catalog_hash=runtime.catalog.bundle_sha256,
                 launcher_version=runtime.launcher_version,
+                identity_state=sessions.IDENTITY_AUTHORITATIVE,
             )
             runtime.session_store.link(record)
-            runtime.session_store.update_last(runtime.cwd, args.uuid)
-            output_stream.write(f"Linked {args.uuid} to composition {document['name']!r}.\n")
+            output_stream.write(
+                f"Linked runtime {args.uuid} as managed {stable_id} to "
+                f"composition {document['name']!r}.\n"
+            )
             return 0
 
     if args.command == "models":
         for model_id, model in sorted(runtime.catalog.models.items()):
             provider = runtime.catalog.providers[model["provider"]]["display"]
             capabilities = ",".join(model["capabilities"])
+            context = model["context"]
+            scalar = context["scalar_tokens"] or "none"
+            profile = context["ordinary_profile"] or "agents-only"
             output_stream.write(
-                f"{model_id}\t{model['display']}\t{provider}\t{capabilities}\t{model['context']['kind']}\n"
+                f"{model_id}\t{model['display']}\t{provider}\t{capabilities}\t"
+                f"client={context['client_tokens']} provider={context['provider_tokens']} "
+                f"scalar={scalar} profile={profile}\n"
             )
         return 0
 
@@ -2874,6 +3472,8 @@ def handle_command(
     if args.command == "doctor":
         if args.doctor_repair is not None:
             return _doctor_repair(runtime, args.doctor_repair, output_stream)
+        if args.doctor_repair_all:
+            return _doctor_repair_all(runtime, output_stream)
         if args.doctor_prune:
             return _doctor_prune(runtime, output_stream)
         problems: list[str] = []
@@ -2906,7 +3506,7 @@ def handle_command(
             except launch.LaunchError as exc:
                 problems.append(f"local gateway: {exc}")
         # SPEC §7 additions: session/scope integrity, collisions, evidence.
-        scope_info, scope_problems = _doctor_scope_report(runtime)
+        scope_info, scope_problems, scope_attention = _doctor_scope_report(runtime)
         info_lines.extend(scope_info)
         problems.extend(scope_problems)
         collision_info, collision_problems = _doctor_collision_report(runtime)
@@ -2922,9 +3522,29 @@ def handle_command(
                 output_stream.write(
                     palette.ansi(f"  - {tui.visible_text(problem)}", "error") + "\n"
                 )
+            if scope_attention:
+                output_stream.write(palette.ansi("Attention", "warn") + "\n")
+                for line in scope_attention:
+                    output_stream.write(
+                        palette.ansi(f"  - {tui.visible_text(line)}", "warn") + "\n"
+                    )
             for line in info_lines:
                 output_stream.write(f"{tui.visible_text(line)}\n")
             return 1
+        if scope_attention:
+            output_stream.write(palette.ansi("Ready", "ok") + "\n")
+            output_stream.write(palette.ansi("Attention", "warn") + "\n")
+            for line in scope_attention:
+                output_stream.write(
+                    palette.ansi(f"  - {tui.visible_text(line)}", "warn") + "\n"
+                )
+            for line in info_lines:
+                output_stream.write(f"{tui.visible_text(line)}\n")
+            output_stream.write(
+                "Catalog, compositions, and local gateway are valid; attention "
+                "items are by-design lazy state, not damage.\n"
+            )
+            return 0
         output_stream.write(palette.ansi("Ready", "ok") + "\n")
         for line in info_lines:
             output_stream.write(f"{tui.visible_text(line)}\n")
@@ -2988,7 +3608,7 @@ def _check_scope_integrity(runtime: Runtime, record: dict[str, Any]) -> tuple[st
     hidden.
     """
 
-    session_id = record["session_id"]
+    session_id = sessions.managed_id(record)
     short = f"{session_id[:8]}…"
     generation = record["scope_generation"]
     repair = (
@@ -2996,13 +3616,29 @@ def _check_scope_integrity(runtime: Runtime, record: dict[str, Any]) -> tuple[st
         "them from the record."
     )
     try:
-        resolved = runtime.resolve_document(snapshot_to_document(record))
-        expected = scope_mod.compile_scope(
-            resolved,
-            runtime.catalog.docs["roles"]["roles"],
-            runtime.catalog.prompt_bodies,
-            scope_mod.catalog_meta_from_docs(runtime.catalog.docs),
-        )
+        if record["session_type"] == sessions.SESSION_TYPE_ORDINARY:
+            expected = scope_mod.compile_ordinary_scope(
+                managed_id=session_id,
+                hook_command=runtime.hook_command,
+                available_models=compiler.direct_profile_selectors(
+                    runtime.catalog.docs, record["context_profile"]
+                ),
+                default_model=runtime.catalog.models[record["ordinary_model"]][
+                    "client_selector"
+                ],
+                launch_epoch=record.get("launch_epoch", 0),
+            )
+        else:
+            resolved = runtime.resolve_document(snapshot_to_document(record))
+            expected = scope_mod.compile_scope(
+                resolved,
+                runtime.catalog.docs["roles"]["roles"],
+                runtime.catalog.prompt_bodies,
+                scope_mod.catalog_meta_from_docs(runtime.catalog.docs),
+                managed_id=session_id,
+                hook_command=runtime.hook_command,
+                launch_epoch=record.get("launch_epoch", 0),
+            )
     except (ValueError, KeyError) as exc:
         return (
             f"scope for {short} cannot be verified against the installed "
@@ -3033,24 +3669,110 @@ def _check_scope_integrity(runtime: Runtime, record: dict[str, Any]) -> tuple[st
     )
 
 
-def _doctor_scope_report(runtime: Runtime) -> tuple[list[str], list[str]]:
-    """Session census plus per-durable-session scope integrity (SPEC §7.1)."""
+def _doctor_scope_report(runtime: Runtime) -> tuple[list[str], list[str], list[str]]:
+    """Session census plus per-durable-session scope integrity (SPEC §7.1).
 
-    records = _session_records(runtime)
+    Returns ``(info, problems, attention)``: problems block (something is
+    actually broken — unreadable records, identity damage, missing/mismatched
+    scopes); attention lines describe by-design lazy state that one command
+    clears (legacy context snapshots, legacy-mode records).
+    """
+
+    records, record_problems, record_ids = _session_record_scan(runtime)
     durable = [record for record in records if record["mode"] == "durable"]
     legacy = len(records) - len(durable)
+    unreadable = len(record_problems)
+    suffix = f" · {unreadable} unreadable" if unreadable else ""
     info = [
-        f"Sessions: {len(records)} recorded · {len(durable)} durable · "
-        f"{legacy} legacy."
+        f"Sessions: {len(record_ids)} recorded · {len(durable)} durable · "
+        f"{legacy} legacy{suffix}."
     ]
-    problems: list[str] = []
+    problems: list[str] = list(record_problems)
+    attention: list[str] = []
+    if legacy:
+        attention.append(
+            f"{legacy} legacy (pre-durable) record(s) upgrade on resume: "
+            "resume each once, or `sessions forget` the ones you no longer need"
+        )
+    for record in records:
+        identity = _record_identity_label(record)
+        state_label = record.get("identity_state", sessions.IDENTITY_UNVERIFIED)
+        if record["session_type"] == sessions.SESSION_TYPE_ORDINARY:
+            try:
+                _scalar, window, trigger = compiler.direct_profile_context(
+                    runtime.catalog.docs, record["context_profile"]
+                )
+                target = (
+                    f"ordinary model {record['ordinary_model']} · profile "
+                    f"{record['context_profile']} · compact capacity {window} / "
+                    f"reactive trigger {trigger}"
+                )
+            except compiler.CompilerError:
+                # A catalog update that renamed/removed the profile is exactly
+                # the drift doctor exists to report — never abort the run.
+                target = (
+                    f"ordinary model {record['ordinary_model']} · profile "
+                    f"{record['context_profile']} (no longer in the installed catalog)"
+                )
+                problems.append(
+                    f"session {sessions.managed_id(record)} records ordinary "
+                    f"profile {record['context_profile']!r}, which the installed "
+                    "catalog no longer provides; resume it with an explicit "
+                    "supported `--model` to re-pin its profile"
+                )
+        else:
+            snapshot = record["snapshot"]
+            lead = snapshot["lead"]
+            target = (
+                f"composition {record['composition_name']} · lead {lead['model']} · "
+                f"context {lead.get('client_context_tokens', 'legacy')} · compact "
+                f"capacity {snapshot.get('auto_compact_window_tokens', 'legacy')} / "
+                f"reactive trigger {lead.get('auto_compact_tokens', 'legacy')}"
+            )
+            missing_context = [
+                key
+                for key in (
+                    "client_context_tokens",
+                    "provider_context_tokens",
+                    "auto_compact_tokens",
+                )
+                if key not in lead
+            ]
+            if "auto_compact_window_tokens" not in snapshot:
+                missing_context.append("auto_compact_window_tokens")
+            if missing_context:
+                attention.append(
+                    f"session {sessions.managed_id(record)} has a legacy context "
+                    f"snapshot missing {', '.join(missing_context)}; "
+                    "`claude-multi doctor --repair-all` refreshes it in place "
+                    "(or resume/transition it)"
+                )
+        info.append(
+            f"Session {identity}: {target} · identity {state_label} · cwd {record['cwd']}."
+        )
+        if state_label in {
+            sessions.IDENTITY_REPAIR_NEEDED,
+            sessions.IDENTITY_PENDING_FORK,
+        }:
+            problems.append(
+                f"session {sessions.managed_id(record)} identity is {state_label}; "
+                "inspect `claude-multi sessions show` and resume/adopt through the "
+                "supported launcher before relying on it"
+            )
+    scope_mismatch = 0
     for record in durable:
         line, is_problem = _check_scope_integrity(runtime, record)
         if is_problem:
+            scope_mismatch += 1
             problems.append(line)
         else:
             info.append(line)
-    return info, problems
+    if scope_mismatch:
+        problems.append(
+            f"{scope_mismatch} scope(s) diverged from record authority; run "
+            "`claude-multi doctor --repair-all` to converge them in one pass"
+        )
+    return info, problems, attention
 
 
 def _doctor_collision_report(runtime: Runtime) -> tuple[str, list[str]]:
@@ -3107,37 +3829,62 @@ def _doctor_prune(runtime: Runtime, output_stream: TextIO) -> int:
     store = runtime.session_store
     scopes_root = store.root / "scopes"
     removed: list[str] = []
-    if scopes_root.is_dir():
+    if os.path.lexists(scopes_root):
+        state.ensure_private_dir(scopes_root)
         for entry in sorted(scopes_root.iterdir()):
             name = entry.name
+            session_id: str | None = None
+            staging = False
+            staging_suffix: str | None = None
             if name.startswith("."):
                 stem = name[1:]
                 for suffix in (".new", ".prev"):
-                    if stem.endswith(suffix) and sessions.UUID4.fullmatch(
-                        stem[: -len(suffix)]
-                    ):
-                        _remove_scope_tree(entry)
-                        removed.append(f"stale staging dir scopes/{name}")
+                    candidate = stem[: -len(suffix)] if stem.endswith(suffix) else ""
+                    if candidate and sessions.UUID4.fullmatch(candidate):
+                        session_id = candidate
+                        staging = True
+                        staging_suffix = suffix
                         break
-            elif sessions.UUID4.fullmatch(name) and not store.exists(name):
-                scope_mod.remove_scope(store.root, name)
-                removed.append(f"scope for forgotten session {name}")
+            elif sessions.UUID4.fullmatch(name):
+                session_id = name
+            if session_id is None:
+                continue
+            lock = store.lifecycle_lock(session_id)
+            lock.acquire(blocking=True)
+            try:
+                if not os.path.lexists(entry):
+                    continue
+                if staging:
+                    if staging_suffix == ".prev" and store.exists(session_id):
+                        # Retain rollback state until the session is forgotten;
+                        # there is no separate post-exec success signal.
+                        continue
+                    _remove_scope_tree(entry)
+                    removed.append(f"stale staging dir scopes/{name}")
+                elif not store.exists(session_id):
+                    scope_mod.remove_scope(store.root, session_id)
+                    removed.append(f"scope for forgotten session {session_id}")
+            finally:
+                lock.release()
     # Generated per-session files outside scopes/ follow the same rule:
     # pruned only when their record is gone (never a living session's).
     for entry in sorted(store.root.glob("lead-prompt-*-*.md")):
         stem = entry.name.removeprefix("lead-prompt-").removesuffix(".md")
         # lead-prompt-<digest16>-<uuid>: the UUID is the LAST 36 chars.
         session_id = stem[-36:]
-        if sessions.UUID4.fullmatch(session_id) and not store.exists(session_id):
-            state.remove_private(entry)
-            removed.append(f"lead prompt for forgotten session {session_id}")
-    locks_dir = store.root / "locks"
-    if locks_dir.is_dir():
-        for entry in sorted(locks_dir.glob("*.lifecycle.lock")):
-            session_id = entry.name.removesuffix(".lifecycle.lock")
-            if sessions.UUID4.fullmatch(session_id) and not store.exists(session_id):
+        if not sessions.UUID4.fullmatch(session_id):
+            continue
+        lock = store.lifecycle_lock(session_id)
+        lock.acquire(blocking=True)
+        try:
+            if entry.exists() and not store.exists(session_id):
                 state.remove_private(entry)
-                removed.append(f"lifecycle lock for forgotten session {session_id}")
+                removed.append(f"lead prompt for forgotten session {session_id}")
+        finally:
+            lock.release()
+    # Lifecycle lock files are permanent synchronization identities. Unlinking
+    # one while another process holds its inode would create two independent
+    # locks for the same session.
     if not removed:
         output_stream.write(
             "Prune: nothing stale; every scope has a living record.\n"
@@ -3154,19 +3901,71 @@ def _doctor_repair(runtime: Runtime, uuid: str, output_stream: TextIO) -> int:
 
     if not sessions.UUID4.fullmatch(uuid):
         raise CLIError(f"{uuid!r} is not a UUIDv4")
+    record = runtime.session_store.resolve(uuid)
+    stable_id = sessions.managed_id(record)
     transition = _transition_module()
-    runtime.session_store.load(uuid)  # the record must exist
     try:
         report = transition.converge(
             runtime.session_store.root,
             runtime.session_store,
-            uuid,
+            stable_id,
             runtime.catalog,
         )
     except transition.TransitionError as exc:
         raise CLIError(str(exc)) from exc
     for line in report:
         output_stream.write(f"{tui.visible_text(line)}\n")
+    return 0
+
+
+def _doctor_repair_all(runtime: Runtime, output_stream: TextIO) -> int:
+    """Bulk converge: every durable record repaired under its lifecycle lock.
+
+    Legacy (pre-durable) records are reported, not touched — a resume upgrades
+    them. Unreadable records and per-session failures never stop the pass;
+    each is reported and the pass continues. Returns 1 when anything failed.
+    """
+
+    records, record_problems, _ids = _session_record_scan(runtime)
+    transition = _transition_module()
+    failures: list[str] = list(record_problems)
+    skipped: list[str] = []
+    repaired = 0
+    for record in records:
+        stable_id = sessions.managed_id(record)
+        if record["mode"] != "durable":
+            skipped.append(
+                f"{stable_id}: legacy record — resume it once to upgrade "
+                f"(claude-multi -r {stable_id})"
+            )
+            continue
+        try:
+            report = transition.converge(
+                runtime.session_store.root,
+                runtime.session_store,
+                stable_id,
+                runtime.catalog,
+            )
+        except (transition.TransitionError, sessions.SessionError) as exc:
+            failures.append(f"{stable_id}: {exc}")
+            continue
+        repaired += 1
+        for line in report:
+            output_stream.write(f"{stable_id[:8]}… {tui.visible_text(line)}\n")
+    output_stream.write(
+        f"Repair-all: {repaired} durable session(s) converged to record "
+        "authority.\n"
+    )
+    for line in skipped:
+        output_stream.write(f"  - skipped {tui.visible_text(line)}\n")
+    for line in failures:
+        output_stream.write(f"  - FAILED {tui.visible_text(line)}\n")
+    if failures:
+        return 1
+    output_stream.write(
+        "Re-run `claude-multi doctor` to confirm; `doctor --prune` collects "
+        "retained .prev generations afterwards.\n"
+    )
     return 0
 
 
@@ -3234,11 +4033,12 @@ def _resolve_resume_target(runtime: Runtime, value: str) -> str:
     matches = [
         record
         for record in _session_records(runtime)
-        if record["composition_name"] == name
+        if record["session_type"] == sessions.SESSION_TYPE_MANAGED
+        and record["composition_name"] == name
     ]
     matches.sort(key=lambda record: record["created_at"], reverse=True)
     if len(matches) == 1:
-        return matches[0]["session_id"]
+        return sessions.managed_id(matches[0])
     if matches:
         lines = [
             f"resume name {value!r} matches {len(matches)} managed sessions; "
@@ -3246,7 +4046,7 @@ def _resolve_resume_target(runtime: Runtime, value: str) -> str:
         ]
         for record in matches:
             lines.append(
-                f"  {record['session_id']}  "
+                f"  {sessions.managed_id(record)}  "
                 f"{tui.visible_text(record['composition_name'])}  "
                 f"{_record_mode_label(record)}  "
                 f"{record['created_at']}  {tui.visible_text(record['cwd'])}"
@@ -3271,9 +4071,40 @@ def _refuse_resume_override(
     if composition_name is not None and composition_name != record["composition_name"]:
         raise CLIError(
             RESUME_OVERRIDE_REFUSAL.format(
-                name=composition_name, uuid=record["session_id"]
+                name=composition_name, uuid=sessions.managed_id(record)
             )
         )
+
+
+# Commands whose output is a report: honor stdout redirection/pipes instead
+# of writing to the controlling terminal. Interactive-first commands (compose
+# editor, sessions transition, direct, bare launch) keep the tty stream.
+_STDOUT_REPORT_COMMANDS = frozenset(
+    {
+        ("doctor", None),
+        ("models", None),
+        ("show", None),
+        ("session-event", None),
+        ("compose", "list"),
+        ("compose", "show"),
+        ("sessions", "list"),
+        ("sessions", "show"),
+        ("sessions", "forget"),
+        ("sessions", "link"),
+        ("sessions", "relink-runtime"),
+    }
+)
+
+
+def _report_output_stream(args: argparse.Namespace, tty_stream: TextIO, std_stream: TextIO) -> TextIO:
+    """stdout for report commands; the tty stream for interactive ones."""
+
+    sub = getattr(args, "compose_command", None) or getattr(
+        args, "sessions_command", None
+    )
+    if (args.command, sub) in _STDOUT_REPORT_COMMANDS:
+        return std_stream
+    return tty_stream
 
 
 def main(
@@ -3297,6 +4128,11 @@ def main(
     tty_in: TextIO | None = None
     tty_out: TextIO | None = None
     try:
+        if args.command == "session-event" and interactive is None:
+            # Hooks deliver JSON on stdin even when Claude itself owns a TTY.
+            # Never open /dev/tty for this internal command or it can block
+            # waiting for terminal input instead of consuming the event pipe.
+            interactive = False
         if interactive is None:
             if input_stream is not None:
                 interactive = True
@@ -3312,15 +4148,16 @@ def main(
         tty_output = output_stream or tty_out or output
 
         if args.command is not None:
-            if passthrough:
+            if passthrough and args.command != "direct":
                 raise CLIError("passthrough arguments are accepted only for launch")
             return handle_command(
                 runtime,
                 args,
                 input_stream=inp,
-                output_stream=tty_output,
+                output_stream=_report_output_stream(args, tty_output, output_stream or output),
                 interactive=bool(interactive),
                 no_color=args.no_color,
+                passthrough=passthrough,
             )
 
         if args.resume == "":
@@ -3348,14 +4185,14 @@ def main(
             _print_sessions_listing(runtime, tty_output)
             return 0
 
-        if not interactive and args.composition is None:
-            raise CLIError(
-                "noninteractive launch requires --composition NAME; no default was selected"
-            )
-
         if args.resume:
             session_id = _resolve_resume_target(runtime, args.resume)
-            record = runtime.session_store.load(session_id)
+            record = runtime.session_store.resolve(session_id)
+            if record["session_type"] == sessions.SESSION_TYPE_ORDINARY:
+                raise CLIError(
+                    "this is an ordinary gateway session; resume it with "
+                    "`claude-gateway --resume ID` or `claude-multi direct --resume ID`"
+                )
             _refuse_resume_override(args.composition, record)
             plan = managed_plan(runtime, record)
             plan.legacy_requested = args.legacy
@@ -3366,10 +4203,21 @@ def main(
                     "no managed session is recorded for this directory; use -r UUID or start fresh"
                 )
             record = runtime.session_store.load(session_id)
+            if record["session_type"] == sessions.SESSION_TYPE_ORDINARY:
+                raise CLIError(
+                    "the remembered session is an ordinary gateway session; use "
+                    "`claude-gateway --continue` or `claude-multi direct --continue`"
+                )
             _refuse_resume_override(args.composition, record)
             plan = managed_plan(runtime, record)
             plan.legacy_requested = args.legacy
         else:
+            # Only a FRESH launch can need an explicit composition: resume and
+            # continue take the recorded intent, so they must never demand one.
+            if not interactive and args.composition is None:
+                raise CLIError(
+                    "noninteractive launch requires --composition NAME; no default was selected"
+                )
             if args.composition is not None:
                 document = runtime.compositions.load(args.composition)
                 source = "Explicit composition"
@@ -3385,7 +4233,7 @@ def main(
                 plan.document,
                 action=plan.action,
                 passthrough=passthrough,
-                session_id=plan.record["session_id"] if plan.record else None,
+                session_id=sessions.managed_id(plan.record) if plan.record else None,
                 legacy_requested=plan.legacy_requested,
             )
             _print_launch_plan(prepared, tty_output)
@@ -3398,7 +4246,7 @@ def main(
                 plan.document,
                 action=plan.action,
                 passthrough=passthrough,
-                session_id=plan.record["session_id"] if plan.record else None,
+                session_id=sessions.managed_id(plan.record) if plan.record else None,
                 legacy_requested=plan.legacy_requested,
             )
             return runtime.perform(prepared)
@@ -3422,79 +4270,156 @@ def main(
                 handle.close()
 
 
-if __name__ == "__main__":
-    raise SystemExit(main())
+def _js_utf16_units(text: str) -> list[int]:
+    raw = text.encode("utf-16-le", errors="surrogatepass")
+    return [raw[i] | (raw[i + 1] << 8) for i in range(0, len(raw), 2)]
 
 
-def _slug_for_session(runtime: Runtime, session_id: str) -> str | None:
-    """The projects-dir slug for a native session id (metadata-only lookup)."""
+def _base36(value: int) -> str:
+    digits = "0123456789abcdefghijklmnopqrstuvwxyz"
+    if value == 0:
+        return "0"
+    result = ""
+    while value:
+        value, remainder = divmod(value, 36)
+        result = digits[remainder] + result
+    return result
+
+
+def _sanitize_native_slug(text: str) -> tuple[str, list[int]]:
+    units = _js_utf16_units(text)
+    sanitized = "".join(
+        chr(unit)
+        if (
+            0x30 <= unit <= 0x39
+            or 0x41 <= unit <= 0x5A
+            or 0x61 <= unit <= 0x7A
+        )
+        else "-"
+        for unit in units
+    )
+    return sanitized, units
+
+
+def _native_project_slug(path: Path | str) -> str:
+    """Exact Claude 2.1.217 project-directory slug for one path."""
+
+    text = str(path)
+    sanitized, units = _sanitize_native_slug(text)
+    if len(sanitized) <= 200:
+        return sanitized
+    hashed = 0
+    for unit in units:
+        hashed = (hashed * 31 + unit) & 0xFFFFFFFF
+    if hashed & 0x80000000:
+        hashed -= 0x100000000
+    return f"{sanitized[:200]}-{_base36(abs(hashed))}"
+
+
+def _native_slug_component(name: str) -> str:
+    return _sanitize_native_slug(name)[0]
+
+
+def _slugs_for_session(runtime: Runtime, session_id: str) -> tuple[str, ...]:
+    """All projects-dir slugs containing a native UUID, names only."""
 
     home = Path(runtime.environ.get("HOME") or Path.home())
     projects = home / ".claude" / "projects"
+    found: set[str] = set()
     try:
         for project_dir in projects.iterdir():
             if not project_dir.is_dir():
                 continue
             if (project_dir / f"{session_id}.jsonl").exists():
-                return project_dir.name
+                found.add(project_dir.name)
     except OSError:
-        return None
-    return None
+        return ()
+    return tuple(sorted(found))
 
 
-def _decode_project_slug(slug: str) -> Path | None:
-    """Decode a Claude projects-dir slug back to a real directory.
-
-    The slug is the absolute path with "/" replaced by "-"; real components
-    may themselves contain dashes, so we walk actual directory names and
-    descend only into children whose name is a prefix of the remaining slug.
-    Bounded (64 candidates per level); prefers the shallowest full match.
-    """
+def _decode_project_slug_candidates(slug: str) -> tuple[Path, ...]:
+    """Return every existing directory represented by a non-injective slug."""
 
     if not slug.startswith("-"):
-        return None
+        return ()
     candidates: list[tuple[Path, str]] = [(Path("/"), slug[1:])]
+    finals: set[Path] = set()
     for _depth in range(24):
-        finals = [path for path, remaining in candidates if remaining == ""]
-        if finals:
-            finals.sort(key=lambda path: len(path.parts))
-            return finals[0]
         following: list[tuple[Path, str]] = []
         for base, remaining in candidates:
+            if remaining == "":
+                finals.add(base)
+                continue
             try:
                 children = [child for child in base.iterdir() if child.is_dir()]
             except OSError:
                 continue
             for child in children:
-                name = child.name
-                if remaining == name:
+                encoded = _native_slug_component(child.name)
+                if remaining == encoded:
                     following.append((child, ""))
-                elif remaining.startswith(name + "-"):
-                    following.append((child, remaining[len(name) + 1 :]))
+                elif remaining.startswith(encoded + "-"):
+                    following.append((child, remaining[len(encoded) + 1 :]))
         if not following:
-            return None
+            break
         candidates = list(dict.fromkeys(following))[:64]
-    return None
+    finals.update(path for path, remaining in candidates if remaining == "")
+    return tuple(sorted(finals, key=str))
 
 
-def _original_cwd_for_adopt(runtime: Runtime, session_id: str) -> str:
-    """Resolve the session's true project cwd at adopt/link time.
+def _decode_project_slug(slug: str) -> Path | None:
+    """Compatibility helper: decode only when exactly one directory matches."""
 
-    Claude locates transcripts under the ORIGINAL project directory, so an
-    adopted record must carry it — resuming from any other cwd reports the
-    session as missing. Fails with an actionable message when the slug
-    cannot be located or decoded.
-    """
+    candidates = _decode_project_slug_candidates(slug)
+    return candidates[0] if len(candidates) == 1 else None
 
-    slug = _slug_for_session(runtime, session_id)
-    if slug is None:
-        # No local transcript dir (e.g. another machine's session): keep the
-        # launch cwd; a resume will fail natively with the real cause.
-        return runtime.cwd
-    decoded = _decode_project_slug(slug)
-    if decoded is None:
+
+def _original_cwd_for_adopt(
+    runtime: Runtime, session_id: str, explicit_cwd: str | None = None
+) -> str:
+    """Resolve exactly one original CWD or fail closed with repair guidance."""
+
+    slugs = _slugs_for_session(runtime, session_id)
+    if not slugs:
         raise CLIError(
-            f"cannot locate the project directory for session slug {slug!r}; "
-            "cd into the session's original project and adopt from there"
+            f"cannot locate native session {session_id} in local Claude project "
+            "metadata; open it natively on this machine before adoption"
         )
-    return str(decoded)
+    if explicit_cwd is not None:
+        chosen = Path(explicit_cwd).resolve()
+        if not chosen.is_dir():
+            raise CLIError(
+                f"adoption CWD {str(chosen)!r} is not an accessible directory"
+            )
+        encoded = _native_project_slug(chosen)
+        if encoded not in slugs:
+            raise CLIError(
+                f"adoption CWD {str(chosen)!r} maps to project slug {encoded!r}, "
+                f"which does not contain native session {session_id}; observed "
+                f"slugs: {slugs!r}"
+            )
+        return str(chosen)
+    current = Path(runtime.cwd)
+    if _native_project_slug(current) in slugs:
+        return str(current)
+    candidates = {
+        path for slug in slugs for path in _decode_project_slug_candidates(slug)
+    }
+    if current in candidates:
+        return str(current)
+    if len(candidates) == 1:
+        return str(next(iter(candidates)))
+    if not candidates:
+        raise CLIError(
+            f"cannot decode the project directory for session slugs {slugs!r}; "
+            "cd into the session's original project and adopt again"
+        )
+    choices = ", ".join(str(path) for path in sorted(candidates, key=str))
+    raise CLIError(
+        f"session {session_id} has ambiguous project directories: {choices}; "
+        "cd into the exact original project and adopt again"
+    )
+
+
+if __name__ == "__main__":
+    raise SystemExit(main())

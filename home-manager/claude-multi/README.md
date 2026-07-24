@@ -1,11 +1,11 @@
-# claude-multi v2.1
+# claude-multi v2.2
 
-Composition compiler and thin launcher for a Home Manager-managed Claude
-Code environment. The compiler turns one validated composition into
-**per-session durable files** — generated agent definitions and session
-settings under `~/.local/state/claude-multi/scopes/<uuid>/` — and `execve`s
-ordinary Claude Code pointed at them via `--add-dir`/`--settings`. No
-scheduler, wrapper daemon, or per-turn interception remains.
+First-class multi-model integration for Claude Code. Managed composition
+sessions compile durable `cm-*` agents and policy; ordinary gateway sessions
+use the same local model transport without inheriting a composition. Both use
+per-session settings under `~/.local/state/claude-multi/scopes/<managed-id>/`
+and then `execve` ordinary Claude Code. No scheduler, wrapper daemon, or
+per-turn interception remains.
 
 **Why files, not argv:** CLI `--agents` JSON exists only for the launching
 session and is never saved to disk. When the shared Claude supervisor
@@ -20,13 +20,19 @@ documented carry-through set for backgrounded/respawned sessions.
 - **Trusted catalog** (`catalog/`): versioned JSON for providers, models,
   roles, the native-contract evidence record, the balanced default
   composition, and the canonical model-neutral role prompts.
-- **Scope compiler** (`src/claude_multi/scope.py`): pure function
-  `(composition, catalog) → scopes/<uuid>/.claude/agents/*.md +
-  scopes/<uuid>/settings.json` — generated `cm-*` agent files (frontmatter
-  name/model/effort/isolation + canonical role prompt) and compiled session
-  settings (permission denies, workflow mode, model fence, worktree base).
-  Atomic sibling staging; the scope is always re-derivable from the session
-  record + installed catalog (the two authorities).
+- **Scope compiler** (`src/claude_multi/scope.py`): managed scopes contain
+  generated `cm-*` agent files plus a strict lead-model fence; ordinary scopes
+  contain only a context-compatible model picker and lifecycle hooks. A
+  synchronous metadata-only `SessionStart` hook reconciles Claude's actual
+  runtime UUID after startup/resume/clear/compact; `SessionEnd` is advisory.
+  Atomic sibling staging keeps every scope re-derivable from its record and
+  the installed catalog.
+- **Session identity** (`sessions.py`): schema-v3 records separate stable
+  `managed_id` (record/scope/pointer key) from authoritative
+  `runtime_session_id` (the UUID passed to native `--resume`). Historical
+  runtime aliases, original CWD, identity repair state, launch epoch, mutation
+  ownership token, and session type are explicit. v1/v2 and early-v3 records
+  migrate in memory and rewrite only on a safe mutation.
 - **Launcher** (`compiler.py`, `launch.py`): verified binary (full SHA-256
   against the native contract), loopback gateway readiness, collision gate
   (exact `cm-*` names in project/managed/user `--add-dir` agent trees fail
@@ -63,7 +69,7 @@ home-manager/claude-multi/
 ├── catalog/              # trusted JSON + canonical role prompts
 ├── schemas/              # closed-vocabulary JSON schemas
 ├── src/claude_multi/     # stdlib implementation
-├── bin/                  # claude-multi, claude-multi-dev, claude-multi-proxy
+├── bin/                  # claude-multi, claude-gateway, dev/proxy tools
 ├── tests/                # offline stdlib suite + goldens
 └── tests/default.nix     # sandbox test derivation
 ```
@@ -71,10 +77,17 @@ home-manager/claude-multi/
 ## Normal commands
 
 ```text
-claude-multi                          quick-confirm and launch (durable scope)
-claude-multi --legacy                 launch with the pre-durable argv form
+claude-multi                          quick-confirm a managed composition
+claude-gateway [--model MODEL]        ordinary gateway session; native /model
+claude-gateway -c|-r UUID             continue/resume an ordinary session
+claude-multi direct [same options]    explicit form of claude-gateway
+claude-multi --legacy                 pre-durable managed argv compatibility
 claude-multi compose list|show|new|edit|duplicate|rename|delete|restore-default
-claude-multi sessions list|show|forget|link UUID
+claude-multi sessions list|show|forget
+claude-multi sessions link UUID (--composition NAME|--model MODEL) [--cwd PATH]
+                                      adopt plain Claude as managed or ordinary
+claude-multi sessions relink-runtime MANAGED_ID RUNTIME_ID [--cwd PATH]
+                                      repair pre-hook UUID/CWD drift from /status
 claude-multi sessions transition UUID --composition NAME
                                       diff + exited-confirm + exact-resume relaunch
 claude-multi doctor                   binary/gateway/scope/collision checks
@@ -84,32 +97,45 @@ claude-multi-dev check|review|promote developer onboarding (no provider calls)
 claude-multi-proxy init|status|run    gateway control (loopback only)
 ```
 
+Managed `/model` is fenced to the composition lead; use a composition
+transition for a different lead. Ordinary `/model` remains native within one
+safe context profile. The compiler sets the configured route compaction capacity
+and an explicit 90% override. Bounds backed by catalog validation are labeled
+validated; Kimi's 1M route remains explicitly user-attested and is not labeled
+provider-safe until near-limit live acceptance. Pinned Claude Code 2.1.217 reserves up to 20,000
+output tokens before applying that percentage, so deterministic reactive
+thresholds are 316,800 for Sol, 882,000 for a managed 1M process, and 867,254
+for the Qwen-safe 983,616 ordinary large profile. Proactive summary preparation
+is runtime-controlled and may occur earlier. Mixed compositions keep the lead
+capacity unless an extended selector advertises more context than its provider
+accepts; Qwen therefore narrows a shared 1M process to 983,616, while Sol/GPT
+remain protected by their own client caps. Cross-profile changes
+explicitly relaunch the same ordinary session, e.g.
+`claude-gateway -r UUID --model qwen38`.
+
 Fork of a managed session: use Claude's native fork and adopt the result
-with `claude-multi sessions link UUID`; the launcher refuses to compile
-forks itself (native fork persistence with managed flags is unverified).
+with `claude-multi sessions link UUID --composition NAME`; a
+`SessionStart(source=fork)` event
+never overwrites the parent runtime UUID and warns that the fork needs its own
+scope. The launcher still refuses to claim an unverified managed fork argv.
 
 Design package (rationale, guarantees, verification, rollback):
 [`../../docs/claude-multi-final/`](../../docs/claude-multi-final/README.md).
 
 ## Rollback
 
-Rolling back to the 2.0 (argv-era) launcher is safe by construction:
+Rolling back remains non-destructive:
 
-- **2.0 launchers fail closed on 2.1 data.** The 2.1 catalog and composition
-  documents use the closed v2 schemas (`version.json` bump), which the 2.0
-  launcher rejects outright — it never half-reads them. Schema-v2 session
-  records (durable era: `mode`, `scope_generation`, `workflows`) are likewise
-  unreadable to 2.0, whose session schema requires `version: 1` and rejects
-  the new fields.
-- **No v2-era transcript is ever stranded.** Transcripts belong to Claude,
-  not the launcher; any session recorded by 2.1 remains recoverable with
-  native `claude --resume <uuid>` (it runs without the managed scope). Keep
-  the 2.1 package's Nix store path around and it can also be invoked
-  directly for a fully managed resume of v2 records.
-- **HM-generation rollback is the clean path for v1 records.** Switching
-  Home Manager back to the pre-activation generation restores the old
-  launcher together with the old catalog; v1 (argv-era) records resume under
-  it exactly as before.
+- Older launchers fail closed on schema-v3 records rather than confusing the
+  stable managed ID with Claude's runtime UUID. v1/v2 records remain readable
+  by 2.2 through an in-memory migration adapter.
+- Transcripts belong to Claude, not the launcher. The current runtime UUID is
+  visible in `claude-multi sessions show/list`; it can be used natively without
+  the managed scope if recovery is required. Keep the 2.2 package's Nix store
+  path to retain managed/ordinary record interpretation.
+- **Home Manager generation rollback is the clean package rollback.** State is
+  left in place; use the retained 2.2 store path for schema-v3 sessions, while
+  legacy v1 records remain interpretable by their original launcher.
 - **No state deletion is ever part of rollback.** Session records and
   generated scopes under `~/.local/state/claude-multi/` are left in place;
   transcripts under `~/.claude/` are never touched by the launcher at all.
@@ -133,8 +159,13 @@ verification path is one consent-gated request through the gateway, e.g.
   http://127.0.0.1:8317/v1/messages` — run only with explicit user approval,
 one call at a time.
 
-**Durable-scope status (2026-07-22):** 809 offline tests green (1
-intentional skip). On-disk agent discovery through `--add-dir` proven
+**Lifecycle status (2026-07-23):** 1,135 offline tests green (1
+intentional real-provider skip). The suite covers schema migration,
+epoch-ordered runtime-ID reconciliation hooks, mutation-token rollback, typed
+continue pointers, CWD fail-closed behavior, deduplicated native
+discovery, ordinary gateway profiles, managed model fencing, per-lead compact
+windows, and observe-only daemon safety. On-disk agent discovery through
+`--add-dir` remains proven
 against the pinned 2.1.217 binary via the no-provider probe harness
 (fake provider, live-domain tripwire armed, delegation accepted and the
 subagent request carried the agent file's frontmatter model). Supervisor

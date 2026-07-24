@@ -65,8 +65,15 @@ class FakeWindow:
 
     def get_wch(self):
         if not self.keys:
+            if getattr(self, "_timeout_armed", False):
+                raise curses.error("no input")
             raise AssertionError("FakeWindow key script exhausted")
         return self.keys.pop(0)
+
+    def timeout(self, _ms):
+        # Model curses: with any timeout armed, an empty queue raises
+        # curses.error instead of blocking forever.
+        self._timeout_armed = True
 
     def move(self, y, x):
         if y < 0 or y >= self.height or x < 0 or x >= self.width:
@@ -362,6 +369,16 @@ class TextInputTests(unittest.TestCase):
         _row, col = field.draw(win, 0, 0, 12, tui.MONO_PALETTE, focused=True)
         self.assertLessEqual(col, 11)
         self.assertEqual(win.line(0)[1:11], "x" * 10)
+
+    def test_full_field_end_cursor_stays_off_the_closing_bracket(self):
+        # Regression: with a full field and the cursor at end-of-input the
+        # reported cursor column must be the last field cell, never the "]".
+        field = tui.TextInput("x" * 20)  # cursor starts at end
+        win = FakeWindow()
+        _row, col = field.draw(win, 0, 0, 12, tui.MONO_PALETTE, focused=True)
+        # width 12: "[" at 0, 10 inner cells, "]" at 11.
+        self.assertEqual(col, 10)
+        self.assertEqual(win.line(0)[11], "]")
 
 
 class SelectListTests(unittest.TestCase):

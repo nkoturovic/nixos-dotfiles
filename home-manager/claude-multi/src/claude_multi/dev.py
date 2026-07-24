@@ -184,7 +184,7 @@ def build_post_images(
             raise DevError(f"model {key!r} already exists in the catalog")
         models_doc["models"][key] = entry
         images[str(V2_ROOT / "catalog" / "models.json")] = (
-            strict_json.canonical_file_bytes(models_doc)
+            strict_json.pretty_file_bytes(models_doc)
         )
     else:
         provider_entry = draft["entry"]["provider"]
@@ -204,10 +204,10 @@ def build_post_images(
         providers_doc["providers"][provider_id] = provider_clean
         models_doc["models"][model_id] = model_clean
         images[str(V2_ROOT / "catalog" / "providers.json")] = (
-            strict_json.canonical_file_bytes(providers_doc)
+            strict_json.pretty_file_bytes(providers_doc)
         )
         images[str(V2_ROOT / "catalog"/ "models.json")] = (
-            strict_json.canonical_file_bytes(models_doc)
+            strict_json.pretty_file_bytes(models_doc)
         )
     return images
 
@@ -949,7 +949,8 @@ def main(argv: list[str]) -> int:
                 drafts.load(positionals[0]), _load_draft_schema(verified / V2_ROOT)
             )
             record = strict_json.loads(
-                state.read_private(drafts.root / f"{positionals[0]}.review.json")
+                state.read_private(drafts.root / f"{positionals[0]}.review.json"),
+                limits=strict_json.JSONLimits(max_string=4 * 1024 * 1024),
             )
             result = promote_draft(
                 draft,

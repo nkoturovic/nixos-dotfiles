@@ -32,6 +32,7 @@ def _compile(passthrough=None, action=None, durable=False):
         lead_prompt_path=lead_path,
         durable=durable,
         scope_dir=SCOPE_DIR if durable else None,
+        hook_command="/stable/hook-shim" if durable else None,
     )
     return bundle, resolved, result
 
@@ -278,6 +279,12 @@ class AgentDefinitionTests(unittest.TestCase):
         self.assertIn("must not receive its sole verdict", prompt)
         self.assertIn("One writer owns an overlapping file scope", prompt)
         self.assertIn("never pass a per-invocation model override", prompt)
+        self.assertIn("Lead context: 1000000 client tokens", prompt)
+        self.assertIn(
+            "process compaction capacity 1000000; deterministic reactive trigger 882000",
+            prompt,
+        )
+        self.assertIn("Proactive summary preparation is runtime-controlled", prompt)
         # G0' sentinel: exact session UUID, no-substitution clause, relaunch.
         self.assertIn(f"Managed session: {FIXED_SESSION}", prompt)
         self.assertIn("Never substitute a native or generic agent", prompt)
@@ -324,6 +331,42 @@ class AgentDefinitionTests(unittest.TestCase):
             appendix,
         )
         self.assertIn("same-family (reduced independence)", appendix)
+
+    def test_user_attested_kimi_bound_is_not_labeled_provider_safe(self) -> None:
+        import copy
+
+        bundle = catalog.load_catalog(CATALOG_ROOT)
+        document = copy.deepcopy(bundle.default_composition)
+        document["slots"][0] = {"role": "cm-lead", "model": "kimi-k3"}
+        resolved = composition.resolve(bundle.docs, document)
+        appendix = compiler.generate_lead_appendix(
+            resolved,
+            bundle.docs["providers"]["providers"],
+            session_id=FIXED_SESSION,
+            composition_name="kimi-sol",
+        )
+        self.assertIn("user-attested configured provider bound 1000000", appendix)
+        self.assertIn("not near-limit benchmark-verified", appendix)
+        self.assertNotIn("provider-safe bound 1000000", appendix)
+
+    def test_lower_context_native_agents_get_prompt_overflow_guidance(self) -> None:
+        import copy
+
+        bundle = catalog.load_catalog(CATALOG_ROOT)
+        document = copy.deepcopy(bundle.default_composition)
+        document["slots"][0] = {"role": "cm-lead", "model": "sol"}
+        resolved = composition.resolve(bundle.docs, document)
+        appendix = compiler.generate_lead_appendix(
+            resolved,
+            bundle.docs["providers"]["providers"],
+            session_id=FIXED_SESSION,
+            composition_name="sol-native",
+        )
+        self.assertIn("Lead context: 372000 client tokens", appendix)
+        self.assertIn("Native agents inherit this lower-context lead", appendix)
+        self.assertIn("loaded skills bounded", appendix)
+        self.assertIn("does not raise this process capacity", appendix)
+        self.assertIn("separate ordinary large-profile session", appendix)
 
     def test_appendix_changes_with_inventory(self) -> None:
         import copy
@@ -430,6 +473,7 @@ class EnvironmentTests(unittest.TestCase):
                 "CLAUDE_CODE_MAX_OUTPUT_TOKENS",
                 "CLAUDE_CODE_ENABLE_GATEWAY_MODEL_DISCOVERY",
                 "CLAUDE_CODE_AUTO_COMPACT_WINDOW",
+                "CLAUDE_AUTOCOMPACT_PCT_OVERRIDE",
                 "CLAUDE_CONFIG_DIR",
                 "CLAUDE_CODE_MAX_SUBAGENT_SPAWN_DEPTH",
                 "CLAUDE_CODE_MAX_CONCURRENT_SUBAGENTS",
@@ -450,6 +494,8 @@ class EnvironmentTests(unittest.TestCase):
         self.assertEqual(result.env_set["CLAUDE_MULTI_SESSION_ID"], FIXED_SESSION)
         self.assertEqual(result.env_set["DISABLE_AUTOUPDATER"], "1")
         self.assertEqual(result.env_set["CLAUDE_CODE_MAX_CONTEXT_TOKENS"], "372000")
+        self.assertEqual(result.env_set["CLAUDE_CODE_AUTO_COMPACT_WINDOW"], "1000000")
+        self.assertEqual(result.env_set["CLAUDE_AUTOCOMPACT_PCT_OVERRIDE"], "90")
         self.assertNotIn("ANTHROPIC_AUTH_TOKEN", result.env_set)
 
     def test_nested_spawn_keys_never_compiled_while_pending(self) -> None:
@@ -486,7 +532,7 @@ class EnvironmentTests(unittest.TestCase):
                         docs["gateway"], docs["providers"]["providers"], resolved
                     )
 
-    def test_lead_env_applied_after_unset(self) -> None:
+    def test_kimi_uses_1m_capacity_with_explicit_90_percent(self) -> None:
         import copy
 
         bundle = catalog.load_catalog(CATALOG_ROOT)
@@ -507,70 +553,223 @@ class EnvironmentTests(unittest.TestCase):
             ),
         )
         self.assertIn("CLAUDE_CODE_AUTO_COMPACT_WINDOW", result.env_unset)
-        # Clamped to 90% of the 372K scalar so compaction fires before the
-        # provider cap — an explicit value above the cap can never trigger.
+        self.assertIn("CLAUDE_AUTOCOMPACT_PCT_OVERRIDE", result.env_unset)
+        # Kimi remains a 1M main-loop lead even with 372K Sol variants. Claude
+        # Code caps each model, reserves 20K output, then applies the common
+        # preparation and reactive percentage policy to the prompt budget.
         self.assertEqual(
-            result.env_set["CLAUDE_CODE_AUTO_COMPACT_WINDOW"], "334800"
+            result.env_set["CLAUDE_CODE_AUTO_COMPACT_WINDOW"], "1000000"
         )
+        self.assertEqual(result.env_set["CLAUDE_AUTOCOMPACT_PCT_OVERRIDE"], "90")
 
 
 if __name__ == "__main__":
     unittest.main()
 
 
-class CompactionWindowClampTests(unittest.TestCase):
-    def _compile(self, document):
+class CompactionPolicyTests(unittest.TestCase):
+    def _compile(self, document, *, docs=None):
         bundle = catalog.load_catalog(CATALOG_ROOT)
-        resolved = composition.resolve(bundle.docs, document)
+        active_docs = docs or bundle.docs
+        resolved = composition.resolve(active_docs, document)
         digest = strict_json.bundle_digest(composition.snapshot(resolved))
         return compiler.compile_launch(
+            docs=active_docs,
+            prompt_bodies=bundle.prompt_bodies,
+            resolved=resolved,
+            session_action=compiler.build_fresh(FIXED_SESSION),
+            passthrough=[],
+            settings_path=SETTINGS_PATH,
+            lead_prompt_path=compiler.lead_prompt_path(
+                Path("/state"), digest, FIXED_SESSION
+            ),
+        )
+
+    def test_fable_lead_uses_1m_capacity_and_90_percent_trigger(self) -> None:
+        import copy
+
+        bundle = catalog.load_catalog(CATALOG_ROOT)
+        document = copy.deepcopy(bundle.default_composition)
+        # Default Fable lead stays at 1M even though selected Sol variants keep
+        # the process scalar at 372K. The effective lead trigger is 900K.
+        result = self._compile(document)
+        self.assertEqual(
+            result.env_set["CLAUDE_CODE_AUTO_COMPACT_WINDOW"], "1000000"
+        )
+        self.assertEqual(result.env_set["CLAUDE_AUTOCOMPACT_PCT_OVERRIDE"], "90")
+
+    def test_qwen_variant_narrows_process_capacity_for_fable_lead(self) -> None:
+        import copy
+
+        bundle = catalog.load_catalog(CATALOG_ROOT)
+        document = copy.deepcopy(bundle.default_composition)
+        document["slots"][1]["model"] = "qwen38"
+        document["slots"][1].pop("lane", None)
+        document["availability"]["models"]["qwen38"] = "lead+agents"
+        document["availability"]["providers"]["qwen"] = "lead+agents"
+        result = self._compile(document)
+        self.assertEqual(
+            result.env_set["CLAUDE_CODE_AUTO_COMPACT_WINDOW"], "983616"
+        )
+        resolved = composition.resolve(bundle.docs, document)
+        self.assertEqual(resolved.auto_compact_window_tokens, 983616)
+        self.assertEqual(resolved.lead.auto_compact_tokens, 867254)
+
+    def test_explicit_provider_window_controls_compaction_capacity(self) -> None:
+        import copy
+
+        bundle = catalog.load_catalog(CATALOG_ROOT)
+        document = copy.deepcopy(bundle.default_composition)
+        docs = copy.deepcopy(bundle.docs)
+        docs["models"]["models"]["fable"]["context"]["provider_tokens"] = 500000
+        result = self._compile(document, docs=docs)
+        self.assertEqual(
+            result.env_set["CLAUDE_CODE_AUTO_COMPACT_WINDOW"], "500000"
+        )
+        self.assertEqual(result.env_set["CLAUDE_AUTOCOMPACT_PCT_OVERRIDE"], "90")
+        resolved = composition.resolve(docs, document)
+        self.assertEqual(resolved.auto_compact_window_tokens, 500000)
+        self.assertEqual(resolved.lead.auto_compact_tokens, 432000)
+
+
+class RuntimeIdentityAndDirectCompileTests(unittest.TestCase):
+    def test_resume_argv_targets_runtime_not_managed_id(self) -> None:
+        runtime_id = "22222222-2222-4222-8222-222222222222"
+        bundle, resolved, _ = _compile()
+        snap = composition.snapshot(resolved)
+        result = compiler.compile_launch(
             docs=bundle.docs,
             prompt_bodies=bundle.prompt_bodies,
             resolved=resolved,
-            session_action=compiler.build_fresh(FIXED_SESSION),
+            session_action=compiler.build_resume(FIXED_SESSION, runtime_id),
             passthrough=[],
             settings_path=SETTINGS_PATH,
             lead_prompt_path=compiler.lead_prompt_path(
-                Path("/state"), digest, FIXED_SESSION
+                Path("/state"), strict_json.bundle_digest(snap), FIXED_SESSION
             ),
+            durable=True,
+            scope_dir=Path("/state/scopes") / FIXED_SESSION,
+            hook_command="/nix/store/test/bin/claude-multi",
         )
+        self.assertEqual(result.argv[:2], ["--resume", runtime_id])
+        self.assertEqual(result.session_action.managed_id, FIXED_SESSION)
+        self.assertEqual(result.env_set["CLAUDE_MULTI_MANAGED_ID"], FIXED_SESSION)
 
-    def test_absent_window_derives_ninety_percent_of_scalar(self) -> None:
-        import copy
-
+    def test_direct_large_profile_has_native_model_picker_without_agents(self) -> None:
         bundle = catalog.load_catalog(CATALOG_ROOT)
-        document = copy.deepcopy(bundle.default_composition)
-        # default (fable lead) has no explicit window; scalar is 372000.
-        result = self._compile(document)
+        result = compiler.compile_direct_launch(
+            docs=bundle.docs,
+            session_action=compiler.build_fresh(FIXED_SESSION),
+            model_id="qwen38",
+            passthrough=["--verbose"],
+            scope_dir=Path("/state/scopes") / FIXED_SESSION,
+            hook_command="/nix/store/test/bin/claude-multi",
+            state_root=Path("/state"),
+        )
+        self.assertFalse(result.write_lead_prompt)
+        self.assertEqual(result.scope_plan.agent_files, {})
+        self.assertIn("claude-multi-qwen38-max[1m]", result.scope_plan.settings["availableModels"])
+        self.assertIn("claude-fable-5[1m]", result.scope_plan.settings["availableModels"])
         self.assertEqual(
-            result.env_set["CLAUDE_CODE_AUTO_COMPACT_WINDOW"], "334800"
+            result.scope_plan.settings["model"], "claude-multi-qwen38-max[1m]"
+        )
+        self.assertEqual(
+            result.env_set["CLAUDE_CODE_AUTO_COMPACT_WINDOW"], "983616"
+        )
+        self.assertEqual(result.env_set["CLAUDE_AUTOCOMPACT_PCT_OVERRIDE"], "90")
+        self.assertEqual(
+            compiler.direct_profile_context(bundle.docs, "large"),
+            (None, 983616, 867254),
+        )
+        self.assertNotIn("--agents", result.argv)
+        self.assertNotIn("--append-system-prompt-file", result.argv)
+        self.assertIn("CLAUDE_CODE_ENABLE_GATEWAY_MODEL_DISCOVERY", result.env_unset)
+        self.assertNotIn("CLAUDE_CODE_ENABLE_GATEWAY_MODEL_DISCOVERY", result.env_set)
+
+    def test_direct_selector_resolver_accepts_wire_and_client_forms(self) -> None:
+        bundle = catalog.load_catalog(CATALOG_ROOT)
+        self.assertEqual(
+            compiler.direct_model_for_selector(bundle.docs, "claude-fable-5"),
+            ("fable", "large"),
+        )
+        self.assertEqual(
+            compiler.direct_model_for_selector(bundle.docs, "gpt-multi-sol-xhigh"),
+            ("sol", "sol"),
+        )
+        self.assertEqual(
+            compiler.direct_model_for_selector(bundle.docs, "claude-opus-4-8[1m]"),
+            ("opus", "large"),
+        )
+        self.assertIsNone(
+            compiler.direct_model_for_selector(bundle.docs, "unknown-provider-model")
         )
 
-    def test_lower_explicit_window_is_respected(self) -> None:
+    def test_direct_implicit_resume_omits_model_pin(self) -> None:
+        bundle = catalog.load_catalog(CATALOG_ROOT)
+        result = compiler.compile_direct_launch(
+            docs=bundle.docs,
+            session_action=compiler.build_resume(FIXED_SESSION),
+            model_id="qwen38",
+            passthrough=[],
+            scope_dir=Path("/state/scopes") / FIXED_SESSION,
+            hook_command="/nix/store/test/bin/claude-multi",
+            state_root=Path("/state"),
+            pin_model=False,
+        )
+        self.assertNotIn("--model", result.argv)
+        self.assertNotIn("--effort", result.argv)
+        self.assertEqual(
+            result.scope_plan.settings["model"], "claude-multi-qwen38-max[1m]"
+        )
+
+    def test_direct_sol_profile_excludes_large_context_models(self) -> None:
+        bundle = catalog.load_catalog(CATALOG_ROOT)
+        result = compiler.compile_direct_launch(
+            docs=bundle.docs,
+            session_action=compiler.build_fresh(FIXED_SESSION),
+            model_id="sol",
+            passthrough=[],
+            scope_dir=Path("/state/scopes") / FIXED_SESSION,
+            hook_command="/nix/store/test/bin/claude-multi",
+            state_root=Path("/state"),
+        )
+        self.assertEqual(
+            result.scope_plan.settings["availableModels"],
+            ["gpt-multi-sol-high", "gpt-multi-sol-xhigh"],
+        )
+        self.assertEqual(result.env_set["CLAUDE_CODE_MAX_CONTEXT_TOKENS"], "372000")
+        self.assertEqual(result.env_set["CLAUDE_CODE_AUTO_COMPACT_WINDOW"], "372000")
+        self.assertEqual(result.env_set["CLAUDE_AUTOCOMPACT_PCT_OVERRIDE"], "90")
+        self.assertEqual(
+            compiler.direct_profile_context(bundle.docs, "sol"),
+            (372000, 372000, 316800),
+        )
+
+    def test_direct_profile_context_is_derived_from_catalog(self) -> None:
         import copy
 
         bundle = catalog.load_catalog(CATALOG_ROOT)
-        document = copy.deepcopy(bundle.default_composition)
-        # A composition-level earlier trigger beats the 90% default.
-        # Lead env comes from the model entry; simulate via a lower value on
-        # the resolved lead env by compiling with a patched document model.
         docs = copy.deepcopy(bundle.docs)
-        docs["models"]["models"]["fable"]["lead"]["env"][
-            "CLAUDE_CODE_AUTO_COMPACT_WINDOW"
-        ] = "200000"
-        resolved = composition.resolve(docs, document)
-        digest = strict_json.bundle_digest(composition.snapshot(resolved))
-        result = compiler.compile_launch(
-            docs=docs,
-            prompt_bodies=bundle.prompt_bodies,
-            resolved=resolved,
-            session_action=compiler.build_fresh(FIXED_SESSION),
-            passthrough=[],
-            settings_path=SETTINGS_PATH,
-            lead_prompt_path=compiler.lead_prompt_path(
-                Path("/state"), digest, FIXED_SESSION
-            ),
+        sol = docs["models"]["models"]["sol"]["context"]
+        sol.update(
+            client_tokens=400000,
+            provider_tokens=400000,
+            scalar_tokens=400000,
+            declared_tokens=400000,
+            validated_tokens=400000,
         )
         self.assertEqual(
-            result.env_set["CLAUDE_CODE_AUTO_COMPACT_WINDOW"], "200000"
+            compiler.direct_profile_context(docs, "sol"),
+            (400000, 400000, 342000),
+        )
+        qwen = docs["models"]["models"]["qwen38"]["context"]
+        qwen.update(
+            provider_tokens=900000,
+            scalar_tokens=900000,
+            declared_tokens=900000,
+            validated_tokens=900000,
+        )
+        self.assertEqual(
+            compiler.direct_profile_context(docs, "large"),
+            (None, 900000, 792000),
         )

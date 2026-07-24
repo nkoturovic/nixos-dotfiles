@@ -76,7 +76,7 @@ class GoldenTests(unittest.TestCase):
         self.assertIn('"reasoning.effort": "high"', yaml)
         self.assertIn('"reasoning.effort": "xhigh"', yaml)
         self.assertIn('owned-by: "moonshot"', yaml)
-        self.assertIn("context-length: 1048576", yaml)
+        self.assertIn("context-length: 1000000", yaml)
         self.assertIn('auth-header: "x-api-key"', yaml)
 
 
@@ -112,6 +112,13 @@ class DirectProviderLaneTests(unittest.TestCase):
     def test_kimi_output_single_lane_unchanged(self) -> None:
         yaml = _render().yaml
         self.assertEqual(yaml.count('alias: "claude-multi-kimi-k3"'), 1)
+
+    def test_qwen_1m_client_suffix_is_stripped_from_exact_wire_mapping(self) -> None:
+        yaml = _render().yaml
+        block = yaml.split('name: "qwen3.8-max-preview"', 1)[1]
+        self.assertIn('alias: "claude-multi-qwen38-max"', block)
+        self.assertNotIn('alias: "claude-multi-qwen38-max[1m]"', block)
+        self.assertIn("context-length: 983616", block)
 
 
 class SecretBoundaryTests(unittest.TestCase):

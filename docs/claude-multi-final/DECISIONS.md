@@ -71,13 +71,14 @@ not this product's coupled delegation model. Never set the env key.
 **D11 — Compiled settings keys (closed allowlist):** `disableWorkflows`,
 `workflowSizeGuideline`, `workflowKeywordTriggerEnabled` (existing base);
 `permissions.deny` (generic/built-in policy, durable); `availableModels`
-(model fence, U5, defense-in-depth); `worktree.baseRef:"head"` when any
+(type-specific model fence); lifecycle `env`/`hooks` carrying the stable ID;
+`worktree.baseRef:"head"` when any
 variant is worktree-isolated (implementers branch from current local HEAD,
 carrying local/unpushed **commits** — WT L101–106; uncommitted working-tree
 changes are NOT carried, which is accepted: implementers never edit the main
 checkout, the lead integrates). Nothing else without a demonstrated failure.
 
-**D12 — `version.json` → 2.1.0; old launcher fails closed on new catalog.**
+**D12 — `version.json` → 2.2.0; old launcher fails closed on schema-v3 state.**
 The G0' diff already made the contract unreadable to 2.0.0; we make that
 explicit and intentional rather than accidental (map:g0-diff risk).
 
@@ -138,8 +139,8 @@ bearer auth (new `bearer` auth kind; Kimi's `x-api-key` override does not
 apply), `reasoning_effort: xhigh` as the effort knob (provider maximum;
 options xhigh/high/low — NOT `output_config.effort`), native always-on
 thinking (no filter), context 983616 (official Claude Code doc's own
-`CLAUDE_CODE_MAX_CONTEXT_TOKENS` recommendation). Selector
-(`claude-multi-qwen38-max`) and model id (`qwen38`) are preview-free by
+`CLAUDE_CODE_MAX_CONTEXT_TOKENS` recommendation). Selector base
+(`claude-multi-qwen38-max`, client form adds `[1m]`) and model id (`qwen38`) are preview-free by
 design. **Lifecycle note**: when the production `qwen3.8-max` ships, revise
 in order: (1) `wire_model`; (2) context bound re-verification; (3)
 `reasoning_effort` tier check (any level above xhigh?); (4) one live
@@ -147,14 +148,54 @@ verification call; (5) display name drop of "· Preview". Recorded here and
 in the model's `routing_note` so the future edit is deliberate, small, and
 localized.
 
+**D22 — Session identity is two UUIDs, not one.** `managed_id` is stable and
+keys claude-multi state; `runtime_session_id` is authoritative for native
+resume. A synchronous metadata-only SessionStart hook reconciles the latter on
+startup/resume/clear/compact; SessionEnd is advisory. Transcript contents and
+`transcript_path` are never read. Runtime aliases make old/native UUIDs usable
+for lookup without moving scopes or records.
+
+**D23 — Ordinary gateway mode is first-class but does not hijack bare
+Claude.** `claude-gateway` / `claude-multi direct` uses the same verified
+binary and loopback transport with no generated agents, appendix, composition,
+or managed policy. Upstream `claude` remains untouched by default. This
+revises D19 narrowly: global configuration is still rejected, while a
+per-session ordinary launcher is now supported.
+
+**D24 — `/model` follows session semantics.** Managed settings expose only the
+compiled lead; a different lead requires a composition transition. Ordinary
+settings expose a context-compatible profile: Sol aliases together, and
+Fable/Opus/Kimi/Qwen together. In-profile native switching is preserved across
+implicit resume by omitting a new `--model`; cross-profile changes explicitly
+relaunch and pin the requested model.
+
+**D25 — Context classification, scalar protection, and compaction are explicit
+separate controls.** Each model records client context, configured provider
+context, evidence qualification, optional process scalar, and ordinary profile.
+`CLAUDE_CODE_AUTO_COMPACT_WINDOW` is compiled as the configured route capacity
+and `CLAUDE_AUTOCOMPACT_PCT_OVERRIDE=90` supplies the reactive percentage;
+neither value is itself the final threshold. Catalog-validated bounds are labeled
+validated; Kimi's 1M route is explicitly user-attested and must not be described
+as provider-safe until near-limit live acceptance. Pinned Claude Code 2.1.217 reserves up to
+20K output tokens, producing deterministic reactive thresholds of Sol 316800,
+managed 1M process 882000, and Qwen/ordinary-large 867254. Proactive preparation
+uses a runtime-controlled fraction and is reported only as "may occur earlier."
+In mixed processes Sol/GPT variants are protected by their own client caps; an
+extended selector whose provider bound is below its client classification
+narrows the shared capacity, so Qwen lowers a 1M process to 983616. Qwen's
+`[1m]` selector is client
+classification only; its provider bound stays 983616 and renderer tests prove
+suffix stripping to the exact wire model.
+
 ## User decision summary (what you're approving by accepting this design)
 
 1. Selected agents become **real files** in a per-session scope; the failure
    mode that erased them is closed by documented reload semantics, with a
    kill-resume + takeover acceptance proof (yours to run).
 2. Guarantees are **tiered and displayed**: availability/dispatch/model
-   frontmatter = durable; delegation choices, per-invocation overrides,
-   `/model`, active-work mixing = honest residuals.
+   frontmatter = durable; managed `/model` is fenced, ordinary `/model` is
+   profile-scoped; delegation choices and active-work mixing remain honest
+   residuals.
 3. Workflows default **on** per composition; off mode is one settings key +
    an effort mapping.
 4. Legacy sessions keep working and upgrade on resume; `--legacy` is a

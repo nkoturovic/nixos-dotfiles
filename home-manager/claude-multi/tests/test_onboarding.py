@@ -31,7 +31,10 @@ def _model_entry(model_id: str = "newmodel") -> dict:
         "capabilities": ["agents"],
         "compatible_roles": ["cm-reviewer"],
         "context": {
-            "kind": "scalar",
+            "client_tokens": 128000,
+            "provider_tokens": 128000,
+            "scalar_tokens": 128000,
+            "ordinary_profile": None,
             "declared_tokens": 128000,
             "validated_tokens": 128000,
             "qualification": "onboarding test fixture",
@@ -83,15 +86,18 @@ def _provider_draft() -> dict:
     }
     model = _model_entry("zetamodel")
     model["provider"] = "zeta"
-    model["client_selector"] = "zeta-multi-z1-max"
+    model["client_selector"] = "zeta-multi-z1-max[1m]"
     model["wire_model"] = "z1"
     model["lanes"]["max"] = model["lanes"].pop("high")
     model["lanes"]["max"]["agent_effort"] = "max"
-    model["lanes"]["max"]["client_selector"] = "zeta-multi-z1-max"
+    model["lanes"]["max"]["client_selector"] = "zeta-multi-z1-max[1m]"
     model["lanes"]["max"]["proxy_effort_contract"] = "output-config-max"
     model["default_lane"] = "max"
     model["context"] = {
-        "kind": "selector-1m",
+        "client_tokens": 1000000,
+        "provider_tokens": 1000000,
+        "scalar_tokens": None,
+        "ordinary_profile": None,
         "declared_tokens": 1000000,
         "validated_tokens": 100000,
         "qualification": "fixture",

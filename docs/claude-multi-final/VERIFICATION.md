@@ -12,11 +12,25 @@ discipline). User-performed steps are the only ones touching real Claude.
   `availableModels` contents, `worktree.baseRef` rule, unknown-key refusal.
 - Launch: argv shape (no `--agents`/`--disallowedTools`), ordering contract,
   execve-failure cleanup (record forgotten, pointer cleared, scope removed).
-- Records: v1 load → defaults; v2 round-trip; drift report with mode fields.
+- Records: v1/v2 → side-effect-free in-memory v3 migration; stable managed ID
+  vs current runtime UUID; alias lookup; duplicate runtime ownership refusal;
+  ordinary/managed discriminators; SessionEnd advisory behavior.
+- Lifecycle hooks: generated settings shape, 5-second synchronous commands,
+  startup/resume/clear/compact idempotence, fork pending state, stdin pipe
+  consumption (never `/dev/tty`), transcript-path discard, model-fence breach
+  diagnostics.
 - Collision gate: synthetic project trees (exact `cm-*` hit, non-cm pass,
   nested closest-wins documentation case).
-- Transitions: diff classification, generation swap, restore-on-failure,
-  crash-converge (record authority), hot-flow refusal without watcher evidence.
+- Transitions: diff classification, generation swap, runtime-UUID resume with
+  stable scope identity, restore-on-failure, crash-converge (record authority),
+  hot-flow refusal without watcher evidence.
+- Ordinary gateway: zero generated agents/appendix, context-profile model fence,
+  implicit resume preserves native `/model` choice, explicit cross-profile
+  relaunch pins the requested model, unified picker/doctor behavior.
+- Context: every supported lead's client/provider/reactive tuple using the
+  pinned 20K output reservation, runtime-controlled proactive preparation,
+  mixed scalar/client-cap protection, Qwen `[1m]` suffix-to-wire mapping, and
+  Sol/large-profile environment policy.
 - Doctor: scope integrity, repair convergence, prune, evidence-level lines.
 - Goldens: scope tree + argv-set goldens with a `claude-multi-dev bless`
   regenerator (kills manual golden churn; bless diff must be review-empty
@@ -57,6 +71,23 @@ proceeds on documented-backgrounding evidence only.
   roster still contains all six `cm-*` types (scripted delegation to one).
   Only when the daemon-domain precondition holds; otherwise this is exactly
   acceptance step L2.
+- **F8 runtime-ID divergence**: launch under stable ID A, deliver a synthetic
+  SessionStart with runtime UUID B, assert record/scope stay keyed by A and the
+  next compiled argv is exactly `--resume B`; repeat for compact/clear.
+- **F9 ordinary mode**: fresh and resume with empty agent tree, native model
+  availability per profile, no appended composition prompt, fake `/v1/models`,
+  and cross-profile explicit pinning.
+- **F10 CWD/adoption matrix**: inaccessible original CWD leaves no committed
+  launch state; duplicate native UUID rows deduplicate; ambiguous project slugs
+  fail closed; runtime aliases never reappear as unmanaged rows.
+- **F11 compaction lifecycle**: pinned 2.1.217, five visible PTY turns,
+  cache-aware usage, auxiliary-request classification, and metadata-only hooks
+  prove both manual and automatic `SessionStart(source=compact)` without
+  `/count_tokens`, a claimed proactive threshold, or a real provider.
+- **F12 delegated prompt shape**: bounded request metadata records only canonical
+  system/message byte counts and per-message hashes. Differential fake-model
+  cases distinguish inherited parent context, generated child system context,
+  and deterministic low-context overflow without retaining prompt text.
 
 ## 3. Package/Nix
 
@@ -88,12 +119,19 @@ L4. Workflow off composition: `/effort` menu lacks ultracode; keyword inert;
 L5. Project agents: a project `helper` agent appears and dispatches; an exact
     `cm-*` copy blocks launch with the named error.
 L6. Plain `claude`: no `cm-*` types, no policy denies, unaffected settings.
-L7. Rollback drill: `home-manager switch` to the pre-activation generation ⇒
+L7. `claude-gateway`: no `cm-*` roster, `/model` shows only the selected safe
+    profile; switch within the profile, exit, and resume — native choice is
+    preserved. Cross-profile `-r UUID --model MODEL` relaunches explicitly.
+L8. Identity/compact: compare `sessions show` stable/runtime IDs with native
+    `/status`; compact once and verify subsequent resume still targets the
+    current runtime UUID. Sol compacts before 372K; Qwen before 983616;
+    Fable/Opus/Kimi retain large-context operation.
+L9. Rollback drill: `home-manager switch` to the pre-activation generation ⇒
     old launcher returns with the old catalog; v1 records resume normally;
-    v2-era transcripts remain recoverable with native
-    `claude --resume <uuid>`; the retained new-package store path (recorded
-    in STATUS) can still be invoked directly if needed. The old launcher
-    cannot consume v2 records — that is expected and stated.
+    schema-v3 transcripts remain recoverable with the runtime UUID displayed
+    by `sessions show`; the retained new-package store path (recorded in
+    STATUS) can still be invoked directly if needed. The old launcher cannot
+    consume v3 records — that is expected and stated.
 
 Evidence per step: what the user saw + `doctor` output pasted into STATUS.md
 (or a short checklist sign-off). Failures route to PLAN §6 fallbacks.

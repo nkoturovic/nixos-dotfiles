@@ -38,6 +38,9 @@ env = os.environ
 print("HOME=" + env.get("HOME", ""))
 print("CLAUDE_CONFIG_DIR=" + env.get("CLAUDE_CONFIG_DIR", ""))
 print("AMBIENT=" + env.get("PROBE_AMBIENT_MARKER", "absent"))
+print("AUTO_WINDOW=" + env.get("CLAUDE_CODE_AUTO_COMPACT_WINDOW", "absent"))
+print("AUTO_PERCENT=" + env.get("CLAUDE_AUTOCOMPACT_PCT_OVERRIDE", "absent"))
+print("MAX_CONTEXT=" + env.get("CLAUDE_CODE_MAX_CONTEXT_TOKENS", "absent"))
 url = urllib.parse.urlsplit(env["ANTHROPIC_BASE_URL"])
 body = json.dumps({
     "model": "probe-model",
@@ -54,6 +57,16 @@ connection.request(
 response = connection.getresponse()
 print("STATUS=" + str(response.status))
 print("BODY=" + response.read().decode("utf-8"))
+"""
+
+_PTY_BODY = """import os
+import sys
+
+print("READY", flush=True)
+first = input()
+print("ACK=" + first, flush=True)
+second = input()
+print("DONE=" + second, flush=True)
 """
 
 _SPAWNER_BODY = """import subprocess
@@ -131,12 +144,16 @@ class ProbeTestCase(unittest.TestCase):
         return path
 
     def _post(
-        self, port: int, body: bytes, headers: dict | None = None
+        self,
+        port: int,
+        body: bytes,
+        headers: dict | None = None,
+        path: str = "/v1/messages",
     ) -> tuple[int, bytes]:
         connection = http.client.HTTPConnection("127.0.0.1", port, timeout=5)
         connection.request(
             "POST",
-            "/v1/messages",
+            path,
             body=body,
             headers=headers or {"Content-Type": "application/json"},
         )
@@ -468,6 +485,30 @@ class BuildFixtureTests(ProbeTestCase):
         with self.assertRaisesRegex(ProbeError, "loopback"):
             fixture.environ(base_url="http://10.0.0.9:8317")
 
+    def test_environ_accepts_only_typed_compaction_controls(self) -> None:
+        fixture = probe.build_fixture(self.fixture_root, environ=self.environ)
+        policy = probe.ProbeCompactionPolicy(
+            auto_compact_window=983616,
+            auto_compact_percent=90,
+            max_context_tokens=372000,
+        )
+        env = fixture.environ(compaction=policy)
+        self.assertEqual(env["CLAUDE_CODE_AUTO_COMPACT_WINDOW"], "983616")
+        self.assertEqual(env["CLAUDE_AUTOCOMPACT_PCT_OVERRIDE"], "90")
+        self.assertEqual(env["CLAUDE_CODE_MAX_CONTEXT_TOKENS"], "372000")
+        self.assertNotIn("ANTHROPIC_AUTH_TOKEN", env)
+
+    def test_invalid_compaction_controls_fail_closed(self) -> None:
+        fixture = probe.build_fixture(self.fixture_root, environ=self.environ)
+        for policy, needle in (
+            (probe.ProbeCompactionPolicy(0, 90), "between 100000 and 1000000"),
+            (probe.ProbeCompactionPolicy(100000, 0), "percentage must be 1..100"),
+            (probe.ProbeCompactionPolicy(100000, 90, 0), "max context tokens"),
+        ):
+            with self.subTest(policy=policy):
+                with self.assertRaisesRegex(ProbeError, needle):
+                    fixture.environ(compaction=policy)
+
     def test_environ_path_is_explicit_without_cwd_entry(self) -> None:
         fixture = probe.build_fixture(self.fixture_root, environ=self.environ)
         env = fixture.environ()
@@ -521,6 +562,11 @@ class FakeProviderTests(ProbeTestCase):
             status, payload = self._get(port, "/healthz")
             self.assertEqual(status, 200)
             self.assertEqual(strict_json.loads(payload), {"status": "ok"})
+            status, payload = self._get(port, "/v1/models")
+            self.assertEqual(status, 200)
+            models = strict_json.loads(payload)
+            self.assertIn("gpt-multi-sol-high", [item["id"] for item in models["data"]])
+            self.assertFalse(models["has_more"])
             status, payload = self._get(port, "/nope")
             self.assertEqual(status, 404)
             self.assertEqual(
@@ -551,6 +597,87 @@ class FakeProviderTests(ProbeTestCase):
             self.assertEqual(record.auth, "absent")
             self.assertEqual(record.body_sha256, hashlib.sha256(body).hexdigest())
 
+    def test_request_query_is_hashed_in_metadata(self) -> None:
+        body = b'{"model":"probe-model","messages":[]}'
+        target = "/v1/messages?token=query-secret"
+        with probe.FakeAnthropicProvider() as provider:
+            port = int(provider.base_url.rsplit(":", 1)[1])
+            status, _payload = self._post(port, body, path=target)
+            self.assertEqual(status, 200)
+            record = provider.requests[0]
+            self.assertRegex(record.path, r"^sha256:[0-9a-f]{64}:bytes=\d+$")
+            self.assertNotIn("query-secret", record.path)
+
+    def test_compaction_responder_exposes_one_near_limit_turn(self) -> None:
+        responder = probe.CompactionResponder(near_limit_tokens=900)
+        status, payload = responder({}, "/v1/messages/count_tokens")
+        self.assertEqual((status, payload), (200, {"input_tokens": 1}))
+        status, payload = responder(
+            {"model": "probe-model", "stream": False}, "/v1/messages"
+        )
+        self.assertEqual(status, 200)
+        self.assertEqual(payload["usage"]["input_tokens"], 900)
+        status, payload = responder({}, "/v1/messages/count_tokens")
+        self.assertEqual((status, payload), (200, {"input_tokens": 900}))
+        status, payload = responder(
+            {"model": "probe-model", "stream": False}, "/v1/messages"
+        )
+        self.assertEqual(status, 200)
+        self.assertEqual(payload["usage"]["input_tokens"], 1)
+        status, payload = responder({}, "/v1/messages/count_tokens")
+        self.assertEqual((status, payload), (200, {"input_tokens": 1}))
+        self.assertEqual(responder.message_requests, 2)
+        self.assertEqual(responder.count_token_requests, 3)
+
+    def test_automatic_compaction_responder_uses_cache_aware_phases(self) -> None:
+        responder = probe.AutomaticCompactionResponder()
+        main = {
+            "model": "probe-model",
+            "stream": False,
+            "tools": [{"name": "Agent"}],
+        }
+        for _ordinal in (1, 2):
+            status, payload = responder(main, "/v1/messages")
+            self.assertEqual(status, 200)
+            self.assertEqual(payload["content"][0]["text"], "PROBE-OK")
+        status, payload = responder(main, "/v1/messages")
+        self.assertEqual(status, 200)
+        self.assertEqual(
+            sum(
+                payload["usage"][key]
+                for key in (
+                    "input_tokens",
+                    "cache_creation_input_tokens",
+                    "cache_read_input_tokens",
+                    "output_tokens",
+                )
+            ),
+            150000,
+        )
+        status, auxiliary = responder(
+            {"model": "probe-model", "stream": False}, "/v1/messages"
+        )
+        self.assertEqual(status, 200)
+        self.assertEqual(auxiliary["content"][0]["text"], "PROBE-AUX")
+        status, payload = responder(main, "/v1/messages")
+        self.assertEqual(status, 200)
+        self.assertEqual(
+            sum(
+                payload["usage"][key]
+                for key in (
+                    "input_tokens",
+                    "cache_creation_input_tokens",
+                    "cache_read_input_tokens",
+                    "output_tokens",
+                )
+            ),
+            165000,
+        )
+        responder(main, "/v1/messages")
+        self.assertEqual(responder.message_requests, 6)
+        self.assertEqual(responder.main_requests, 5)
+        self.assertEqual(responder.auxiliary_requests, 1)
+
     def test_record_never_retains_prompt_content(self) -> None:
         body = (
             b'{"model":"probe-model","max_tokens":8,"system":"probe-system-content",'
@@ -561,9 +688,70 @@ class FakeProviderTests(ProbeTestCase):
             self._post(port, body)
             record = provider.requests[0]
             self.assertTrue(record.has_system)
+            messages = [{"role": "user", "content": "probe-prompt-content"}]
+            self.assertEqual(
+                record.system_json_bytes,
+                len(strict_json.canonical_bytes("probe-system-content")),
+            )
+            self.assertEqual(
+                record.messages_json_bytes,
+                len(strict_json.canonical_bytes(messages)),
+            )
+            self.assertEqual(record.message_count, 1)
+            self.assertEqual(
+                record.message_sha256s,
+                (
+                    strict_json.sha256_hex(
+                        strict_json.canonical_bytes(messages[0])
+                    ),
+                ),
+            )
+            self.assertFalse(record.message_hashes_truncated)
             rendered = repr(record)
             self.assertNotIn("probe-prompt-content", rendered)
             self.assertNotIn("probe-system-content", rendered)
+
+    def test_record_bounds_message_hash_metadata(self) -> None:
+        messages = [
+            {"role": "user", "content": f"message-{index}"}
+            for index in range(70)
+        ]
+        body = strict_json.canonical_bytes(
+            {"model": "probe-model", "max_tokens": 8, "messages": messages}
+        )
+        with probe.FakeAnthropicProvider() as provider:
+            port = int(provider.base_url.rsplit(":", 1)[1])
+            self._post(port, body)
+            record = provider.requests[0]
+        self.assertEqual(record.message_count, 70)
+        self.assertEqual(len(record.message_sha256s), 64)
+        self.assertTrue(record.message_hashes_truncated)
+        self.assertNotIn("message-0", repr(record))
+
+    def test_record_bounds_and_hashes_request_controlled_identifiers(self) -> None:
+        secret = "prompt-like-secret-" * 32
+        tools = [
+            {"name": secret if index == 0 else f"tool-{index}"}
+            for index in range(70)
+        ]
+        body = strict_json.canonical_bytes(
+            {
+                "model": secret,
+                "max_tokens": 8,
+                "messages": [],
+                "tools": tools,
+            }
+        )
+        with probe.FakeAnthropicProvider() as provider:
+            port = int(provider.base_url.rsplit(":", 1)[1])
+            self._post(port, body)
+            record = provider.requests[0]
+        self.assertTrue(record.model.startswith("sha256:"))
+        self.assertEqual(record.tool_count, 70)
+        self.assertEqual(len(record.tool_names), 64)
+        self.assertTrue(record.tool_names_truncated)
+        self.assertTrue(record.tool_names[0].startswith("sha256:"))
+        self.assertNotIn(secret, repr(record))
 
     def test_auth_classification(self) -> None:
         body = b'{"model":"probe-model","max_tokens":8,"messages":[]}'
@@ -869,6 +1057,66 @@ class RunNativeTests(ProbeTestCase):
         self.assertEqual(record.path, "/v1/messages")
         self.assertEqual(record.model, "probe-model")
         self.assertEqual(record.auth, "dummy")
+
+    def test_run_native_threads_typed_compaction_policy(self) -> None:
+        script = self._write_fake_executable()
+        result = probe.run_native(
+            [],
+            trusted=self._trusted(script),
+            fixture=self.fixture,
+            timeout=15,
+            compaction=probe.ProbeCompactionPolicy(
+                auto_compact_window=983616,
+                auto_compact_percent=90,
+                max_context_tokens=372000,
+            ),
+        )
+        self.assertEqual(result.returncode, 0)
+        self.assertIn("AUTO_WINDOW=983616", result.stdout)
+        self.assertIn("AUTO_PERCENT=90", result.stdout)
+        self.assertIn("MAX_CONTEXT=372000", result.stdout)
+
+    def test_run_native_pty_drives_bounded_interactions(self) -> None:
+        script = self._write_fake_executable("pty-client", _PTY_BODY)
+        result = probe.run_native_pty(
+            [],
+            (
+                probe.PTYInteraction(b"READY", b"hello\n"),
+                probe.PTYInteraction(b"ACK=hello", b"exit\n"),
+            ),
+            trusted=self._trusted(script),
+            fixture=self.fixture,
+            timeout=15,
+        )
+        self.assertEqual(result.returncode, 0)
+        self.assertIn("DONE=exit", result.stdout)
+        self.assertEqual(result.requests, ())
+
+    def test_run_native_pty_preserves_markers_after_match(self) -> None:
+        script = self._write_fake_executable(
+            "pty-buffered-markers",
+            """import os
+
+os.write(1, b"READY-NEXT\\n")
+first = input()
+second = input()
+print("DONE=" + first + ":" + second, flush=True)
+""",
+        )
+        result = probe.run_native_pty(
+            [],
+            (
+                probe.PTYInteraction(
+                    b"READY", b"hello\n", preserve_after_wait=True
+                ),
+                probe.PTYInteraction(b"NEXT", b"exit\n"),
+            ),
+            trusted=self._trusted(script),
+            fixture=self.fixture,
+            timeout=15,
+        )
+        self.assertEqual(result.returncode, 0)
+        self.assertIn("DONE=hello:exit", result.stdout)
 
     def test_caller_owned_provider_keeps_lifecycle(self) -> None:
         script = self._write_fake_executable()
@@ -1271,7 +1519,7 @@ class DaemonDomainSnapshotTests(ProbeTestCase):
         # A foreign entry is never modified by the tripwire.
         self.assertTrue(rogue.is_dir())
 
-    def test_enforce_fixture_subdomain_removed_best_effort(self) -> None:
+    def test_enforce_fixture_subdomain_is_never_remediated(self) -> None:
         before = probe.snapshot_daemon_domain(self.domain)
         subdomain = self.domain / probe.expected_daemon_subdomain(
             self.fixture.claude_config_dir
@@ -1282,10 +1530,10 @@ class DaemonDomainSnapshotTests(ProbeTestCase):
             probe._enforce_live_domain_untouched(before, after, fixture=self.fixture)
         message = str(raised.exception)
         self.assertIn("live daemon domain touched", message)
-        self.assertIn("fixture-owned subdomain removed", message)
-        # The fixture-owned additive entry is removed best-effort; the
-        # failure stands regardless.
-        self.assertFalse(subdomain.exists())
+        self.assertIn("observe-only; no remediation performed", message)
+        # Even a fixture-looking entry lives in the live domain and is never
+        # modified by the probe.
+        self.assertTrue(subdomain.exists())
 
     def test_fixture_daemon_domains_lists_siblings_only(self) -> None:
         (self.root / "cc-daemon-deadbeef-1000").mkdir()

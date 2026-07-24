@@ -58,14 +58,19 @@ probe harness.
 
 from __future__ import annotations
 
+import errno
+import fcntl
 import hashlib
 import os
+import pty
 import re
-import shutil
+import select
 import signal
 import stat
+import struct
 import subprocess
 import sys
+import termios
 import threading
 import time
 import urllib.parse
@@ -88,6 +93,15 @@ _LOOPBACK_HOSTS = ("127.0.0.1",)
 _SHA256_RE = re.compile(r"[0-9a-f]{64}")
 _MAX_BODY_BYTES = 1024 * 1024
 _RECORD_CAP = 1024
+_MESSAGE_HASH_CAP = 64
+_TOOL_NAME_CAP = 64
+_METADATA_TEXT_MAX_BYTES = 160
+_METADATA_ID_RE = re.compile(r"[A-Za-z0-9][A-Za-z0-9._:/\[\]-]{0,127}")
+_PUBLIC_METADATA_PATHS = frozenset(
+    {"/healthz", "/v1/messages", "/v1/messages/count_tokens", "/v1/models"}
+)
+_MIN_AUTO_COMPACT_WINDOW = 100_000
+_MAX_AUTO_COMPACT_WINDOW = 1_000_000
 _REAL_RUN_REFUSAL = (
     "refusing real native execution without allow_real: the pinned Claude "
     "binary runs only under the narrow allowance — run_native(..., "
@@ -416,10 +430,9 @@ def _enforce_live_domain_untouched(
     """Fail closed unless the live uid-shared domain is byte-identical.
 
     Any new, removed, or changed entry (or the domain (dis)appearing) is a
-    hard failure: the run touched the live daemon domain. When the run's
-    entire footprint is the additive creation of the fixture's own
-    config-root subdomain, that entry alone is removed best-effort (the
-    failure stands; live entries are never modified).
+    hard failure: the run touched the live daemon domain. This tripwire is
+    strictly observe-only and never attempts remediation inside the live
+    domain, including entries that appear fixture-owned.
     """
 
     expected = expected_daemon_subdomain(fixture.claude_config_dir)
@@ -428,33 +441,10 @@ def _enforce_live_domain_untouched(
     )
     changes = _domain_changes(before, after)
     if changes:
-        added = {
-            change[len("added:") :]
-            for change in changes
-            if change.startswith("added:")
-        }
-        # The domain dir's own mtime bump is the implied companion of any
-        # entry churn; the additive footprint is ``added:<fixture
-        # subdomain>`` plus exactly that companion.
-        others = [
-            change
-            for change in changes
-            if not change.startswith("added:") and change != "domain-dir-mtime"
-        ]
-        remediated = False
-        if not others and added == {expected}:
-            try:
-                shutil.rmtree(after.domain / expected)
-                remediated = True
-            except OSError:
-                remediated = False
-        note = (
-            "fixture-owned subdomain removed"
-            if remediated
-            else "no remediation performed"
-        )
         raise ProbeError(
-            "live daemon domain touched: " + ", ".join(changes) + f" ({note})"
+            "live daemon domain touched: "
+            + ", ".join(changes)
+            + " (observe-only; no remediation performed)"
         )
     return DaemonDomainObservation(
         domain=str(after.domain),
@@ -474,6 +464,32 @@ def _enforce_live_domain_untouched(
 
 
 @dataclass(frozen=True)
+class ProbeCompactionPolicy:
+    """Narrow allowlisted compaction controls for disposable native probes."""
+
+    auto_compact_window: int
+    auto_compact_percent: int
+    max_context_tokens: int | None = None
+
+    def environ(self) -> dict[str, str]:
+        if not _MIN_AUTO_COMPACT_WINDOW <= self.auto_compact_window <= _MAX_AUTO_COMPACT_WINDOW:
+            raise ProbeError(
+                "probe auto-compaction window must be between 100000 and 1000000"
+            )
+        if not 1 <= self.auto_compact_percent <= 100:
+            raise ProbeError("probe auto-compaction percentage must be 1..100")
+        env = {
+            "CLAUDE_CODE_AUTO_COMPACT_WINDOW": str(self.auto_compact_window),
+            "CLAUDE_AUTOCOMPACT_PCT_OVERRIDE": str(self.auto_compact_percent),
+        }
+        if self.max_context_tokens is not None:
+            if self.max_context_tokens <= 0:
+                raise ProbeError("probe max context tokens must be positive")
+            env["CLAUDE_CODE_MAX_CONTEXT_TOKENS"] = str(self.max_context_tokens)
+        return env
+
+
+@dataclass(frozen=True)
 class ProbeFixture:
     """Disposable probe filesystem domain; every path lives under ``root``."""
 
@@ -486,12 +502,17 @@ class ProbeFixture:
     xdg_runtime_dir: Path
     claude_config_dir: Path
 
-    def environ(self, *, base_url: str | None = None) -> dict[str, str]:
+    def environ(
+        self,
+        *,
+        base_url: str | None = None,
+        compaction: ProbeCompactionPolicy | None = None,
+    ) -> dict[str, str]:
         """Disposable process environment; never derived from os.environ.
 
         With ``base_url`` the loopback fake provider is wired in using the
-        fixed non-secret dummy token; without it no provider variable
-        exists at all.
+        fixed non-secret dummy token; without it no provider variable exists.
+        ``compaction`` may add only the three typed context controls above.
         """
 
         env = {
@@ -511,6 +532,8 @@ class ProbeFixture:
         if base_url is not None:
             env["ANTHROPIC_BASE_URL"] = check_loopback_url(base_url)
             env["ANTHROPIC_AUTH_TOKEN"] = DUMMY_TOKEN
+        if compaction is not None:
+            env.update(compaction.environ())
         return env
 
 
@@ -576,6 +599,25 @@ def write_evidence(
 # ------------------------------------------------------------ fake provider
 
 
+def _bounded_metadata_text(value: str, pattern: re.Pattern[str]) -> str:
+    """Keep short safe identifiers; hash arbitrary request-controlled text."""
+
+    data = value.encode("utf-8")
+    if len(data) <= _METADATA_TEXT_MAX_BYTES and pattern.fullmatch(value):
+        return value
+    return f"sha256:{strict_json.sha256_hex(data)}:bytes={len(data)}"
+
+
+def _bounded_request_path(value: str) -> str:
+    """Retain only known credential-free endpoints; hash every other target."""
+
+    parsed = urllib.parse.urlsplit(value)
+    if not parsed.query and not parsed.fragment and parsed.path in _PUBLIC_METADATA_PATHS:
+        return parsed.path
+    data = value.encode("utf-8")
+    return f"sha256:{strict_json.sha256_hex(data)}:bytes={len(data)}"
+
+
 @dataclass(frozen=True)
 class RequestRecord:
     """Captured request metadata; prompt/transcript content is never stored."""
@@ -584,7 +626,14 @@ class RequestRecord:
     path: str
     model: str | None
     tool_names: tuple[str, ...]
+    tool_count: int
+    tool_names_truncated: bool
     has_system: bool
+    system_json_bytes: int
+    messages_json_bytes: int
+    message_count: int
+    message_sha256s: tuple[str, ...]
+    message_hashes_truncated: bool
     auth: str  # "dummy" | "other" | "absent"
     body_sha256: str
 
@@ -644,21 +693,22 @@ def _default_responder(document: dict[str, Any], path: str) -> tuple[int, dict[s
     }
 
 
+class _ProviderServer(ThreadingHTTPServer):
+    def handle_error(self, request: Any, client_address: Any) -> None:
+        # A probed client SIGKILLed mid-request resets the connection; that
+        # teardown noise is expected and never evidentiary.
+        error = sys.exc_info()[1]
+        if isinstance(error, (ConnectionError, BrokenPipeError)):
+            return
+        super().handle_error(request, client_address)
+
+
 class _ProviderHandler(BaseHTTPRequestHandler):
     server_version = "claude-multi-probe/1"
     protocol_version = "HTTP/1.1"
 
     def log_message(self, *_args: Any) -> None:
         return
-
-    def handle_error(self, _request: Any, _client_address: Any) -> None:
-        # A probed client SIGKILLed mid-request resets the connection; that
-        # teardown noise is expected and never evidentiary.
-        if sys.exc_info()[1] is not None and isinstance(
-            sys.exc_info()[1], (ConnectionError, BrokenPipeError)
-        ):
-            return
-        super().handle_error(_request, _client_address)
 
     def _send_json(self, status: int, payload: dict[str, Any]) -> None:
         data = strict_json.canonical_file_bytes(payload)
@@ -680,6 +730,7 @@ class _ProviderHandler(BaseHTTPRequestHandler):
         self.send_header("Content-Length", str(len(body)))
         self.end_headers()
         self.wfile.write(body)
+        self.wfile.flush()
 
     def _error(self, status: int, kind: str, message: str) -> None:
         self._send_json(
@@ -689,6 +740,22 @@ class _ProviderHandler(BaseHTTPRequestHandler):
     def do_GET(self) -> None:
         if self.path == "/healthz":
             self._send_json(200, {"status": "ok"})
+            return
+        if self.path == "/v1/models":
+            self._send_json(
+                200,
+                {
+                    "data": [
+                        {"id": "gpt-multi-sol-high", "type": "model"},
+                        {"id": "claude-multi-qwen38-max", "type": "model"},
+                        {"id": "claude-multi-kimi-k3", "type": "model"},
+                        {"id": "claude-fable-5", "type": "model"},
+                    ],
+                    "has_more": False,
+                    "first_id": "gpt-multi-sol-high",
+                    "last_id": "claude-fable-5",
+                },
+            )
             return
         self._error(404, "not_found_error", "probe: unknown path")
 
@@ -779,7 +846,7 @@ class FakeAnthropicProvider:
     def start(self) -> "FakeAnthropicProvider":
         if self._server is not None:
             raise ProbeError("fake provider is already started")
-        server = ThreadingHTTPServer((self._host, 0), _ProviderHandler)
+        server = _ProviderServer((self._host, 0), _ProviderHandler)
         server.daemon_threads = True
         server.provider = self  # type: ignore[attr-defined]
         thread = threading.Thread(target=server.serve_forever, daemon=True)
@@ -844,24 +911,60 @@ class FakeAnthropicProvider:
             auth = "other"
         model: str | None = None
         tool_names: tuple[str, ...] = ()
+        tool_count = 0
+        tool_names_truncated = False
         has_system = False
+        system_json_bytes = 0
+        messages_json_bytes = 0
+        message_count = 0
+        message_sha256s: tuple[str, ...] = ()
+        message_hashes_truncated = False
         if isinstance(document, dict):
             candidate = document.get("model")
-            model = candidate if isinstance(candidate, str) else None
+            model = (
+                _bounded_metadata_text(candidate, _METADATA_ID_RE)
+                if isinstance(candidate, str)
+                else None
+            )
             tools = document.get("tools")
             if isinstance(tools, list):
-                tool_names = tuple(
+                names = [
                     tool["name"]
                     for tool in tools
                     if isinstance(tool, dict) and isinstance(tool.get("name"), str)
+                ]
+                tool_count = len(names)
+                tool_names = tuple(
+                    _bounded_metadata_text(name, _METADATA_ID_RE)
+                    for name in names[:_TOOL_NAME_CAP]
                 )
+                tool_names_truncated = len(names) > len(tool_names)
             has_system = "system" in document
+            if has_system:
+                system_json_bytes = len(strict_json.canonical_bytes(document["system"]))
+            messages = document.get("messages")
+            if isinstance(messages, list):
+                messages_json_bytes = len(strict_json.canonical_bytes(messages))
+                message_count = len(messages)
+                hashed = messages[:_MESSAGE_HASH_CAP]
+                message_sha256s = tuple(
+                    strict_json.sha256_hex(strict_json.canonical_bytes(message))
+                    for message in hashed
+                )
+                message_hashes_truncated = len(messages) > len(hashed)
         record = RequestRecord(
             method=method,
-            path=path,
+            path=_bounded_request_path(path),
             model=model,
             tool_names=tool_names,
+            tool_count=tool_count,
+            tool_names_truncated=tool_names_truncated,
             has_system=has_system,
+            system_json_bytes=system_json_bytes,
+            messages_json_bytes=messages_json_bytes,
+            message_count=message_count,
+            message_sha256s=message_sha256s,
+            message_hashes_truncated=message_hashes_truncated,
             auth=auth,
             body_sha256=strict_json.sha256_hex(body),
         )
@@ -919,6 +1022,21 @@ class NativeRunResult:
     stderr: str
     requests: tuple[RequestRecord, ...]
     daemon: DaemonDomainObservation | None = None
+
+
+@dataclass(frozen=True)
+class PTYInteraction:
+    """Wait for one terminal marker, then send one bounded byte sequence.
+
+    By default, terminal output already buffered after the marker is discarded
+    for matching purposes so a repeated UI glyph cannot satisfy the next
+    interaction. ``preserve_after_wait`` is for explicit two-stage barriers
+    where the following marker may arrive in the same PTY read.
+    """
+
+    wait_for: bytes
+    send: bytes
+    preserve_after_wait: bool = False
 
 
 def _sha256_file(path: Path) -> str:
@@ -1029,6 +1147,7 @@ def run_native(
     allow_real: bool = False,
     environ: Mapping[str, str] | None = None,
     live_daemon_domain: Path | None = None,
+    compaction: ProbeCompactionPolicy | None = None,
 ) -> NativeRunResult:
     """Run the trusted executable once inside the disposable fixture.
 
@@ -1045,8 +1164,9 @@ def run_native(
     anything starts. The child receives only the fixture environment
     (loopback fake provider with the dummy token, zero real credentials, no
     ambient variables), runs in a new session/process group with the
-    disposable HOME as CWD and a null stdin, and the whole process group is
-    SIGKILLed and reaped on timeout or error. A caller-supplied provider
+    disposable HOME as CWD and a null stdin. ``compaction`` is a typed narrow
+    override for only the context-capacity/percentage controls. The whole
+    process group is SIGKILLed and reaped on timeout or error. A caller-supplied provider
     keeps its lifecycle; an internally created one is stopped
     deterministically.
     """
@@ -1084,7 +1204,7 @@ def run_native(
         else:
             domain_before = None
             siblings_before = ()
-        env = fixture.environ(base_url=provider.base_url)
+        env = fixture.environ(base_url=provider.base_url, compaction=compaction)
         process = subprocess.Popen(
             list(command),
             cwd=fixture.home,
@@ -1134,6 +1254,207 @@ def run_native(
             provider.stop()
 
 
+def run_native_pty(
+    args: list[str] | tuple[str, ...],
+    interactions: list[PTYInteraction] | tuple[PTYInteraction, ...],
+    *,
+    trusted: TrustedExecutable,
+    fixture: ProbeFixture,
+    provider: FakeAnthropicProvider | None = None,
+    timeout: float = 120.0,
+    allow_real: bool = False,
+    environ: Mapping[str, str] | None = None,
+    live_daemon_domain: Path | None = None,
+    compaction: ProbeCompactionPolicy | None = None,
+    rows: int = 32,
+    columns: int = 120,
+) -> NativeRunResult:
+    """Drive a trusted native client through a bounded disposable PTY script."""
+
+    if timeout <= 0:
+        raise ProbeError("probe PTY timeout must be positive")
+    if rows <= 0 or columns <= 0:
+        raise ProbeError("probe PTY dimensions must be positive")
+    for interaction in interactions:
+        if not interaction.wait_for:
+            raise ProbeError("probe PTY wait marker must not be empty")
+        if len(interaction.wait_for) > 4096 or len(interaction.send) > 65536:
+            raise ProbeError("probe PTY interaction exceeds bounded size")
+    real = not trusted.fake
+    if real and not allow_real:
+        raise ProbeError(_REAL_RUN_REFUSAL)
+    ambient = os.environ if environ is None else environ
+    if real:
+        _assert_real_run_allowed(fixture, ambient)
+    executable = _verify_trusted_executable(trusted)
+    command = (str(executable), *[str(argument) for argument in args])
+    owned = provider is None
+    if owned:
+        provider = FakeAnthropicProvider().start()
+    assert provider is not None
+    master: int | None = None
+    slave: int | None = None
+    process: subprocess.Popen[bytes] | None = None
+    try:
+        if real:
+            if not isinstance(provider, FakeAnthropicProvider):
+                raise ProbeError(
+                    "refusing real native execution: the provider must be the "
+                    "loopback fake"
+                )
+            check_loopback_url(provider.base_url)
+            live = (
+                live_daemon_domain
+                if live_daemon_domain is not None
+                else Path(f"/tmp/cc-daemon-{os.geteuid()}")
+            )
+            domain_before = snapshot_daemon_domain(live)
+            siblings_before = fixture_daemon_domains(live)
+        else:
+            domain_before = None
+            siblings_before = ()
+        env = fixture.environ(base_url=provider.base_url, compaction=compaction)
+        master, slave = pty.openpty()
+        fcntl.ioctl(
+            slave,
+            termios.TIOCSWINSZ,
+            struct.pack("HHHH", rows, columns, 0, 0),
+        )
+        process = subprocess.Popen(
+            list(command),
+            cwd=fixture.home,
+            env=env,
+            stdin=slave,
+            stdout=slave,
+            stderr=slave,
+            close_fds=True,
+            process_group=0,
+        )
+        os.close(slave)
+        slave = None
+        output = bytearray()
+        cursor = 0
+        deadline = time.monotonic() + timeout
+
+        def read_more(
+            until: bytes | None, *, preserve_after_wait: bool = False
+        ) -> None:
+            nonlocal cursor
+            while until is None or until not in output[cursor:]:
+                if process is None or process.poll() is not None:
+                    if until is not None and until not in output[cursor:]:
+                        raise ProbeError(
+                            f"probe PTY exited before marker {until!r}; output="
+                            f"{bytes(output[-4000:])!r}"
+                        )
+                    return
+                remaining = deadline - time.monotonic()
+                if remaining <= 0:
+                    raise ProbeError(
+                        f"probe PTY timed out waiting for {until!r}; output="
+                        f"{bytes(output[-4000:])!r}"
+                    )
+                ready, _, _ = select.select([master], [], [], min(0.2, remaining))
+                if not ready:
+                    if until is None:
+                        return
+                    continue
+                try:
+                    chunk = os.read(master, 65536)
+                except OSError as exc:
+                    if exc.errno == errno.EIO:
+                        return
+                    raise
+                if not chunk:
+                    return
+                output.extend(chunk)
+                if len(output) > 2 * 1024 * 1024:
+                    dropped = len(output) - 2 * 1024 * 1024
+                    del output[:dropped]
+                    cursor = max(0, cursor - dropped)
+            if until is not None:
+                match = output.find(until, cursor)
+                cursor = (
+                    match + len(until) if preserve_after_wait else len(output)
+                )
+
+        try:
+            for interaction in interactions:
+                read_more(
+                    interaction.wait_for,
+                    preserve_after_wait=interaction.preserve_after_wait,
+                )
+                pending = memoryview(interaction.send)
+                while pending:
+                    written = os.write(master, pending)
+                    if written <= 0:
+                        raise ProbeError("probe PTY write made no progress")
+                    pending = pending[written:]
+            while process.poll() is None:
+                if time.monotonic() >= deadline:
+                    raise ProbeError("probe PTY timed out waiting for client exit")
+                read_more(None)
+            while True:
+                ready, _, _ = select.select([master], [], [], 0)
+                if not ready:
+                    break
+                try:
+                    chunk = os.read(master, 65536)
+                except OSError as exc:
+                    if exc.errno == errno.EIO:
+                        break
+                    raise
+                if not chunk:
+                    break
+                output.extend(chunk)
+        except BaseException:
+            if process.poll() is None:
+                _kill_process_group(process)
+                process.wait()
+            if domain_before is not None:
+                domain_after = snapshot_daemon_domain(live)
+                siblings_after = fixture_daemon_domains(live)
+                _enforce_live_domain_untouched(
+                    domain_before,
+                    domain_after,
+                    fixture=fixture,
+                    fixture_domains_before=siblings_before,
+                    fixture_domains_after=siblings_after,
+                )
+            raise
+        daemon: DaemonDomainObservation | None = None
+        if domain_before is not None:
+            domain_after = snapshot_daemon_domain(live)
+            siblings_after = fixture_daemon_domains(live)
+            daemon = _enforce_live_domain_untouched(
+                domain_before,
+                domain_after,
+                fixture=fixture,
+                fixture_domains_before=siblings_before,
+                fixture_domains_after=siblings_after,
+            )
+        rendered = bytes(output[-16000:]).decode("utf-8", errors="replace")
+        return NativeRunResult(
+            argv=command,
+            returncode=process.returncode,
+            timed_out=False,
+            stdout=rendered,
+            stderr="",
+            requests=provider.requests,
+            daemon=daemon,
+        )
+    finally:
+        if process is not None and process.poll() is None:
+            _kill_process_group(process)
+            process.wait()
+        if master is not None:
+            os.close(master)
+        if slave is not None:
+            os.close(slave)
+        if owned:
+            provider.stop()
+
+
 # ------------------------------------------------------ scripted delegation
 
 
@@ -1152,6 +1473,9 @@ def _message_payload(
     model: Any,
     stop_reason: str,
     message_id: str,
+    input_tokens: int = 1,
+    cache_creation_input_tokens: int = 0,
+    cache_read_input_tokens: int = 0,
 ) -> dict[str, Any]:
     return {
         "id": message_id,
@@ -1161,17 +1485,27 @@ def _message_payload(
         "model": model if isinstance(model, str) else "probe-model",
         "stop_reason": stop_reason,
         "stop_sequence": None,
-        "usage": {"input_tokens": 1, "output_tokens": 1},
+        "usage": {
+            "input_tokens": input_tokens,
+            "cache_creation_input_tokens": cache_creation_input_tokens,
+            "cache_read_input_tokens": cache_read_input_tokens,
+            "output_tokens": 1,
+        },
     }
 
 
 def _sse_message(message: dict[str, Any]) -> SseResponse:
     """Wrap a canned message payload in the Anthropic SSE wire shape."""
 
+    start_message = {
+        **message,
+        "content": [],
+        "usage": {**message["usage"], "output_tokens": 0},
+    }
     events: list[tuple[str, dict[str, Any]]] = [
         (
             "message_start",
-            {"type": "message_start", "message": {**message, "content": []}},
+            {"type": "message_start", "message": start_message},
         )
     ]
     for index, block in enumerate(message["content"]):
@@ -1229,6 +1563,183 @@ def _sse_message(message: dict[str, Any]) -> SseResponse:
     return SseResponse(tuple(events))
 
 
+class CompactionResponder:
+    """Route-aware fake responses that drive one near-limit retained turn.
+
+    The first Messages reply reports ``near_limit_tokens`` and later replies
+    report one token. Count-token calls report the near-limit value only while
+    exactly one Messages request has completed. Only counters are retained;
+    request content is never stored or inspected.
+    """
+
+    def __init__(self, near_limit_tokens: int, *, first_response_chars: int = 0):
+        if near_limit_tokens <= 0:
+            raise ProbeError("compaction responder token count must be positive")
+        if first_response_chars < 0 or first_response_chars > _MAX_BODY_BYTES // 2:
+            raise ProbeError("compaction responder first response size is unsafe")
+        self.near_limit_tokens = near_limit_tokens
+        self.first_response_chars = first_response_chars
+        self._message_requests = 0
+        self._count_token_requests = 0
+        self._lock = threading.Lock()
+
+    @property
+    def message_requests(self) -> int:
+        with self._lock:
+            return self._message_requests
+
+    @property
+    def count_token_requests(self) -> int:
+        with self._lock:
+            return self._count_token_requests
+
+    def __call__(
+        self, document: dict[str, Any], path: str
+    ) -> tuple[int, dict[str, Any] | SseResponse]:
+        route = urllib.parse.urlsplit(path).path.rstrip("/")
+        with self._lock:
+            if route.endswith("/count_tokens"):
+                self._count_token_requests += 1
+                tokens = (
+                    self.near_limit_tokens
+                    if self._message_requests == 1
+                    else 1
+                )
+                return 200, {"input_tokens": tokens}
+            if not route.endswith("/messages"):
+                return 404, {
+                    "type": "error",
+                    "error": {
+                        "type": "not_found_error",
+                        "message": "probe: unknown path",
+                    },
+                }
+            first = self._message_requests == 0
+            self._message_requests += 1
+            filler = ""
+            if first and self.first_response_chars:
+                parts: list[str] = []
+                size = 0
+                index = 0
+                while size < self.first_response_chars:
+                    part = f" probe-token-{index:06d}"
+                    parts.append(part)
+                    size += len(part)
+                    index += 1
+                filler = "".join(parts)[: self.first_response_chars]
+            text = "PROBE-OK" + filler
+            payload = _message_payload(
+                [{"type": "text", "text": text}],
+                model=document.get("model"),
+                stop_reason="end_turn",
+                message_id=f"msg_probe_compaction_{self._message_requests:04d}",
+                input_tokens=self.near_limit_tokens if first else 1,
+            )
+            return 200, _sse_message(payload) if document.get("stream") else payload
+
+
+class AutomaticCompactionResponder:
+    """Main-turn script driving deterministic automatic compaction.
+
+    Claude Code also issues small auxiliary model calls with no Agent tool.
+    Those receive a separate low-usage response and do not advance the script.
+    Main turns one and two seed compactable groups; main turn three reports
+    150K cache-aware usage; main turn four reports 165K, above the deterministic
+    162K reactive threshold for a 200K capacity; and main turn five exercises
+    the post-threshold session. The lifecycle hook, not auxiliary-request
+    classification, is the proof of automatic compaction.
+    """
+
+    def __init__(self) -> None:
+        self._message_requests = 0
+        self._main_requests = 0
+        self._auxiliary_requests = 0
+        self._count_token_requests = 0
+        self._lock = threading.Lock()
+
+    @property
+    def message_requests(self) -> int:
+        with self._lock:
+            return self._message_requests
+
+    @property
+    def main_requests(self) -> int:
+        with self._lock:
+            return self._main_requests
+
+    @property
+    def auxiliary_requests(self) -> int:
+        with self._lock:
+            return self._auxiliary_requests
+
+    @property
+    def count_token_requests(self) -> int:
+        with self._lock:
+            return self._count_token_requests
+
+    @staticmethod
+    def _is_main_request(document: dict[str, Any]) -> bool:
+        tools = document.get("tools")
+        if not isinstance(tools, list):
+            return False
+        return any(
+            isinstance(tool, dict) and tool.get("name") in _AGENT_TOOL_NAMES
+            for tool in tools
+        )
+
+    def __call__(
+        self, document: dict[str, Any], path: str
+    ) -> tuple[int, dict[str, Any] | SseResponse]:
+        route = urllib.parse.urlsplit(path).path.rstrip("/")
+        with self._lock:
+            if route.endswith("/count_tokens"):
+                self._count_token_requests += 1
+                return 200, {"input_tokens": 1}
+            if not route.endswith("/messages"):
+                return 404, {
+                    "type": "error",
+                    "error": {
+                        "type": "not_found_error",
+                        "message": "probe: unknown path",
+                    },
+                }
+            self._message_requests += 1
+            if self._is_main_request(document):
+                self._main_requests += 1
+                kind = "main"
+                ordinal = self._main_requests
+            else:
+                self._auxiliary_requests += 1
+                kind = "auxiliary"
+                ordinal = self._auxiliary_requests
+
+        text = "PROBE-OK" if kind == "main" else "PROBE-AUX"
+        input_tokens = 1
+        cache_read_input_tokens = 0
+        if kind == "main" and ordinal == 1:
+            input_tokens = 500
+        elif kind == "main" and ordinal == 2:
+            input_tokens = 1000
+        elif kind == "main" and ordinal == 3:
+            input_tokens = 2000
+            cache_read_input_tokens = 147999
+        elif kind == "main" and ordinal == 4:
+            input_tokens = 2000
+            cache_read_input_tokens = 162999
+
+        payload = _message_payload(
+            [{"type": "text", "text": text}],
+            model=document.get("model"),
+            stop_reason="end_turn",
+            message_id=f"msg_probe_automatic_{kind}_{ordinal:04d}",
+            input_tokens=input_tokens,
+            cache_read_input_tokens=cache_read_input_tokens,
+        )
+        if document.get("stream"):
+            return 200, _sse_message(payload)
+        return 200, payload
+
+
 class ScriptedDelegationResponder:
     """F1/F4 provider script: force one Agent delegation, classify follow-up.
 
@@ -1260,16 +1771,20 @@ class ScriptedDelegationResponder:
         *,
         hold: threading.Event | None = None,
         hold_timeout: float = 120.0,
+        delegated_input_limit_bytes: int | None = None,
     ):
         if not _SUBAGENT_TYPE_RE.fullmatch(subagent_type or ""):
             raise ProbeError(
                 "scripted delegation subagent_type must be a safe agent id"
             )
+        if delegated_input_limit_bytes is not None and delegated_input_limit_bytes <= 0:
+            raise ProbeError("delegated input limit must be positive")
         self.subagent_type = subagent_type
         self.tool_use_id = "toolu_probe_delegation_0001"
         self._prompt = "Reply with exactly: CLAUDE-MULTI-PROBE-DELEGATION-OK"
         self._hold = hold
         self._hold_timeout = hold_timeout
+        self._delegated_input_limit_bytes = delegated_input_limit_bytes
         self._classification = "indeterminate"
         self._branch = "no-followup"
         self._forced = False
@@ -1324,6 +1839,16 @@ class ScriptedDelegationResponder:
                 ):
                     parts.append(item["text"])
         return "\n".join(parts)
+
+    @staticmethod
+    def _request_input_bytes(document: dict[str, Any]) -> int:
+        total = 0
+        if "system" in document:
+            total += len(strict_json.canonical_bytes(document["system"]))
+        messages = document.get("messages")
+        if isinstance(messages, list):
+            total += len(strict_json.canonical_bytes(messages))
+        return total
 
     def __call__(
         self, document: dict[str, Any], path: str
@@ -1384,8 +1909,23 @@ class ScriptedDelegationResponder:
             )
             return 200, _sse_message(payload) if stream else payload
         results = self._tool_results(document)
+        if (
+            not results
+            and self._delegated_input_limit_bytes is not None
+            and self._request_input_bytes(document)
+            > self._delegated_input_limit_bytes
+        ):
+            self._branch = "delegated-model-context-overflow"
+            return 400, {
+                "type": "error",
+                "error": {
+                    "type": "invalid_request_error",
+                    "message": "probe: delegated model context window exceeded",
+                },
+            }
         if not results:
-            self._classify("second-request-stream", "accepted")
+            if self._delegated_input_limit_bytes is None:
+                self._classify("second-request-stream", "accepted")
         else:
             block = results[0]
             if block.get("is_error"):
@@ -1447,6 +1987,7 @@ def run_scripted_delegation(
     hold: threading.Event | None = None,
     evidence_name: str | None = None,
     live_daemon_domain: Path | None = None,
+    delegated_input_limit_bytes: int | None = None,
 ) -> DelegationResult:
     """Run one F1/F4-style scripted delegation against the pinned binary.
 
@@ -1474,7 +2015,11 @@ def run_scripted_delegation(
         "Use the Agent tool exactly once with subagent_type "
         f"{subagent_type} and report its reply."
     )
-    responder = ScriptedDelegationResponder(subagent_type, hold=hold)
+    responder = ScriptedDelegationResponder(
+        subagent_type,
+        hold=hold,
+        delegated_input_limit_bytes=delegated_input_limit_bytes,
+    )
     provider = FakeAnthropicProvider(responder=responder).start()
     try:
         argv = (

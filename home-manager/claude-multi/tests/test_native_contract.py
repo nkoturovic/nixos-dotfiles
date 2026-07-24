@@ -55,7 +55,9 @@ class ForkGuidanceTests(unittest.TestCase):
     def test_compile_rejects_non_fresh_resume_actions(self) -> None:
         bundle = catalog.load_catalog(CATALOG_ROOT)
         resolved = composition.resolve(bundle.docs, bundle.default_composition)
-        forged = compiler.SessionAction(kind="fork", session_id=FIXED_ID)
+        forged = compiler.SessionAction(
+            kind="fork", managed_id=FIXED_ID, runtime_session_id=FIXED_ID
+        )
         with self.assertRaisesRegex(CompilerError, "unknown session action"):
             compiler.compile_launch(
                 docs=bundle.docs,

@@ -3,12 +3,12 @@
 Resolves a validated composition against the trusted catalog into an immutable
 resolved form: exactly one lead, ordered variants with deterministic IDs,
 default lanes, preferred markers, availability, and the process-wide scalar
-context (minimum ``validated_tokens`` across selected scalar-kind models only).
+context (minimum explicit ``scalar_tokens`` across selected models).
 """
 
 from __future__ import annotations
 
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from pathlib import Path
 from typing import Any
 
@@ -47,9 +47,16 @@ class ResolvedLead:
     env: dict[str, str]
     display: str
     family: str
+    client_context_tokens: int
+    provider_context_tokens: int
+    provider_context_validated: bool
+    auto_compact_tokens: int
 
 
 WORKFLOWS_VOCABULARY = ("native", "off")
+AUTO_COMPACT_PERCENT = 90
+AUTO_COMPACT_OUTPUT_RESERVE = 20_000
+AUTO_COMPACT_REACTIVE_HEADROOM = 13_000
 
 
 @dataclass(frozen=True)
@@ -61,6 +68,7 @@ class ResolvedComposition:
     native_agents: dict[str, str]
     availability: dict[str, Any]
     scalar_context_tokens: int | None
+    auto_compact_window_tokens: int
     workflows: str = "native"
 
 
@@ -71,18 +79,63 @@ def variant_id(role: str, model: str, lane: str) -> str:
 
 
 def compute_scalar(selected_models: list[dict[str, Any]]) -> int | None:
-    """Minimum validated_tokens across selected scalar-kind models.
-
-    Selector-1m models are excluded and ``declared_tokens`` is never used;
-    returns None when no selected model is scalar-classified.
-    """
+    """Minimum explicit process scalar across selected models."""
 
     values = [
-        model["context"]["validated_tokens"]
+        model["context"]["scalar_tokens"]
         for model in selected_models
-        if model["context"]["kind"] == "scalar"
+        if model["context"]["scalar_tokens"] is not None
     ]
     return min(values) if values else None
+
+
+def auto_compact_trigger(window_tokens: int) -> int:
+    """Pinned-client reactive compact threshold for one process capacity.
+
+    Claude Code 2.1.217 reserves up to 20K output tokens and applies the
+    percentage to the remaining prompt budget. Proactive preparation is not
+    returned here because its experiment-controlled fraction can vary at
+    runtime; the reactive override is deterministic.
+    """
+
+    if window_tokens <= AUTO_COMPACT_OUTPUT_RESERVE + AUTO_COMPACT_REACTIVE_HEADROOM:
+        raise CompositionError(
+            "auto-compaction capacity is too small for the pinned client policy"
+        )
+    prompt_budget = window_tokens - AUTO_COMPACT_OUTPUT_RESERVE
+    return min(
+        prompt_budget * AUTO_COMPACT_PERCENT // 100,
+        prompt_budget - AUTO_COMPACT_REACTIVE_HEADROOM,
+    )
+
+
+def compute_auto_compact_capacity(
+    lead_model: dict[str, Any], selected_models: list[dict[str, Any]]
+) -> int:
+    """Safe process capacity without needlessly shrinking scalar models.
+
+    The environment value is process-wide. A model whose provider bound equals
+    its client classification is already protected by Claude Code's per-model
+    cap. Extended selectors such as Qwen can advertise a larger client window
+    than the provider accepts, so those stricter provider bounds narrow the
+    shared capacity for every thread in the process.
+    """
+
+    capacity = lead_model["context"]["provider_tokens"]
+    for model in selected_models:
+        context = model["context"]
+        if context["provider_tokens"] < context["client_tokens"]:
+            capacity = min(capacity, context["provider_tokens"])
+    return capacity
+
+
+def _lead_context_policy(model: dict[str, Any]) -> tuple[int, int, int]:
+    """Claude-client context, provider bound, and initial reactive trigger."""
+
+    context = model["context"]
+    client_tokens = context["client_tokens"]
+    provider_tokens = context["provider_tokens"]
+    return client_tokens, provider_tokens, auto_compact_trigger(provider_tokens)
 
 
 def load_composition_file(
@@ -130,6 +183,9 @@ def resolve(docs: dict[str, Any], composition: dict[str, Any]) -> ResolvedCompos
                 # native workflows off, lead ultracode maps to xhigh. The
                 # derived value is what the snapshot records.
                 lead_effort = "xhigh"
+            client_context, provider_context, compact_trigger = _lead_context_policy(
+                model
+            )
             lead = ResolvedLead(
                 model=model_id,
                 client_selector=model["client_selector"],
@@ -137,6 +193,12 @@ def resolve(docs: dict[str, Any], composition: dict[str, Any]) -> ResolvedCompos
                 env=dict(lead_block["env"]),
                 display=model["display"],
                 family=provider["independence_family"],
+                client_context_tokens=client_context,
+                provider_context_tokens=provider_context,
+                provider_context_validated=(
+                    model["context"]["validated_tokens"] >= provider_context
+                ),
+                auto_compact_tokens=compact_trigger,
             )
             continue
         lane_id = slot.get("lane", model["default_lane"])
@@ -162,6 +224,12 @@ def resolve(docs: dict[str, Any], composition: dict[str, Any]) -> ResolvedCompos
         raise CompositionError("composition has no lead slot")
 
     selected = [models[lead.model]] + [models[v.model] for v in variants]
+    auto_compact_window = compute_auto_compact_capacity(
+        models[lead.model], selected
+    )
+    lead = replace(
+        lead, auto_compact_tokens=auto_compact_trigger(auto_compact_window)
+    )
     return ResolvedComposition(
         name=composition["name"],
         description=composition.get("description", ""),
@@ -173,6 +241,7 @@ def resolve(docs: dict[str, Any], composition: dict[str, Any]) -> ResolvedCompos
             "models": dict(composition["availability"]["models"]),
         },
         scalar_context_tokens=compute_scalar(selected),
+        auto_compact_window_tokens=auto_compact_window,
         workflows=workflows,
     )
 
@@ -192,6 +261,9 @@ def snapshot(resolved: ResolvedComposition) -> dict[str, Any]:
             "client_selector": resolved.lead.client_selector,
             "effort": resolved.lead.effort,
             "env": dict(resolved.lead.env),
+            "client_context_tokens": resolved.lead.client_context_tokens,
+            "provider_context_tokens": resolved.lead.provider_context_tokens,
+            "auto_compact_tokens": resolved.lead.auto_compact_tokens,
         },
         "variants": [
             {
@@ -210,6 +282,7 @@ def snapshot(resolved: ResolvedComposition) -> dict[str, Any]:
             "models": dict(resolved.availability["models"]),
         },
         "scalar_context_tokens": resolved.scalar_context_tokens,
+        "auto_compact_window_tokens": resolved.auto_compact_window_tokens,
     }
     if resolved.workflows != "native":
         document["workflows"] = resolved.workflows

@@ -31,15 +31,28 @@
           },
           "context": {
             "type": "object",
-            "required": ["kind", "declared_tokens", "validated_tokens", "qualification"],
+            "required": ["client_tokens", "provider_tokens", "scalar_tokens", "ordinary_profile", "declared_tokens", "validated_tokens", "qualification"],
             "additionalProperties": false,
             "properties": {
-              "kind": { "enum": ["selector-1m", "scalar"] },
+              "client_tokens": { "type": "integer", "minimum": 1 },
+              "provider_tokens": { "type": "integer", "minimum": 1 },
+              "scalar_tokens": {
+                "oneOf": [
+                  { "type": "integer", "minimum": 1 },
+                  { "type": "null" }
+                ]
+              },
+              "ordinary_profile": {
+                "oneOf": [
+                  { "enum": ["sol", "large"] },
+                  { "type": "null" }
+                ]
+              },
               "declared_tokens": { "type": "integer", "minimum": 1 },
               "validated_tokens": { "type": "integer", "minimum": 1 },
               "provider_stated_limit_tokens": { "type": "integer", "minimum": 1 },
               "user_reported_tokens": { "type": "integer", "minimum": 1 },
-              "qualification": { "type": "string", "minLength": 1, "maxLength": 640 }
+              "qualification": { "type": "string", "minLength": 1, "maxLength": 768 }
             }
           },
           "lanes": {

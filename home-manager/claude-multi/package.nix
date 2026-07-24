@@ -40,10 +40,11 @@ pkgs.stdenv.mkDerivation {
     cp -r catalog schemas src settings.json version.json $out/share/claude-multi/
     cp -r bin $out/share/claude-multi/bin
 
-    for entry in claude-multi claude-multi-dev; do
+    for entry in claude-multi claude-multi-dev claude-gateway; do
       makeWrapper ${python}/bin/python3 $out/bin/$entry \
         --set PYTHONPATH "$out/share/claude-multi/src" \
         --set CLAUDE_MULTI_ASSETS "$out/share/claude-multi" \
+        --set CLAUDE_MULTI_HOOK_COMMAND "$out/bin/claude-multi" \
         --add-flags "$out/share/claude-multi/bin/$entry"
     done
 

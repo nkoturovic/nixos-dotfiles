@@ -122,6 +122,21 @@ class AtomicWriteTests(StateTestCase):
         leftovers = [p for p in directory.iterdir() if p.name.startswith(".")]
         self.assertEqual(leftovers, [])
 
+    def test_post_replace_fsync_failure_reports_committed_state(self) -> None:
+        directory = self._dir()
+        target = directory / "session.json"
+        state.atomic_write(target, b"original")
+        with mock.patch.object(
+            state, "_fsync_directory", side_effect=OSError("injected fsync")
+        ):
+            with self.assertRaisesRegex(
+                state.CommittedStateError, "was replaced but directory fsync failed"
+            ):
+                state.atomic_write(target, b"new")
+        self.assertEqual(state.read_private(target), b"new")
+        leftovers = [p for p in directory.iterdir() if p.name.startswith(".")]
+        self.assertEqual(leftovers, [])
+
 
 class DirectoryTests(StateTestCase):
     def test_ensure_private_dir_creates_nested_0700(self) -> None:

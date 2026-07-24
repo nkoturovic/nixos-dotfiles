@@ -8,6 +8,10 @@ flake-verify path copies.
 
 from __future__ import annotations
 
+import json
+import os
+import subprocess
+import sys
 import unittest
 from pathlib import Path
 
@@ -65,6 +69,35 @@ REMOVED_ALIASES = (
 )
 
 
+class EntryPointTests(unittest.TestCase):
+    def test_gateway_version_matches_launcher_version(self) -> None:
+        gateway = V2_ROOT / "bin" / "claude-gateway"
+        if not gateway.is_file():
+            self.skipTest("boundary: source entrypoints are absent in sandbox package tree")
+        expected = json.loads((V2_ROOT / "version.json").read_text())[
+            "launcher_version"
+        ]
+        env = dict(os.environ)
+        env["PYTHONPATH"] = str(V2_ROOT / "src")
+        result = subprocess.run(
+            [sys.executable, str(gateway), "--version"],
+            env=env,
+            text=True,
+            capture_output=True,
+            check=False,
+        )
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertEqual(result.stdout.strip(), f"claude-multi {expected}")
+
+
+    def test_module_entrypoint_runs_after_native_discovery_helpers(self) -> None:
+        source = (V2_ROOT / "src" / "claude_multi" / "cli.py").read_text()
+        self.assertGreater(
+            source.rfind('if __name__ == "__main__":'),
+            source.rfind("def _original_cwd_for_adopt"),
+        )
+
+
 class ModuleWiringTests(unittest.TestCase):
     def setUp(self) -> None:
         if REPO_ROOT is None:
@@ -84,13 +117,19 @@ class ModuleWiringTests(unittest.TestCase):
         self.assertNotIn("writeShellApplication", text)
         self.assertNotIn("plugin", text.lower().replace("cli-proxy-api-kimi", ""))
 
-    def test_package_nix_installs_three_bins_and_assets(self) -> None:
+    def test_package_nix_installs_gateway_and_management_bins(self) -> None:
         text = (V2_ROOT / "package.nix").read_text()
-        for entry in ("claude-multi", "claude-multi-dev", "claude-multi-proxy"):
+        for entry in (
+            "claude-multi",
+            "claude-multi-dev",
+            "claude-multi-proxy",
+            "claude-gateway",
+        ):
             self.assertIn(entry, text)
         for asset in ("catalog", "schemas", "src", "settings.json", "version.json"):
             self.assertIn(asset, text)
         self.assertIn("CLAUDE_MULTI_ASSETS", text)
+        self.assertIn("CLAUDE_MULTI_HOOK_COMMAND", text)
         self.assertIn("CLAUDE_MULTI_PROXY_BIN", text)
 
     def test_home_nix_imports_module_once_and_drops_v1(self) -> None:
@@ -139,6 +178,7 @@ class CutoverTests(unittest.TestCase):
             "home-manager/claude-multi/package.nix",
             "home-manager/claude-multi/src/claude_multi/proxy.py",
             "home-manager/claude-multi/bin/claude-multi-proxy",
+            "home-manager/claude-multi/bin/claude-gateway",
             "home-manager/claude-multi/README.md",
             "docs/claude-multi-v2.md",
         ):

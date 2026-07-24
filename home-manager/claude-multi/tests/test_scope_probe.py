@@ -20,6 +20,7 @@ from __future__ import annotations
 
 import hashlib
 import os
+import shlex
 import shutil
 import sys
 import tempfile
@@ -66,57 +67,102 @@ def post(document):
 
 
 tools = [{"name": "Agent", "input_schema": {"type": "object"}}]
+parent_turn = {
+    "role": "user",
+    "content": "P" * 4096 if MODE in {"inherited", "generated", "low-context"} else "fixture turn",
+}
 first = {
-    "model": "probe-model",
+    "model": "probe-parent" if MODE in {"inherited", "generated", "low-context"} else "probe-model",
     "max_tokens": 16,
-    "messages": [{"role": "user", "content": "fixture turn"}],
+    "messages": [parent_turn],
     "tools": tools,
 }
 status, reply = post(first)
 assert status == 200, status
 block = next(item for item in reply["content"] if item["type"] == "tool_use")
-messages = [
-    {"role": "user", "content": "fixture turn"},
-    {"role": "assistant", "content": reply["content"]},
-]
-if MODE == "success":
-    messages.append(
-        {
-            "role": "user",
-            "content": [
-                {
-                    "type": "tool_result",
-                    "tool_use_id": block["id"],
-                    "content": "CLAUDE-MULTI-PROBE-DELEGATION-OK",
-                }
-            ],
+
+if MODE in {"inherited", "generated", "low-context"}:
+    delegated_turn = {"role": "user", "content": "delegated task"}
+    child = {
+        "model": "probe-child-low-context" if MODE == "low-context" else "probe-child-wide",
+        "max_tokens": 16,
+        "system": "child" if MODE == "inherited" else "S" * 4096,
+        "messages": [parent_turn, delegated_turn] if MODE == "inherited" else [delegated_turn],
+    }
+    status, child_reply = post(child)
+    if MODE == "low-context":
+        assert status == 400, status
+        assert child_reply["error"]["type"] == "invalid_request_error"
+        assert child_reply["error"]["message"] == "probe: delegated model context window exceeded"
+        print("FAKE-CLIENT-DONE")
+    else:
+        assert status == 200, status
+        messages = [
+            parent_turn,
+            {"role": "assistant", "content": reply["content"]},
+            {
+                "role": "user",
+                "content": [
+                    {
+                        "type": "tool_result",
+                        "tool_use_id": block["id"],
+                        "content": "CLAUDE-MULTI-PROBE-DELEGATION-OK",
+                    }
+                ],
+            },
+        ]
+        followup = {
+            "model": "probe-parent",
+            "max_tokens": 16,
+            "messages": messages,
+            "tools": tools,
         }
-    )
-elif MODE == "refused":
-    messages.append(
-        {
-            "role": "user",
-            "content": [
-                {
-                    "type": "tool_result",
-                    "tool_use_id": block["id"],
-                    "is_error": True,
-                    "content": "unknown subagent type",
-                }
-            ],
-        }
-    )
-else:  # "stream": a fresh request stream with no tool_result for the call
-    messages.append({"role": "user", "content": "continue"})
-followup = {
-    "model": "probe-model",
-    "max_tokens": 16,
-    "messages": messages,
-    "tools": tools,
-}
-status, reply = post(followup)
-assert status == 200, status
-print("FAKE-CLIENT-DONE")
+        status, reply = post(followup)
+        assert status == 200, status
+        print("FAKE-CLIENT-DONE")
+else:
+    messages = [
+        parent_turn,
+        {"role": "assistant", "content": reply["content"]},
+    ]
+    if MODE == "success":
+        messages.append(
+            {
+                "role": "user",
+                "content": [
+                    {
+                        "type": "tool_result",
+                        "tool_use_id": block["id"],
+                        "content": "CLAUDE-MULTI-PROBE-DELEGATION-OK",
+                    }
+                ],
+            }
+        )
+    elif MODE == "refused":
+        messages.append(
+            {
+                "role": "user",
+                "content": [
+                    {
+                        "type": "tool_result",
+                        "tool_use_id": block["id"],
+                        "is_error": True,
+                        "content": "unknown subagent type",
+                    }
+                ],
+            }
+        )
+    else:  # "stream": a fresh request stream with no tool_result for the call
+        messages.append({"role": "user", "content": "continue"})
+    followup = {
+        "model": "probe-model",
+        "max_tokens": 16,
+        "messages": messages,
+        "tools": tools,
+    }
+    status, reply = post(followup)
+    assert status == 200, status
+    print("FAKE-CLIENT-DONE")
 '''
 
 _TAKEOVER_CLIENT_BODY = '''
@@ -537,6 +583,79 @@ class ScriptedDelegationRunTests(ScopeProbeTestCase):
         self.assertEqual(result.classification, "refused")
         self.assertEqual(result.branch, "tool_result-unknown-type")
 
+    def test_delegated_request_metadata_detects_inherited_parent_context(self) -> None:
+        scope = self._scope_dir()
+        result = self._run(
+            self._fake_client("inherited"),
+            scope,
+            evidence_name=None,
+            delegated_input_limit_bytes=20_000,
+        )
+        self.assertEqual(result.classification, "accepted")
+        self.assertEqual(result.branch, "tool_result-success")
+        self.assertEqual(result.returncode, 0)
+        self.assertFalse(result.timed_out)
+        self.assertEqual(len(result.requests), 3)
+        parent, child, _followup = result.requests
+        self.assertEqual(parent.model, "probe-parent")
+        self.assertEqual(child.model, "probe-child-wide")
+        self.assertEqual(
+            set(parent.message_sha256s) & set(child.message_sha256s),
+            {parent.message_sha256s[0]},
+        )
+        self.assertEqual(
+            child.system_json_bytes,
+            len(strict_json.canonical_bytes("child")),
+        )
+
+    def test_delegated_request_metadata_measures_generated_system_prompt(self) -> None:
+        scope = self._scope_dir()
+        result = self._run(
+            self._fake_client("generated"),
+            scope,
+            evidence_name=None,
+            delegated_input_limit_bytes=20_000,
+        )
+        self.assertEqual(result.classification, "accepted")
+        self.assertEqual(result.branch, "tool_result-success")
+        self.assertEqual(len(result.requests), 3)
+        parent, child, _followup = result.requests
+        self.assertFalse(
+            set(parent.message_sha256s) & set(child.message_sha256s)
+        )
+        self.assertEqual(
+            child.system_json_bytes,
+            len(strict_json.canonical_bytes("S" * 4096)),
+        )
+        self.assertGreater(child.system_json_bytes, child.messages_json_bytes)
+
+    def test_low_context_delegated_model_overflow_is_distinct(self) -> None:
+        scope = self._scope_dir()
+        result = self._run(
+            self._fake_client("low-context"),
+            scope,
+            evidence_name=None,
+            delegated_input_limit_bytes=512,
+        )
+        self.assertEqual(result.classification, "indeterminate")
+        self.assertEqual(result.branch, "delegated-model-context-overflow")
+        self.assertEqual(result.returncode, 0)
+        self.assertFalse(result.timed_out)
+        self.assertEqual(len(result.requests), 2)
+        parent, child = result.requests
+        self.assertEqual(child.model, "probe-child-low-context")
+        self.assertFalse(
+            set(parent.message_sha256s) & set(child.message_sha256s)
+        )
+        self.assertEqual(
+            child.system_json_bytes,
+            len(strict_json.canonical_bytes("S" * 4096)),
+        )
+        self.assertGreater(
+            child.system_json_bytes + child.messages_json_bytes,
+            512,
+        )
+
     def test_fake_spec_refused(self) -> None:
         scope = self._scope_dir()
         trusted = self._trusted_script("fake-unit", _FAKE_CLIENT_BODY, fake=True)
@@ -838,6 +957,45 @@ class RealPinnedBinaryTests(ScopeProbeTestCase):
         if self.boundary_skip is not None:
             self.skipTest(self.boundary_skip)
 
+    def _install_lifecycle_recorder(self) -> Path:
+        events = self.fixture.root / "lifecycle-events.jsonl"
+        recorder = self.fixture.root / "record-lifecycle.py"
+        recorder.write_text(
+            f"#!{sys.executable}\n"
+            "import json, os, sys\n"
+            f"target = {str(events)!r}\n"
+            "event = json.load(sys.stdin)\n"
+            "allowed = {key: event.get(key) for key in "
+            "('hook_event_name', 'session_id', 'source', 'cwd', 'model')}\n"
+            "with open(target, 'a', encoding='utf-8') as handle:\n"
+            "    handle.write(json.dumps(allowed, sort_keys=True) + '\\n')\n"
+            "    handle.flush()\n"
+            "    os.fsync(handle.fileno())\n"
+            "print('{}')\n",
+            encoding="utf-8",
+        )
+        recorder.chmod(0o700)
+        settings = {
+            "hooks": {
+                "SessionStart": [
+                    {
+                        "hooks": [
+                            {
+                                "type": "command",
+                                "command": shlex.quote(str(recorder)),
+                                "timeout": 5,
+                            }
+                        ]
+                    }
+                ]
+            }
+        }
+        state.atomic_write(
+            self.fixture.claude_config_dir / "settings.json",
+            strict_json.canonical_file_bytes(settings),
+        )
+        return events
+
     def test_real_scripted_delegation_headless(self) -> None:
         scope = self._scope_dir()
         try:
@@ -872,6 +1030,200 @@ class RealPinnedBinaryTests(ScopeProbeTestCase):
             f"returncode={result.returncode} timed_out={result.timed_out} "
             f"requests={len(result.requests)} "
             f"fixture_domains_after={list(result.daemon.fixture_domains_after)}"
+        )
+
+    def test_real_manual_compaction_emits_metadata_hook(self) -> None:
+        events_path = self._install_lifecycle_recorder()
+        session_id = "33333333-3333-4333-8333-333333333333"
+        model = "claude-fable-5[1m]"
+        responder = probe.CompactionResponder(near_limit_tokens=900)
+        policy = probe.ProbeCompactionPolicy(
+            auto_compact_window=1000000,
+            auto_compact_percent=100,
+        )
+        with probe.FakeAnthropicProvider(responder=responder) as provider:
+            try:
+                result = probe.run_native_pty(
+                    (
+                        "--session-id",
+                        session_id,
+                        "--model",
+                        model,
+                        "--dangerously-skip-permissions",
+                    ),
+                    (
+                        probe.PTYInteraction(b"Choose", b"2\r"),
+                        probe.PTYInteraction(b"Press", b"\r"),
+                        probe.PTYInteraction(b"Quick safety check", b"1\r"),
+                        probe.PTYInteraction(b"WARNING", b"2\r"),
+                        probe.PTYInteraction(
+                            "❯".encode("utf-8"),
+                            b"CLAUDE-MULTI-COMPACTION-FIRST\r",
+                        ),
+                        probe.PTYInteraction(
+                            b"PROBE-OK", b"CLAUDE-MULTI-COMPACTION-SECOND\r"
+                        ),
+                        probe.PTYInteraction(b"PROBE-OK", b"/compact\r"),
+                        probe.PTYInteraction(b"Compacted", b"/exit\r"),
+                    ),
+                    trusted=self.trusted,
+                    fixture=self.fixture,
+                    provider=provider,
+                    timeout=120,
+                    allow_real=True,
+                    environ=self.environ,
+                    compaction=policy,
+                )
+            except ProbeError as exc:
+                if "live daemon domain touched" in str(exc):
+                    self.skipTest(
+                        "BOUNDARY: live daemon-domain churn prevented a clean "
+                        f"manual-compaction observation ({exc})"
+                    )
+                raise
+        self.assertFalse(result.timed_out, result.stderr)
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertTrue(events_path.is_file())
+        events = [
+            strict_json.loads(line)
+            for line in events_path.read_text(encoding="utf-8").splitlines()
+            if line
+        ]
+        compact = [event for event in events if event.get("source") == "compact"]
+        self.assertTrue(
+            compact,
+            {
+                "events": events,
+                "message_requests": responder.message_requests,
+                "count_token_requests": responder.count_token_requests,
+                "stdout": result.stdout,
+                "stderr": result.stderr,
+            },
+        )
+        self.assertEqual(len(compact), 1)
+        self.assertEqual([event.get("source") for event in events], ["startup", "compact"])
+        self.assertTrue(all("transcript_path" not in event for event in events))
+        self.assertGreaterEqual(responder.message_requests, 2)
+        self.assertTrue(provider.requests)
+        self.assertTrue(all(record.auth == "dummy" for record in provider.requests))
+        print(
+            "real manual compaction outcome: ran "
+            f"messages={responder.message_requests} "
+            f"count_tokens={responder.count_token_requests} "
+            f"events={len(events)} compact_events={len(compact)}"
+        )
+
+    def test_real_auto_compaction_emits_metadata_hook(self) -> None:
+        events_path = self._install_lifecycle_recorder()
+        session_id = "44444444-4444-4444-8444-444444444444"
+        model = "gpt-multi-sol-high"
+        auto_window = 200000
+        responder = probe.AutomaticCompactionResponder()
+        large_turn = " ".join(
+            f"probe-token-{index:05d}" for index in range(4000)
+        )[:60000].encode("utf-8")
+        paste = b"\x1b[200~" + large_turn + b"\x1b[201~\r"
+        policy = probe.ProbeCompactionPolicy(
+            auto_compact_window=auto_window,
+            auto_compact_percent=90,
+            max_context_tokens=auto_window,
+        )
+        prompt = "❯".encode("utf-8")
+        interactions = (
+            probe.PTYInteraction(b"Choose", b"2\r"),
+            probe.PTYInteraction(b"Press", b"\r"),
+            probe.PTYInteraction(b"Quick safety check", b"1\r"),
+            probe.PTYInteraction(b"WARNING", b"2\r"),
+            probe.PTYInteraction(prompt, b"COMPACTION-SEED-A\r"),
+            probe.PTYInteraction(
+                b"PROBE-OK", b"", preserve_after_wait=True
+            ),
+            probe.PTYInteraction(prompt, b"COMPACTION-SEED-B\r"),
+            probe.PTYInteraction(
+                b"PROBE-OK", b"", preserve_after_wait=True
+            ),
+            probe.PTYInteraction(prompt, paste),
+            probe.PTYInteraction(
+                b"PROBE-OK", b"", preserve_after_wait=True
+            ),
+            probe.PTYInteraction(prompt, b"COMPACTION-BRIDGE\r"),
+            probe.PTYInteraction(
+                b"PROBE-OK", b"", preserve_after_wait=True
+            ),
+            probe.PTYInteraction(prompt, b"COMPACTION-TRIGGER\r"),
+            probe.PTYInteraction(
+                b"PROBE-OK", b"", preserve_after_wait=True
+            ),
+            probe.PTYInteraction(prompt, b"/exit\r"),
+        )
+        self.assertNotIn(
+            b"/compact", b"".join(interaction.send for interaction in interactions)
+        )
+        with probe.FakeAnthropicProvider(responder=responder) as provider:
+            try:
+                result = probe.run_native_pty(
+                    (
+                        "--session-id",
+                        session_id,
+                        "--model",
+                        model,
+                        "--dangerously-skip-permissions",
+                    ),
+                    interactions,
+                    trusted=self.trusted,
+                    fixture=self.fixture,
+                    provider=provider,
+                    timeout=180,
+                    allow_real=True,
+                    environ=self.environ,
+                    compaction=policy,
+                )
+            except ProbeError as exc:
+                if "live daemon domain touched" in str(exc):
+                    self.skipTest(
+                        "BOUNDARY: live daemon-domain churn prevented a clean "
+                        f"automatic-compaction observation ({exc})"
+                    )
+                metadata = [
+                    {
+                        "ordinal": index,
+                        "model": record.model,
+                        "system_bytes": record.system_json_bytes,
+                        "messages_bytes": record.messages_json_bytes,
+                        "message_count": record.message_count,
+                        "tools": record.tool_names,
+                    }
+                    for index, record in enumerate(provider.requests, start=1)
+                ]
+                raise ProbeError(f"{exc}; request_metadata={metadata}") from exc
+        self.assertFalse(result.timed_out, result.stderr)
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertGreaterEqual(responder.main_requests, 5)
+        self.assertGreaterEqual(responder.auxiliary_requests, 2)
+        self.assertTrue(events_path.is_file())
+        events = [
+            strict_json.loads(line)
+            for line in events_path.read_text(encoding="utf-8").splitlines()
+            if line
+        ]
+        compact = [event for event in events if event.get("source") == "compact"]
+        self.assertTrue(
+            compact,
+            {
+                "events": events,
+                "message_requests": responder.message_requests,
+                "count_token_requests": responder.count_token_requests,
+                "stdout_tail": result.stdout[-2000:],
+            },
+        )
+        self.assertTrue(all("transcript_path" not in event for event in events))
+        self.assertTrue(provider.requests)
+        self.assertTrue(all(record.auth == "dummy" for record in provider.requests))
+        print(
+            "real auto compaction outcome: ran "
+            f"messages={responder.message_requests} "
+            f"count_tokens={responder.count_token_requests} "
+            f"events={len(events)} compact_events={len(compact)}"
         )
 
     def test_real_takeover_probe_stop_gate(self) -> None:

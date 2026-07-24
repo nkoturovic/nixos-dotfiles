@@ -10,6 +10,7 @@ import re
 import shutil
 import sys
 import tempfile
+import threading
 import unittest
 from pathlib import Path
 from unittest import mock
@@ -470,6 +471,29 @@ class RememberedAndResumeTests(CLITestCase):
         self.assertEqual(len(self.launches), 1)
         self.assertEqual(self.launches[0].result.session_action.kind, "resume")
 
+    def test_noninteractive_resume_needs_no_composition(self) -> None:
+        # Regression: scripted `-r <uuid>` must resume from the record alone;
+        # the --composition requirement applies only to fresh launches.
+        self.save_session()
+        code, output = self.run_cli(["-r", FIXED_ID], interactive=False)
+        self.assertEqual(code, 0, output)
+        self.assertEqual(len(self.launches), 1)
+        self.assertEqual(self.launches[0].result.session_action.kind, "resume")
+
+    def test_noninteractive_continue_needs_no_composition(self) -> None:
+        self.save_session()
+        self.runtime.session_store.update_last(self.runtime.cwd, FIXED_ID)
+        code, output = self.run_cli(["-c"], interactive=False)
+        self.assertEqual(code, 0, output)
+        self.assertEqual(len(self.launches), 1)
+        self.assertEqual(self.launches[0].result.session_action.kind, "resume")
+
+    def test_noninteractive_fresh_still_requires_composition(self) -> None:
+        code, output = self.run_cli([], interactive=False)
+        self.assertEqual(code, 2)
+        self.assertIn("noninteractive launch requires --composition NAME", output)
+        self.assertEqual(self.launches, [])
+
     def test_saved_drift_shows_transition_note_and_resumes_recorded(self) -> None:
         # The saved composition changed after the session was recorded: drift
         # is informational, the transition path is named, and resume still
@@ -591,6 +615,10 @@ class RememberedAndResumeTests(CLITestCase):
         prepared = self.launches[0]
         self.assertTrue(prepared.result.durable)
         self.assertEqual(prepared.record["scope_generation"], 2)
+        self.assertEqual(prepared.expected_source_scope_generation, 2)
+        self.assertEqual(
+            prepared.expected_source_composition_hash, record["composition_hash"]
+        )
         # The recompile heals the drifted selectors from the catalog.
         healed = prepared.record["snapshot"]
         self.assertNotEqual(healed["variants"][0]["client_selector"], "old-selector[1m]")
@@ -661,7 +689,7 @@ class RememberedAndResumeTests(CLITestCase):
             passthrough=[],
             session_id=FIXED_ID,
         )
-        self.assertEqual(prepared.record["session_id"], FIXED_ID)
+        self.assertEqual(prepared.record["managed_id"], FIXED_ID)
         self.assertEqual(prepared.record["forked_from"], OTHER_ID)
 
     def test_fork_prepare_fails_with_adoption_guidance(self) -> None:
@@ -978,18 +1006,182 @@ class CompositionReadSafetyTests(CLITestCase):
 
 class SessionCommandTests(CLITestCase):
     def test_link_list_show_forget_without_private_scrape(self) -> None:
-        code, output = self.run_cli(
-            ["sessions", "link", FIXED_ID, "--composition", "default"]
+        import builtins
+
+        project_dir = (
+            Path(self.runtime.environ["HOME"])
+            / ".claude"
+            / "projects"
+            / cli._native_project_slug(self.runtime.cwd)
         )
-        self.assertEqual(code, 0)
-        self.assertIn("Linked", output)
-        self.assertEqual(self.run_cli(["sessions", "list"])[0], 0)
-        code, output = self.run_cli(["sessions", "show", FIXED_ID])
-        self.assertEqual(code, 0)
-        self.assertIn('"session_id":"' + FIXED_ID, output)
-        code, output = self.run_cli(["sessions", "forget", FIXED_ID])
-        self.assertEqual(code, 0)
-        self.assertIn("Forgot", output)
+        project_dir.mkdir(parents=True)
+        transcript = project_dir / f"{FIXED_ID}.jsonl"
+        transcript.write_bytes(b'{"poison":"must-not-be-read"}\n')
+        real_builtin_open = builtins.open
+        real_io_open = io.open
+
+        def guarded_open(original):
+            def wrapper(file, mode="r", *args, **kwargs):
+                try:
+                    target = Path(file)
+                except TypeError:
+                    target = None
+                if target == transcript and any(flag in mode for flag in ("r", "+")):
+                    raise AssertionError("transcript body was opened")
+                return original(file, mode, *args, **kwargs)
+
+            return wrapper
+
+        with mock.patch("builtins.open", side_effect=guarded_open(real_builtin_open)), mock.patch(
+            "io.open", side_effect=guarded_open(real_io_open)
+        ):
+            code, output = self.run_cli(
+                ["sessions", "link", FIXED_ID, "--composition", "default"]
+            )
+            self.assertEqual(code, 0)
+            self.assertIn("Linked", output)
+            record = self.runtime.session_store.resolve(FIXED_ID)
+            stable_id = record["managed_id"]
+            self.assertEqual(self.run_cli(["sessions", "list"])[0], 0)
+            code, output = self.run_cli(["sessions", "show", FIXED_ID])
+            self.assertEqual(code, 0)
+            self.assertIn('"runtime_session_id":"' + FIXED_ID, output)
+            self.assertIn('"managed_id":', output)
+            payload = strict_json.canonical_bytes(
+                {
+                    "hook_event_name": "SessionStart",
+                    "session_id": FIXED_ID,
+                    "source": "resume",
+                    "cwd": self.runtime.cwd,
+                    "model": "claude-fable-5[1m]",
+                    "transcript_path": str(transcript),
+                }
+            ).decode("utf-8")
+            self.assertEqual(
+                self.run_cli(
+                    ["session-event", "start", "--managed-id", stable_id], payload
+                )[0],
+                0,
+            )
+            code, output = self.run_cli(["sessions", "forget", FIXED_ID])
+            self.assertEqual(code, 0)
+            self.assertIn("Forgot", output)
+
+    def test_link_updates_pointer_for_adopted_original_cwd(self) -> None:
+        other = self.root / "original-project"
+        other.mkdir()
+        with mock.patch.object(
+            cli, "_original_cwd_for_adopt", return_value=str(other)
+        ):
+            code, output = self.run_cli(
+                ["sessions", "link", FIXED_ID, "--composition", "default"]
+            )
+        self.assertEqual(code, 0, output)
+        record = self.runtime.session_store.resolve(FIXED_ID)
+        self.assertEqual(record["cwd"], str(other))
+        self.assertEqual(
+            self.runtime.session_store.last(str(other)), record["managed_id"]
+        )
+        self.assertIsNone(self.runtime.session_store.last(self.runtime.cwd))
+
+    def test_link_can_adopt_native_session_as_ordinary_gateway(self) -> None:
+        with mock.patch.object(
+            cli, "_original_cwd_for_adopt", return_value=self.runtime.cwd
+        ):
+            code, output = self.run_cli(
+                ["sessions", "link", FIXED_ID, "--model", "qwen38"]
+            )
+        self.assertEqual(code, 0, output)
+        self.assertIn("as ordinary", output)
+        record = self.runtime.session_store.resolve(FIXED_ID)
+        self.assertEqual(record["session_type"], sessions.SESSION_TYPE_ORDINARY)
+        self.assertEqual(record["ordinary_model"], "qwen38")
+        self.assertEqual(record["context_profile"], "large")
+        self.assertEqual(record["mode"], "legacy")
+        self.assertEqual(record["scope_generation"], 0)
+        self.assertEqual(
+            self.runtime.session_store.last(
+                self.runtime.cwd, session_type=sessions.SESSION_TYPE_ORDINARY
+            ),
+            record["managed_id"],
+        )
+        self.assertIsNone(self.runtime.session_store.last(self.runtime.cwd))
+        prepared = self.runtime.prepare_direct(
+            action="resume",
+            model_id=None,
+            passthrough=[],
+            session_id=record["managed_id"],
+        )
+        self.assertEqual(prepared.record["mode"], "durable")
+        self.assertEqual(prepared.record["scope_generation"], 1)
+        self.assertEqual(prepared.expected_source_scope_generation, 0)
+        self.assertNotIn("--model", prepared.result.argv)
+
+    def test_relink_runtime_repairs_existing_record_without_moving_scope_id(self) -> None:
+        self.save_session(mode="durable", scope_generation=1)
+        runtime_id = "22222222-2222-4222-8222-222222222222"
+        repaired_cwd = self.root / "repaired-project"
+        repaired_cwd.mkdir()
+        code, output = self.run_cli(
+            [
+                "sessions",
+                "relink-runtime",
+                FIXED_ID,
+                runtime_id,
+                "--cwd",
+                str(repaired_cwd),
+            ]
+        )
+        self.assertEqual(code, 0, output)
+        self.assertIn(f"managed {FIXED_ID}", output)
+        record = self.runtime.session_store.load(FIXED_ID)
+        self.assertEqual(record["managed_id"], FIXED_ID)
+        self.assertEqual(record["runtime_session_id"], runtime_id)
+        self.assertEqual(record["cwd"], str(repaired_cwd))
+        self.assertEqual(record["identity_state"], sessions.IDENTITY_AUTHORITATIVE)
+        self.assertEqual(record["launch_epoch"], 1)
+        self.assertRegex(record["mutation_token"], sessions.UUID4)
+        self.assertIsNone(self.runtime.session_store.last(self.runtime.cwd))
+        self.assertEqual(
+            self.runtime.session_store.last(str(repaired_cwd)), FIXED_ID
+        )
+
+    def test_relink_runtime_ownership_failure_does_not_partially_commit_cwd(self) -> None:
+        target = self.save_session(mode="durable", scope_generation=1)
+        target["identity_state"] = sessions.IDENTITY_REPAIR_NEEDED
+        target["observed_cwd"] = "/wrong/project"
+        self.runtime.session_store.save(target)
+        owner_id = "33333333-3333-4333-8333-333333333333"
+        owner = sessions.make_record(
+            managed_id=owner_id,
+            runtime_session_id=OTHER_ID,
+            cwd=self.runtime.cwd,
+            composition_name=target["composition_name"],
+            snapshot=target["snapshot"],
+            catalog_version=self.runtime.catalog_version,
+            catalog_hash=self.runtime.catalog.bundle_sha256,
+            launcher_version=self.runtime.launcher_version,
+            mode="durable",
+            scope_generation=1,
+            identity_state=sessions.IDENTITY_AUTHORITATIVE,
+        )
+        self.runtime.session_store.save(owner)
+        before = self.runtime.session_store.read_record_bytes(FIXED_ID)
+        repaired_cwd = self.root / "other-project"
+        repaired_cwd.mkdir()
+        code, output = self.run_cli(
+            [
+                "sessions",
+                "relink-runtime",
+                FIXED_ID,
+                OTHER_ID,
+                "--cwd",
+                str(repaired_cwd),
+            ]
+        )
+        self.assertEqual(code, 2, output)
+        self.assertIn("already owned", output)
+        self.assertEqual(self.runtime.session_store.read_record_bytes(FIXED_ID), before)
 
     def test_noninteractive_link_requires_composition(self) -> None:
         code, output = self.run_cli(["sessions", "link", FIXED_ID], interactive=False)
@@ -1328,6 +1520,33 @@ class QuickConfirmVisibilityTests(CLITestCase):
             flat,
         )
 
+    def test_resume_collision_preflight_uses_recorded_cwd(self) -> None:
+        record = self.save_session(mode="durable", scope_generation=1)
+        recorded_cwd = self.root / "recorded-project"
+        recorded_cwd.mkdir()
+        record["cwd"] = str(recorded_cwd)
+        self.runtime.session_store.save(record)
+        variant_id = self.runtime.resolve_document(
+            self.runtime.compositions.load("default")
+        ).variants[0].id
+
+        invocation_agents = Path(self.runtime.cwd) / ".claude" / "agents"
+        invocation_agents.mkdir(parents=True)
+        (invocation_agents / f"{variant_id}.md").write_text(
+            f"---\nname: {variant_id}\ndescription: irrelevant\n---\nbody\n"
+        )
+        plan = cli.managed_plan(self.runtime, record)
+        self.assertTrue(plan.ready, plan.errors)
+
+        recorded_agents = recorded_cwd / ".claude" / "agents"
+        recorded_agents.mkdir(parents=True)
+        (recorded_agents / f"{variant_id}.md").write_text(
+            f"---\nname: {variant_id}\ndescription: collision\n---\nbody\n"
+        )
+        plan = cli.managed_plan(self.runtime, record)
+        self.assertFalse(plan.ready)
+        self.assertTrue(any("collides" in error for error in plan.errors))
+
     def test_legacy_record_resume_shows_upgrade_note(self) -> None:
         self.save_session()
         code, output = self.run_cli(["-r", FIXED_ID], "q\n")
@@ -1492,6 +1711,27 @@ class TransitionCommandTests(CLITestCase):
         # The prior generation is retained for rollback.
         self.assertTrue((scopes_root / f".{FIXED_ID}.prev").is_dir())
 
+    def test_transition_accepts_authoritative_runtime_uuid(self) -> None:
+        record = self.save_session(mode="durable", scope_generation=1)
+        record["runtime_session_id"] = OTHER_ID
+        record["identity_state"] = sessions.IDENTITY_AUTHORITATIVE
+        self.runtime.session_store.save(record)
+        self._write_scope(FIXED_ID)
+        code, output = self.run_cli(
+            [
+                "sessions",
+                "transition",
+                OTHER_ID,
+                "--composition",
+                "default",
+                "--its-exited",
+            ],
+            interactive=False,
+        )
+        self.assertEqual(code, 0, output)
+        self.assertEqual(len(self.launches), 1)
+        self.assertEqual(self.launches[0].record["managed_id"], FIXED_ID)
+
     def test_its_exited_flag_skips_prompt_and_relaunches(self) -> None:
         self.save_session(mode="durable", scope_generation=1)
         self._write_scope(FIXED_ID)
@@ -1569,6 +1809,23 @@ class TransitionCommandTests(CLITestCase):
         self.assertTrue((scopes_root / FIXED_ID).is_dir())
         self.assertFalse((scopes_root / f".{FIXED_ID}.prev").exists())
 
+    def test_non_oserror_launch_failure_restores_prior_transition(self) -> None:
+        self.save_session(mode="durable", scope_generation=1)
+        self._write_scope(FIXED_ID)
+        self._shifted_composition()
+        self.runtime.launch_callback = lambda _prepared: (_ for _ in ()).throw(
+            cli.launch.LaunchError("gateway disappeared")
+        )
+        code, output = self.run_cli(
+            ["sessions", "transition", FIXED_ID, "--composition", "shifted"],
+            "y\n",
+        )
+        self.assertEqual(code, 2)
+        self.assertIn("relaunch launch failed", output)
+        record = self.runtime.session_store.load(FIXED_ID)
+        self.assertEqual(record["scope_generation"], 1)
+        self.assertEqual(record["composition_name"], "default")
+
     def test_transition_unavailable_without_engine(self) -> None:
         self.save_session(mode="durable", scope_generation=1)
         _hide_transition_engine(self)
@@ -1592,6 +1849,13 @@ class DoctorVisibilityTests(CLITestCase):
             self.runtime.catalog.docs["roles"]["roles"],
             self.runtime.catalog.prompt_bodies,
             scope_mod.catalog_meta_from_docs(self.runtime.catalog.docs),
+            managed_id=session_id,
+            hook_command=self.runtime.hook_command,
+            launch_epoch=(
+                self.runtime.session_store.load(session_id).get("launch_epoch", 0)
+                if self.runtime.session_store.exists(session_id)
+                else 0
+            ),
         )
         scope_mod.write_scope(self.runtime.session_store.root, session_id, plan)
         return plan
@@ -1641,6 +1905,38 @@ class DoctorVisibilityTests(CLITestCase):
         self.assertIn("Sessions: 1 recorded · 0 durable · 1 legacy.", output)
         self.assertNotIn("Scope:", output)
 
+    def test_legacy_context_snapshot_blocks_compaction_diagnostics(self) -> None:
+        record = self.save_session(mode="durable", scope_generation=1)
+        for key in (
+            "client_context_tokens",
+            "provider_context_tokens",
+            "auto_compact_tokens",
+        ):
+            record["snapshot"]["lead"].pop(key, None)
+        record["snapshot"].pop("auto_compact_window_tokens", None)
+        self.runtime.session_store.save(record)
+        self._write_scope(FIXED_ID)
+        code, output = self.run_cli(["doctor"])
+        # By-design lazy state: attention tier, never a BLOCKED verdict; the
+        # printed guidance names the in-place repair.
+        self.assertEqual(code, 0, output)
+        self.assertIn("legacy context snapshot missing", output)
+        self.assertIn("auto_compact_window_tokens", output)
+        self.assertIn("doctor --repair-all", output)
+        self.assertNotIn("BLOCKED", output)
+
+    def test_corrupt_session_record_blocks_doctor_and_is_counted(self) -> None:
+        path = self.runtime.session_store.sessions_dir / f"{OTHER_ID}.json"
+        state.atomic_write(path, b"{not-json\n")
+        code, output = self.run_cli(["doctor"])
+        self.assertEqual(code, 1)
+        self.assertIn(
+            "Sessions: 1 recorded · 0 durable · 0 legacy · 1 unreadable.",
+            output,
+        )
+        self.assertIn(f"session record {OTHER_ID} is unreadable", output)
+        self.assertIn("corrupt session record", output)
+
     def test_prune_removes_staging_and_forgotten_scopes_only(self) -> None:
         self.save_session(mode="durable", scope_generation=1)
         self._write_scope(FIXED_ID)
@@ -1651,22 +1947,40 @@ class DoctorVisibilityTests(CLITestCase):
         state.atomic_write(staging_prev / "settings.json", b"{}\n")
         staging_new = scopes_root / f".{OTHER_ID}.new"
         state.ensure_private_dir(staging_new)
+        staging_forgotten_prev = scopes_root / f".{OTHER_ID}.prev"
+        state.ensure_private_dir(staging_forgotten_prev)
         code, output = self.run_cli(["doctor", "--prune"])
         self.assertEqual(code, 0, output)
         self.assertIn("Pruned:", output)
-        self.assertIn(f"stale staging dir scopes/.{FIXED_ID}.prev", output)
+        self.assertNotIn(f"stale staging dir scopes/.{FIXED_ID}.prev", output)
         self.assertIn(f"stale staging dir scopes/.{OTHER_ID}.new", output)
+        self.assertIn(f"stale staging dir scopes/.{OTHER_ID}.prev", output)
         self.assertIn(f"scope for forgotten session {OTHER_ID}", output)
-        # A scope with a living record is never touched.
+        # A scope and transition rollback directory with a living record are
+        # never touched; both may be needed between transition commit and exec.
         self.assertTrue(
             scope_mod.scope_dir(self.runtime.session_store.root, FIXED_ID).is_dir()
         )
+        self.assertTrue(staging_prev.is_dir())
         self.assertTrue(self.runtime.session_store.exists(FIXED_ID))
 
     def test_prune_without_stale_scopes_is_a_noop(self) -> None:
         code, output = self.run_cli(["doctor", "--prune"])
         self.assertEqual(code, 0)
         self.assertIn("nothing stale", output)
+
+    def test_prune_rejects_symlinked_scopes_root_without_following(self) -> None:
+        scopes_root = self.runtime.session_store.root / "scopes"
+        if scopes_root.exists():
+            shutil.rmtree(scopes_root)
+        outside = self.root / "outside-scopes"
+        outside.mkdir()
+        sentinel = outside / "keep.txt"
+        sentinel.write_text("keep", encoding="utf-8")
+        scopes_root.symlink_to(outside, target_is_directory=True)
+        with self.assertRaisesRegex(state.StateError, "is a symlink"):
+            cli._doctor_prune(self.runtime, io.StringIO())
+        self.assertEqual(sentinel.read_text(encoding="utf-8"), "keep")
 
     def test_collision_scan_blocks_with_fail_closed_list(self) -> None:
         resolved = self.runtime.resolve_document(
@@ -1697,6 +2011,29 @@ class DoctorVisibilityTests(CLITestCase):
         self.assertEqual(code, 0, output)
         self.assertIn("OK (", output)
 
+    def test_ordinary_repair_preserves_launch_epoch_in_hooks(self) -> None:
+        record = sessions.make_ordinary_record(
+            managed_id=FIXED_ID,
+            runtime_session_id=FIXED_ID,
+            cwd=self.runtime.cwd,
+            model="qwen38",
+            context_profile="large",
+            catalog_version=self.runtime.catalog_version,
+            catalog_hash=self.runtime.catalog.bundle_sha256,
+            launcher_version=self.runtime.launcher_version,
+            launch_epoch=7,
+        )
+        self.runtime.session_store.save(record)
+        code, output = self.run_cli(["doctor", "--repair", FIXED_ID])
+        self.assertEqual(code, 0, output)
+        live = scope_mod.scope_dir(self.runtime.session_store.root, FIXED_ID)
+        settings = strict_json.load(live / "settings.json")
+        self.assertEqual(settings["env"]["CLAUDE_MULTI_LAUNCH_EPOCH"], "7")
+        start = settings["hooks"]["SessionStart"][0]["hooks"][0]["command"]
+        end = settings["hooks"]["SessionEnd"][0]["hooks"][0]["command"]
+        self.assertIn("--launch-epoch 7", start)
+        self.assertIn("--launch-epoch 7", end)
+
     def test_repair_converges_drifted_scope(self) -> None:
         self.save_session(mode="durable", scope_generation=1)
         plan = self._write_scope(FIXED_ID)
@@ -1724,6 +2061,89 @@ class DoctorVisibilityTests(CLITestCase):
         code, output = self.run_cli(["doctor", "--repair", FIXED_ID])
         self.assertEqual(code, 2)
         self.assertIn("transitions are unavailable", output)
+
+    def test_repair_all_converges_scopes_and_refreshes_records(self) -> None:
+        record = self.save_session(mode="durable", scope_generation=1)
+        # Simulate a pre-context-fields record: legacy snapshot + stale scope.
+        for key in (
+            "client_context_tokens",
+            "provider_context_tokens",
+            "auto_compact_tokens",
+        ):
+            record["snapshot"]["lead"].pop(key, None)
+        record["snapshot"].pop("auto_compact_window_tokens", None)
+        self.runtime.session_store.save(record)
+        self._write_scope(FIXED_ID)
+        stale = (
+            scope_mod.scope_dir(self.runtime.session_store.root, FIXED_ID)
+            / "settings.json"
+        )
+        state.atomic_write(stale, b'{"stale": true}\n')
+        code, output = self.run_cli(["doctor", "--repair-all"])
+        self.assertEqual(code, 0, output)
+        self.assertIn("1 durable session(s) converged", output)
+        self.assertIn("record snapshot refreshed", output)
+        refreshed = self.runtime.session_store.load(FIXED_ID)
+        self.assertIn("client_context_tokens", refreshed["snapshot"]["lead"])
+        self.assertIn("auto_compact_window_tokens", refreshed["snapshot"])
+        self.assertEqual(refreshed["scope_generation"], 1)
+        # The same composition: lead model and variants are unchanged.
+        self.assertEqual(
+            refreshed["snapshot"]["lead"]["model"], record["snapshot"]["lead"]["model"]
+        )
+        # Doctor is now clean for this session: no attention, no problem.
+        code, output = self.run_cli(["doctor"])
+        self.assertEqual(code, 0, output)
+        self.assertNotIn("legacy context snapshot", output)
+        self.assertNotIn("BLOCKED", output)
+
+    def test_repair_all_skips_legacy_and_reports_unreadable(self) -> None:
+        self.save_session()  # legacy mode
+        path = self.runtime.session_store.sessions_dir / f"{OTHER_ID}.json"
+        state.atomic_write(path, b"{not-json\n")
+        code, output = self.run_cli(["doctor", "--repair-all"])
+        self.assertEqual(code, 1)
+        self.assertIn("skipped", output)
+        self.assertIn("resume it once to upgrade", output)
+        self.assertIn("FAILED", output)
+        self.assertIn("unreadable", output)
+
+    def test_repair_all_handles_ordinary_records(self) -> None:
+        record = sessions.make_ordinary_record(
+            managed_id=FIXED_ID,
+            runtime_session_id=FIXED_ID,
+            cwd=self.runtime.cwd,
+            model="qwen38",
+            context_profile="large",
+            catalog_version=self.runtime.catalog_version,
+            catalog_hash=self.runtime.catalog.bundle_sha256,
+            launcher_version=self.runtime.launcher_version,
+            launch_epoch=2,
+        )
+        self.runtime.session_store.save(record)
+        live = scope_mod.scope_dir(self.runtime.session_store.root, FIXED_ID)
+        self.assertFalse(live.exists())
+        code, output = self.run_cli(["doctor", "--repair-all"])
+        self.assertEqual(code, 0, output)
+        settings = strict_json.load(live / "settings.json")
+        self.assertEqual(settings["env"]["CLAUDE_MULTI_LAUNCH_EPOCH"], "2")
+        self.assertEqual(settings["model"], "claude-multi-qwen38-max[1m]")
+        self.assertNotIn("permissions", settings)
+        code, output = self.run_cli(["doctor"])
+        self.assertEqual(code, 0, output)
+
+    def test_refresh_record_snapshot_refuses_composition_change(self) -> None:
+        record = self.save_session(mode="durable", scope_generation=1)
+        other = copy.deepcopy(record["snapshot"])
+        other["lead"] = {**other["lead"], "model": "qwen38"}
+        with self.assertRaisesRegex(sessions.SessionError, "composition change"):
+            sessions.refresh_record_snapshot(
+                record,
+                snapshot=other,
+                catalog_version=self.runtime.catalog_version,
+                catalog_hash=self.runtime.catalog.bundle_sha256,
+                launcher_version=self.runtime.launcher_version,
+            )
 
 
 class EditorWorkflowsTests(unittest.TestCase):
@@ -2047,7 +2467,7 @@ class SessionsTuiScreenTests(CLITestCase):
         result, _win, _screen = self._run(["r", "\n"])
         self.assertIsNotNone(result)
         self.assertEqual(result[0], "resume")
-        self.assertEqual(result[1]["session_id"], FIXED_ID)
+        self.assertEqual(result[1]["managed_id"], FIXED_ID)
 
     def test_resume_legacy_modal_states_upgrade(self) -> None:
         self.save_session(session_id=FIXED_ID)
@@ -2063,7 +2483,7 @@ class SessionsTuiScreenTests(CLITestCase):
         result, _win, _screen = self._run(["t", curses.KEY_DOWN, "\n"])
         self.assertIsNotNone(result)
         self.assertEqual(result[0], "transition")
-        self.assertEqual(result[1]["session_id"], FIXED_ID)
+        self.assertEqual(result[1]["managed_id"], FIXED_ID)
         self.assertEqual(result[2], "other")
 
     def test_transition_choice_cancelled(self) -> None:
@@ -2791,7 +3211,7 @@ class ResumeNameResolutionTests(CLITestCase):
         code, _out = self.run_cli(["-r", "cm:default"], "\n", interactive=True)
         self.assertEqual(code, 0)
         self.assertEqual(
-            self.launches[0].record["session_id"], FIXED_ID
+            self.launches[0].record["managed_id"], FIXED_ID
         )
 
 
@@ -2869,7 +3289,7 @@ class QuickConfirmSessionsKeyTests(CLITestCase):
             cli._SessionsScreen = original
         self.assertIsNotNone(outcome)
         self.assertEqual(outcome[0], "perform")
-        self.assertEqual(outcome[1].record["session_id"], FIXED_ID)
+        self.assertEqual(outcome[1].record["managed_id"], FIXED_ID)
 
 
 class PresetCycleTests(CLITestCase):
@@ -3007,8 +3427,30 @@ class PolishBatchTests(CLITestCase):
         self.assertEqual(code, 0)
         self.assertFalse(prompt_gone.exists())
         self.assertTrue(prompt_alive.exists())
-        self.assertFalse(lock_gone.lock_path.exists())
+        self.assertTrue(lock_gone.lock_path.exists())
         self.assertTrue(lock_alive.lock_path.exists())
+
+    def test_prune_waits_for_session_lifecycle_lock(self) -> None:
+        store = self.runtime.session_store
+        gone = "9bc5fd42-d428-4545-97af-3eefcb05b9f2"
+        orphan = scope_mod.scope_dir(store.root, gone)
+        state.ensure_private_dir(orphan)
+        lock = store.lifecycle_lock(gone)
+        self.assertTrue(lock.acquire(blocking=False))
+        done: list[int] = []
+        thread = threading.Thread(
+            target=lambda: done.append(cli._doctor_prune(self.runtime, io.StringIO()))
+        )
+        thread.start()
+        thread.join(timeout=0.2)
+        self.assertTrue(thread.is_alive())
+        self.assertTrue(orphan.exists())
+        lock.release()
+        thread.join(timeout=30)
+        self.assertFalse(thread.is_alive())
+        self.assertEqual(done, [0])
+        self.assertFalse(orphan.exists())
+        self.assertTrue(lock.lock_path.exists())
 
 
 class PickerIntentThreadingTests(CLITestCase):
@@ -3079,6 +3521,48 @@ class NativeDiscoveryTests(CLITestCase):
         self.assertEqual([item["session_id"] for item in found], [native_id])
         self.assertEqual(found[0]["slug"], "-proj")
 
+    def test_duplicate_uuid_across_project_dirs_is_one_row(self) -> None:
+        native_id = "aaaaaaaa-1111-4111-8111-111111111111"
+        self._fake_projects([("-one", native_id), ("-two", native_id)])
+        found = cli._discover_native_sessions(self.runtime)
+        self.assertEqual(len(found), 1)
+        self.assertEqual(found[0]["session_id"], native_id)
+        self.assertEqual(found[0]["slugs"], ("-one", "-two"))
+        self.assertEqual(found[0]["slug"], "(ambiguous)")
+
+    def test_cwd_filter_applies_before_native_row_limit(self) -> None:
+        native_id = "aaaaaaaa-1111-4111-8111-111111111111"
+        current_slug = cli._native_project_slug(self.runtime.cwd)
+        entries = [(current_slug, native_id)]
+        for index in range(25):
+            other = self.root / f"unrelated-{index}"
+            other.mkdir()
+            session_id = f"{index + 1:08x}-1111-4111-8111-{index + 1:012x}"
+            entries.append((cli._native_project_slug(other), session_id))
+        self._fake_projects(entries)
+        projects = Path(self.runtime.environ["HOME"]) / ".claude" / "projects"
+        os.utime(projects / current_slug / f"{native_id}.jsonl", (1, 1))
+        for index, (slug, session_id) in enumerate(entries[1:], start=100):
+            os.utime(projects / slug / f"{session_id}.jsonl", (index, index))
+        found = cli._discover_native_sessions(
+            self.runtime, limit=20, cwd_filter=self.runtime.cwd
+        )
+        self.assertEqual([item["session_id"] for item in found], [native_id])
+        self.assertEqual(found[0]["cwd"], self.runtime.cwd)
+
+    def test_managed_runtime_id_is_not_rediscovered_as_native(self) -> None:
+        native_id = "aaaaaaaa-1111-4111-8111-111111111111"
+        record = self.save_session()
+        updated = self.runtime.session_store.reconcile_runtime(
+            record["managed_id"],
+            observed_runtime_id=native_id,
+            source="resume",
+            cwd=self.runtime.cwd,
+        )
+        self._fake_projects([("-proj", native_id)])
+        self.assertEqual(updated["runtime_session_id"], native_id)
+        self.assertEqual(cli._discover_native_sessions(self.runtime), [])
+
     def test_missing_projects_dir_is_empty(self) -> None:
         self.assertEqual(cli._discover_native_sessions(self.runtime), [])
 
@@ -3106,7 +3590,7 @@ class NativeDiscoveryTests(CLITestCase):
         screen._reload()
         self.assertEqual(screen.native, [])
         self.assertEqual(
-            [r["session_id"] for r in screen.records], [item["session_id"]]
+            [r["runtime_session_id"] for r in screen.records], [item["session_id"]]
         )
 
 
@@ -3143,15 +3627,70 @@ class AdoptOriginalCwdTests(CLITestCase):
         home = Path(self.runtime.environ["HOME"])
         project = home / "projects" / "occams-agent-flow"
         project.mkdir(parents=True)
-        slug = str(project).replace("/", "-")
+        slug = cli._native_project_slug(project)
         self.assertEqual(cli._decode_project_slug(slug), project)
         self.assertIsNone(cli._decode_project_slug("-no-such-place-anywhere"))
+
+    def test_native_project_slug_matches_pinned_client_vectors(self) -> None:
+        self.assertEqual(cli._native_project_slug("/tmp/a-b_c.d"), "-tmp-a-b-c-d")
+        self.assertEqual(cli._native_project_slug("/tmp/😀"), "-tmp---")
+        self.assertEqual(cli._native_project_slug("a" * 200), "a" * 200)
+        self.assertEqual(
+            cli._native_project_slug("a" * 201), "a" * 200 + "-rkvsv5"
+        )
+        self.assertEqual(
+            cli._native_project_slug("/" + "a" * 200),
+            "-" + "a" * 199 + "-b6ymvl",
+        )
+
+    def test_decode_hidden_project_slug_and_explicit_cwd(self) -> None:
+        home = Path(self.runtime.environ["HOME"])
+        hidden = home / ".claude"
+        hidden.mkdir(parents=True, exist_ok=True)
+        slug = cli._native_project_slug(hidden)
+        self.assertTrue(slug.endswith("--claude"), slug)
+        self.assertEqual(cli._decode_project_slug(slug), hidden)
+
+        native_id = "aaaaaaaa-1111-4111-8111-111111111111"
+        project_dir = home / ".claude" / "projects" / slug
+        project_dir.mkdir(parents=True, exist_ok=True)
+        (project_dir / f"{native_id}.jsonl").write_bytes(b"not-read")
+        self.assertEqual(
+            cli._original_cwd_for_adopt(
+                self.runtime, native_id, explicit_cwd=str(hidden)
+            ),
+            str(hidden),
+        )
+        wrong = home / "wrong"
+        wrong.mkdir()
+        with self.assertRaisesRegex(cli.CLIError, "does not contain native session"):
+            cli._original_cwd_for_adopt(
+                self.runtime, native_id, explicit_cwd=str(wrong)
+            )
+
+    def test_explicit_cwd_accepts_long_hashed_native_slug(self) -> None:
+        home = Path(self.runtime.environ["HOME"])
+        project = home / ("long-" + "a" * 190)
+        project.mkdir(parents=True)
+        slug = cli._native_project_slug(project)
+        self.assertGreater(len(str(project)), 200)
+        self.assertLessEqual(len(slug), 207)
+        native_id = "cccccccc-3333-4333-8333-333333333333"
+        project_dir = home / ".claude" / "projects" / slug
+        project_dir.mkdir(parents=True)
+        (project_dir / f"{native_id}.jsonl").write_bytes(b"not-read")
+        self.assertEqual(
+            cli._original_cwd_for_adopt(
+                self.runtime, native_id, explicit_cwd=str(project)
+            ),
+            str(project),
+        )
 
     def test_adopt_records_decoded_original_cwd(self) -> None:
         home = Path(self.runtime.environ["HOME"])
         project = home / "projects" / "real-project"
         project.mkdir(parents=True)
-        slug = str(project).replace("/", "-")
+        slug = cli._native_project_slug(project)
         native_id = "aaaaaaaa-1111-4111-8111-111111111111"
         projects = home / ".claude" / "projects" / slug
         projects.mkdir(parents=True)
@@ -3159,13 +3698,11 @@ class AdoptOriginalCwdTests(CLITestCase):
         resolved_cwd = cli._original_cwd_for_adopt(self.runtime, native_id)
         self.assertEqual(resolved_cwd, str(project))
 
-    def test_adopt_without_transcript_keeps_launch_cwd(self) -> None:
-        self.assertEqual(
+    def test_adopt_without_local_metadata_fails_closed(self) -> None:
+        with self.assertRaisesRegex(cli.CLIError, "cannot locate native session"):
             cli._original_cwd_for_adopt(
                 self.runtime, "bbbbbbbb-2222-4222-8222-222222222222"
-            ),
-            self.runtime.cwd,
-        )
+            )
 
 
 class ResumeChdirTests(CLITestCase):
@@ -3183,23 +3720,38 @@ class ResumeChdirTests(CLITestCase):
 
         other = Path(self.runtime.environ["HOME"]) / "projects" / "other"
         other.mkdir(parents=True)
-        cli.launch.perform_launch(
-            self.launches[0].result
-            if self.launches
-            else self._fresh_compiled(record),
-            record=record,
-            store=store,
-            native_contract=self.runtime.catalog.docs["native-contract"],
-            gateway=self.runtime.catalog.docs["gateway"],
-            execve=fake_execve,
-            readiness=lambda *a, **k: "t" * 64,
+        fake_binary = self.root / "fake-claude"
+        fake_binary.write_bytes(b"#!/bin/sh\n")
+        fake_binary.chmod(0o755)
+        binary_status = cli.launch.BinaryStatus(
+            inspected_path=fake_binary,
+            validated_version="fixture",
+            sha256="0" * 64,
+            configured_path=fake_binary,
+            configured_target=fake_binary,
+            configured_matches=True,
+            advisory=None,
         )
+        with mock.patch.object(
+            cli.launch, "resolve_claude", return_value=binary_status
+        ):
+            cli.launch.perform_launch(
+                self.launches[0].result
+                if self.launches
+                else self._fresh_compiled(record),
+                record=record,
+                store=store,
+                native_contract=self.runtime.catalog.docs["native-contract"],
+                gateway=self.runtime.catalog.docs["gateway"],
+                execve=fake_execve,
+                readiness=lambda *a, **k: "t" * 64,
+            )
         self.assertEqual(captured["cwd"], record["cwd"])
 
     def _fresh_compiled(self, record):
         document = self.runtime.compositions.load("default")
         prepared = self.runtime.prepare(
-            document, action="resume", passthrough=[], session_id=record["session_id"]
+            document, action="resume", passthrough=[], session_id=record["managed_id"]
         )
         return prepared.result
 
@@ -3211,7 +3763,7 @@ class CwdFilterToggleTests(CLITestCase):
             session_id="97a6194a-1111-4222-8333-444455556666"
         )
         # Move the second record to another cwd.
-        record = self.runtime.session_store.load(other["session_id"])
+        record = self.runtime.session_store.load(other["managed_id"])
         record["cwd"] = "/somewhere/else"
         self.runtime.session_store.save(record)
         screen = cli._SessionsScreen(
@@ -3221,5 +3773,469 @@ class CwdFilterToggleTests(CLITestCase):
         screen.cwd_filter = True
         screen._reload()
         self.assertEqual(
-            [r["session_id"] for r in screen.records], [here["session_id"]]
+            [r["managed_id"] for r in screen.records], [here["managed_id"]]
         )
+
+    def test_empty_filtered_view_can_toggle_back_to_all(self) -> None:
+        other = self.save_session()
+        record = self.runtime.session_store.load(other["managed_id"])
+        record["cwd"] = "/somewhere/else"
+        self.runtime.session_store.save(record)
+        screen = cli._SessionsScreen(
+            self.runtime, palette=cli.tui.MONO_PALETTE
+        )
+        with mock.patch.object(screen, "_draw"), mock.patch.object(
+            cli.tui, "hide_cursor"
+        ), mock.patch.object(
+            cli.tui,
+            "read_key",
+            side_effect=(
+                cli.tui.Key("char", "C"),
+                cli.tui.Key("char", "C"),
+                cli.tui.Key("char", "Q"),
+            ),
+        ):
+            self.assertIsNone(screen.run(object()))
+        self.assertFalse(screen.cwd_filter)
+        self.assertEqual(len(screen.records), 1)
+
+
+class SessionEventAndDirectModeTests(CLITestCase):
+    def test_session_start_reconciles_runtime_id_without_persisting_transcript(self) -> None:
+        self.save_session(mode="durable", scope_generation=1)
+        runtime_id = "22222222-2222-4222-8222-222222222222"
+        payload = strict_json.canonical_bytes(
+            {
+                "hook_event_name": "SessionStart",
+                "session_id": runtime_id,
+                "source": "compact",
+                "cwd": self.runtime.cwd,
+                "model": "claude-fable-5[1m]",
+                "transcript_path": "/must/not/be/read.jsonl",
+            }
+        ).decode("utf-8")
+        code, output = self.run_cli(
+            ["session-event", "start", "--managed-id", FIXED_ID], payload
+        )
+        self.assertEqual(code, 0, output)
+        record = self.runtime.session_store.load(FIXED_ID)
+        self.assertEqual(record["runtime_session_id"], runtime_id)
+        self.assertEqual(record["runtime_aliases"][0]["session_id"], FIXED_ID)
+        self.assertNotIn("transcript", strict_json.canonical_bytes(record).decode())
+
+    def test_session_event_reads_stdin_without_opening_tty(self) -> None:
+        self.save_session(mode="durable", scope_generation=1)
+        payload = strict_json.canonical_bytes(
+            {
+                "hook_event_name": "SessionStart",
+                "session_id": FIXED_ID,
+                "source": "startup",
+                "cwd": self.runtime.cwd,
+            }
+        ).decode("utf-8")
+        output = io.StringIO()
+        with mock.patch.object(
+            cli, "_open_tty_streams", side_effect=AssertionError("must not open tty")
+        ), mock.patch.object(cli.sys, "stdin", io.StringIO(payload)):
+            code = cli.main(
+                ["session-event", "start", "--managed-id", FIXED_ID],
+                runtime=self.runtime,
+                output_stream=output,
+                interactive=None,
+            )
+        self.assertEqual(code, 0, output.getvalue())
+
+    def test_managed_fork_event_warns_and_preserves_parent_runtime(self) -> None:
+        self.save_session(mode="durable", scope_generation=1)
+        fork_id = "22222222-2222-4222-8222-222222222222"
+        payload = strict_json.canonical_bytes(
+            {
+                "hook_event_name": "SessionStart",
+                "session_id": fork_id,
+                "source": "fork",
+                "cwd": self.runtime.cwd,
+            }
+        ).decode("utf-8")
+        code, output = self.run_cli(
+            ["session-event", "start", "--managed-id", FIXED_ID], payload
+        )
+        self.assertEqual(code, 0, output)
+        self.assertIn("does not yet have an independent durable", output)
+        record = self.runtime.session_store.load(FIXED_ID)
+        self.assertEqual(record["runtime_session_id"], FIXED_ID)
+        self.assertEqual(record["pending_forks"][0]["session_id"], fork_id)
+
+    def test_managed_model_mismatch_is_recorded_as_repair_needed(self) -> None:
+        self.save_session(mode="durable", scope_generation=1)
+        payload = strict_json.canonical_bytes(
+            {
+                "hook_event_name": "SessionStart",
+                "session_id": FIXED_ID,
+                "source": "resume",
+                "cwd": self.runtime.cwd,
+                "model": "gpt-multi-sol-high",
+            }
+        ).decode("utf-8")
+        code, output = self.run_cli(
+            ["session-event", "start", "--managed-id", FIXED_ID], payload
+        )
+        self.assertEqual(code, 0, output)
+        record = self.runtime.session_store.load(FIXED_ID)
+        self.assertEqual(record["identity_state"], sessions.IDENTITY_REPAIR_NEEDED)
+        self.assertEqual(record["observed_model"], "gpt-multi-sol-high")
+        response = strict_json.loads(output)
+        context = response["hookSpecificOutput"]["additionalContext"]
+        self.assertIn(f"claude-multi -r {FIXED_ID}", context)
+        self.assertIn("sessions transition", context)
+
+    def test_managed_different_lane_is_not_treated_as_equivalent(self) -> None:
+        record = self.save_session(mode="durable", scope_generation=1)
+        record["snapshot"]["lead"]["model"] = "sol"
+        record["snapshot"]["lead"]["client_selector"] = "gpt-multi-sol-high"
+        record["composition_hash"] = strict_json.bundle_digest(record["snapshot"])
+        self.runtime.session_store.save(record)
+        payload = strict_json.canonical_bytes(
+            {
+                "hook_event_name": "SessionStart",
+                "session_id": FIXED_ID,
+                "source": "resume",
+                "cwd": self.runtime.cwd,
+                "model": "gpt-multi-sol-xhigh",
+            }
+        ).decode("utf-8")
+        code, output = self.run_cli(
+            ["session-event", "start", "--managed-id", FIXED_ID], payload
+        )
+        self.assertEqual(code, 0, output)
+        updated = self.runtime.session_store.load(FIXED_ID)
+        self.assertEqual(updated["identity_state"], sessions.IDENTITY_REPAIR_NEEDED)
+        self.assertEqual(updated["observed_model"], "gpt-multi-sol-xhigh")
+        self.assertIn("sessions transition", output)
+
+    def test_ordinary_hook_maps_selector_back_to_catalog_model(self) -> None:
+        record = sessions.make_ordinary_record(
+            managed_id=FIXED_ID,
+            runtime_session_id=FIXED_ID,
+            cwd=self.runtime.cwd,
+            model="qwen38",
+            context_profile="large",
+            catalog_version=self.runtime.catalog_version,
+            catalog_hash=self.runtime.catalog.bundle_sha256,
+            launcher_version=self.runtime.launcher_version,
+        )
+        self.runtime.session_store.save(record)
+        payload = strict_json.canonical_bytes(
+            {
+                "hook_event_name": "SessionStart",
+                "session_id": FIXED_ID,
+                "source": "compact",
+                "cwd": self.runtime.cwd,
+                "model": "claude-fable-5[1m]",
+            }
+        ).decode("utf-8")
+        code, output = self.run_cli(
+            ["session-event", "start", "--managed-id", FIXED_ID], payload
+        )
+        self.assertEqual(code, 0, output)
+        updated = self.runtime.session_store.load(FIXED_ID)
+        self.assertEqual(updated["ordinary_model"], "fable")
+        self.assertEqual(updated["context_profile"], "large")
+        self.assertEqual(updated["identity_state"], sessions.IDENTITY_AUTHORITATIVE)
+        self.assertNotIn("observed_model", updated)
+        self.assertEqual(output, "")
+
+    def test_ordinary_hook_accepts_wire_model_in_same_profile(self) -> None:
+        record = sessions.make_ordinary_record(
+            managed_id=FIXED_ID,
+            runtime_session_id=FIXED_ID,
+            cwd=self.runtime.cwd,
+            model="qwen38",
+            context_profile="large",
+            catalog_version=self.runtime.catalog_version,
+            catalog_hash=self.runtime.catalog.bundle_sha256,
+            launcher_version=self.runtime.launcher_version,
+        )
+        self.runtime.session_store.save(record)
+        payload = strict_json.canonical_bytes(
+            {
+                "hook_event_name": "SessionStart",
+                "session_id": FIXED_ID,
+                "source": "resume",
+                "cwd": self.runtime.cwd,
+                "model": "claude-fable-5",
+            }
+        ).decode("utf-8")
+        code, output = self.run_cli(
+            ["session-event", "start", "--managed-id", FIXED_ID], payload
+        )
+        self.assertEqual(code, 0, output)
+        updated = self.runtime.session_store.load(FIXED_ID)
+        self.assertEqual(updated["ordinary_model"], "fable")
+        self.assertEqual(updated["identity_state"], sessions.IDENTITY_AUTHORITATIVE)
+        self.assertEqual(output, "")
+
+    def test_ordinary_hook_accepts_canonical_opus_1m_selector(self) -> None:
+        record = sessions.make_ordinary_record(
+            managed_id=FIXED_ID,
+            runtime_session_id=FIXED_ID,
+            cwd=self.runtime.cwd,
+            model="qwen38",
+            context_profile="large",
+            catalog_version=self.runtime.catalog_version,
+            catalog_hash=self.runtime.catalog.bundle_sha256,
+            launcher_version=self.runtime.launcher_version,
+        )
+        self.runtime.session_store.save(record)
+        payload = strict_json.canonical_bytes(
+            {
+                "hook_event_name": "SessionStart",
+                "session_id": FIXED_ID,
+                "source": "compact",
+                "cwd": self.runtime.cwd,
+                "model": "claude-opus-4-8[1m]",
+            }
+        ).decode("utf-8")
+        code, output = self.run_cli(
+            ["session-event", "start", "--managed-id", FIXED_ID], payload
+        )
+        self.assertEqual(code, 0, output)
+        updated = self.runtime.session_store.load(FIXED_ID)
+        self.assertEqual(updated["ordinary_model"], "opus")
+        self.assertEqual(updated["context_profile"], "large")
+        self.assertEqual(updated["identity_state"], sessions.IDENTITY_AUTHORITATIVE)
+        self.assertNotIn("observed_model", updated)
+        self.assertEqual(output, "")
+
+    def test_ordinary_cross_profile_hook_fails_closed_with_warning(self) -> None:
+        record = sessions.make_ordinary_record(
+            managed_id=FIXED_ID,
+            runtime_session_id=FIXED_ID,
+            cwd=self.runtime.cwd,
+            model="qwen38",
+            context_profile="large",
+            catalog_version=self.runtime.catalog_version,
+            catalog_hash=self.runtime.catalog.bundle_sha256,
+            launcher_version=self.runtime.launcher_version,
+        )
+        self.runtime.session_store.save(record)
+        payload = strict_json.canonical_bytes(
+            {
+                "hook_event_name": "SessionStart",
+                "session_id": FIXED_ID,
+                "source": "resume",
+                "cwd": self.runtime.cwd,
+                "model": "gpt-multi-sol-high",
+            }
+        ).decode("utf-8")
+        code, output = self.run_cli(
+            ["session-event", "start", "--managed-id", FIXED_ID], payload
+        )
+        self.assertEqual(code, 0, output)
+        updated = self.runtime.session_store.load(FIXED_ID)
+        self.assertEqual(updated["ordinary_model"], "qwen38")
+        self.assertEqual(updated["context_profile"], "large")
+        self.assertEqual(updated["observed_model"], "gpt-multi-sol-high")
+        self.assertEqual(updated["identity_state"], sessions.IDENTITY_REPAIR_NEEDED)
+        context = strict_json.loads(output)["hookSpecificOutput"]["additionalContext"]
+        self.assertIn("context/compaction profile", context)
+        self.assertIn(f"claude-gateway -r {FIXED_ID} --model qwen38", context)
+
+    def test_ordinary_unknown_hook_model_fails_closed(self) -> None:
+        record = sessions.make_ordinary_record(
+            managed_id=FIXED_ID,
+            runtime_session_id=FIXED_ID,
+            cwd=self.runtime.cwd,
+            model="qwen38",
+            context_profile="large",
+            catalog_version=self.runtime.catalog_version,
+            catalog_hash=self.runtime.catalog.bundle_sha256,
+            launcher_version=self.runtime.launcher_version,
+        )
+        self.runtime.session_store.save(record)
+        payload = strict_json.canonical_bytes(
+            {
+                "hook_event_name": "SessionStart",
+                "session_id": FIXED_ID,
+                "source": "compact",
+                "cwd": self.runtime.cwd,
+                "model": "unknown-provider-model",
+            }
+        ).decode("utf-8")
+        code, output = self.run_cli(
+            ["session-event", "start", "--managed-id", FIXED_ID], payload
+        )
+        self.assertEqual(code, 0, output)
+        updated = self.runtime.session_store.load(FIXED_ID)
+        self.assertEqual(updated["ordinary_model"], "qwen38")
+        self.assertEqual(updated["observed_model"], "unknown-provider-model")
+        self.assertEqual(updated["identity_state"], sessions.IDENTITY_REPAIR_NEEDED)
+        strict_json.loads(output)
+
+    def test_direct_print_launch_has_no_composition_or_agents(self) -> None:
+        code, output = self.run_cli(
+            ["direct", "--model", "qwen38", "--print-launch"]
+        )
+        self.assertEqual(code, 0, output)
+        self.assertIn("cg:qwen38", output)
+        self.assertIn("target gateway:qwen38", output)
+        self.assertNotIn("--agents", output)
+        self.assertNotIn("--append-system-prompt-file", output)
+        self.assertEqual(self.launches, [])
+
+    def test_direct_resume_targets_recorded_runtime_uuid(self) -> None:
+        runtime_id = "22222222-2222-4222-8222-222222222222"
+        record = sessions.make_ordinary_record(
+            managed_id=FIXED_ID,
+            runtime_session_id=runtime_id,
+            cwd=self.runtime.cwd,
+            model="qwen38",
+            context_profile="large",
+            catalog_version=self.runtime.catalog_version,
+            catalog_hash=self.runtime.catalog.bundle_sha256,
+            launcher_version=self.runtime.launcher_version,
+        )
+        self.runtime.session_store.save(record)
+        prepared = self.runtime.prepare_direct(
+            action="resume", model_id=None, passthrough=[], session_id=FIXED_ID
+        )
+        self.assertEqual(prepared.result.argv[:2], ["--resume", runtime_id])
+        self.assertNotIn("--model", prepared.result.argv)
+        self.assertEqual(prepared.record["managed_id"], FIXED_ID)
+        self.assertEqual(prepared.record["session_type"], sessions.SESSION_TYPE_ORDINARY)
+        self.assertEqual(prepared.record["launch_epoch"], 1)
+        command = prepared.result.scope_plan.settings["hooks"]["SessionStart"][0][
+            "hooks"
+        ][0]["command"]
+        self.assertIn("--launch-epoch 1", command)
+
+    def test_direct_continue_uses_ordinary_pointer_not_managed_pointer(self) -> None:
+        self.save_session(mode="durable", scope_generation=1)
+        ordinary = sessions.make_ordinary_record(
+            managed_id=OTHER_ID,
+            runtime_session_id=OTHER_ID,
+            cwd=self.runtime.cwd,
+            model="qwen38",
+            context_profile="large",
+            catalog_version=self.runtime.catalog_version,
+            catalog_hash=self.runtime.catalog.bundle_sha256,
+            launcher_version=self.runtime.launcher_version,
+            identity_state=sessions.IDENTITY_AUTHORITATIVE,
+        )
+        self.runtime.session_store.save(ordinary)
+        self.runtime.session_store.update_last(self.runtime.cwd, FIXED_ID)
+        self.runtime.session_store.update_last(
+            self.runtime.cwd,
+            OTHER_ID,
+            session_type=sessions.SESSION_TYPE_ORDINARY,
+        )
+        code, output = self.run_cli(["direct", "-c", "--print-launch"])
+        self.assertEqual(code, 0, output)
+        self.assertIn("--resume\n", output)
+        self.assertIn(OTHER_ID, output)
+
+    def test_direct_implicit_resume_refuses_model_repair_state(self) -> None:
+        record = sessions.make_ordinary_record(
+            managed_id=FIXED_ID,
+            runtime_session_id=FIXED_ID,
+            cwd=self.runtime.cwd,
+            model="qwen38",
+            context_profile="large",
+            catalog_version=self.runtime.catalog_version,
+            catalog_hash=self.runtime.catalog.bundle_sha256,
+            launcher_version=self.runtime.launcher_version,
+            identity_state=sessions.IDENTITY_REPAIR_NEEDED,
+        )
+        record["observed_model"] = "gpt-multi-sol-high"
+        self.runtime.session_store.save(record)
+        with self.assertRaisesRegex(cli.CLIError, "explicitly relaunch"):
+            self.runtime.prepare_direct(
+                action="resume", model_id=None, passthrough=[], session_id=FIXED_ID
+            )
+
+    def test_direct_explicit_model_repairs_with_pinned_relaunch(self) -> None:
+        record = sessions.make_ordinary_record(
+            managed_id=FIXED_ID,
+            runtime_session_id=FIXED_ID,
+            cwd=self.runtime.cwd,
+            model="qwen38",
+            context_profile="large",
+            catalog_version=self.runtime.catalog_version,
+            catalog_hash=self.runtime.catalog.bundle_sha256,
+            launcher_version=self.runtime.launcher_version,
+            identity_state=sessions.IDENTITY_REPAIR_NEEDED,
+        )
+        record["observed_model"] = "gpt-multi-sol-high"
+        self.runtime.session_store.save(record)
+        prepared = self.runtime.prepare_direct(
+            action="resume", model_id="sol", passthrough=[], session_id=FIXED_ID
+        )
+        self.assertTrue(prepared.model_relaunch)
+        self.assertEqual(prepared.record["ordinary_model"], "sol")
+        self.assertEqual(prepared.record["context_profile"], "sol")
+        self.assertEqual(
+            prepared.result.argv[prepared.result.argv.index("--model") + 1],
+            "gpt-multi-sol-high",
+        )
+        self.assertEqual(
+            prepared.result.env_set["CLAUDE_CODE_AUTO_COMPACT_WINDOW"], "372000"
+        )
+        self.assertEqual(
+            prepared.result.env_set["CLAUDE_AUTOCOMPACT_PCT_OVERRIDE"], "90"
+        )
+
+    def test_direct_pending_fork_blocks_even_with_explicit_model_repair(self) -> None:
+        record = sessions.make_ordinary_record(
+            managed_id=FIXED_ID,
+            runtime_session_id=FIXED_ID,
+            cwd=self.runtime.cwd,
+            model="qwen38",
+            context_profile="large",
+            catalog_version=self.runtime.catalog_version,
+            catalog_hash=self.runtime.catalog.bundle_sha256,
+            launcher_version=self.runtime.launcher_version,
+            identity_state=sessions.IDENTITY_REPAIR_NEEDED,
+        )
+        record["observed_model"] = "gpt-multi-sol-high"
+        record["pending_forks"] = [
+            {
+                "session_id": OTHER_ID,
+                "observed_at": "2026-07-22T00:00:00Z",
+            }
+        ]
+        self.runtime.session_store.save(record)
+        with self.assertRaisesRegex(cli.CLIError, "unresolved native fork"):
+            self.runtime.prepare_direct(
+                action="resume",
+                model_id="sol",
+                passthrough=[],
+                session_id=FIXED_ID,
+            )
+
+    def test_managed_resume_refuses_cwd_repair_state(self) -> None:
+        record = self.save_session(mode="durable", scope_generation=1)
+        record["identity_state"] = sessions.IDENTITY_REPAIR_NEEDED
+        record["observed_cwd"] = "/wrong/project"
+        self.runtime.session_store.save(record)
+        document = self.runtime.compositions.load(record["composition_name"])
+        with self.assertRaisesRegex(cli.CLIError, "relink-runtime"):
+            self.runtime.prepare(
+                document,
+                action="resume",
+                passthrough=[],
+                session_id=FIXED_ID,
+            )
+
+    def test_managed_model_only_repair_prepares_pinned_relaunch(self) -> None:
+        record = self.save_session(mode="durable", scope_generation=1)
+        record["identity_state"] = sessions.IDENTITY_REPAIR_NEEDED
+        record["observed_model"] = "gpt-multi-sol-high"
+        self.runtime.session_store.save(record)
+        document = self.runtime.compositions.load(record["composition_name"])
+        prepared = self.runtime.prepare(
+            document,
+            action="resume",
+            passthrough=[],
+            session_id=FIXED_ID,
+        )
+        self.assertTrue(prepared.model_relaunch)
+        self.assertIn("--model", prepared.result.argv)

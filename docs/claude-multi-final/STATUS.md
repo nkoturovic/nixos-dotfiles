@@ -1,5 +1,163 @@
 # STATUS — live tracker
 
+## 2026-07-24 — v2.3.0 lifecycle hardening: stable hook shim, repair-all, session UX (working tree)
+
+Independent audit (12 parallel lanes over the uncommitted v2.2 tree plus the
+live state root) found the v2.2 lifecycle work sound in design but carrying
+one systemic defect and a set of smaller correctness bugs. All fixed with
+regression coverage; **1,160 host tests green**.
+
+- **Hook command root cause (critical).** The lifecycle hook command was
+  computed four different ways: launch used the wrapper path
+  (`$out/bin/claude-multi` via `CLAUDE_MULTI_HOOK_COMMAND`), while
+  transition/execute, `converge`, and the L4 resume-failure cleanup recomputed
+  the inner script path (`$out/share/claude-multi/bin/claude-multi`), and the
+  durable compiler silently fell back to a PATH-relative `claude-multi` when
+  none was given. Two scopes of the same generation diverged by spelling, and
+  every Home Manager rebuild changed the expected scope bytes for ALL durable
+  sessions (live: 20 record↔scope mismatches, 14 of them pure path drift; 3
+  sessions' hooks one garbage-collection away from dangling; the inner-script
+  spelling additionally runs unpinned `env python3` and dies without the
+  wrapper's PYTHONPATH). **Fix:** a single authority
+  (`scope.resolve_hook_command`) plus a stable indirection —
+  `<state_root>/bin/claude-multi-hook`, an executable shim refreshed by every
+  launcher invocation, preferring the resolved launcher and falling back to
+  PATH. Compiled scopes now embed the constant shim path, so scope bytes are
+  rebuild-stable; the durable compiler fails closed when no hook command is
+  supplied. A behavioral test pins scope-byte stability across simulated
+  rebuilds.
+- **Launch rollback data-loss bug (high).** A resume failing a pre-mutation
+  guard (pending fork, stale authority, repair-needed) ran the BaseException
+  rollback anyway: it deleted the session's per-CWD pointer and rewrote the
+  valid live scope (with the wrong hook spelling). The rollback is now
+  mutation-aware (`committed_token is None` ⇒ nothing to roll back);
+  regression test proves record/scope/pointer are byte-preserved.
+- **Noninteractive resume/continue (medium).** The `--composition` guard ran
+  before the resume/continue branches, so scripted `claude-multi -r UUID` and
+  `-c` always failed even though the record determines the composition. The
+  guard now applies only to fresh launches; both paths are pinned by tests.
+- **Doctor severity + bulk repair.** Doctor no longer aborts when an ordinary
+  record's profile leaves the catalog (degrades to a named problem line), and
+  by-design lazy state no longer BLOCKs: legacy context snapshots and
+  legacy-mode records are an **Attention** tier (exit 0) with the exact fix
+  command, while real damage (unreadable records, identity repair, missing or
+  mismatched scopes) stays BLOCKED. New `doctor --repair-all`: converges every
+  durable record under its lifecycle lock (managed and ordinary), refreshes
+  managed record snapshots against the installed catalog (context fields
+  filled, drift absorbed — `sessions.refresh_record_snapshot` fails closed on
+  any composition change), skips legacy records with a note, and continues
+  past per-record failures.
+- **Managed compaction pin.** Compiled managed settings now include
+  `autoCompactEnabled: true`: a user-level `autoCompactEnabled: false`
+  silently defeated the documented capacity/trigger model and would wedge 1M
+  sessions at the hard context wall. Ordinary gateway scopes leave the user
+  setting alone. The generated lead appendix now also states the exported
+  process scalar (`CLAUDE_CODE_MAX_CONTEXT_TOKENS`) explicitly instead of
+  omitting it from the context policy.
+- **TUI/output correctness.** Report subcommands (`doctor`, `models`,
+  `show`, `compose list/show`, `sessions list/show/forget/link/relink-runtime`)
+  now honor stdout redirection instead of always writing to `/dev/tty`;
+  interactive-first flows (editor, transition, direct, bare launch) keep the
+  terminal. `TextInput` no longer reports the cursor on the closing bracket
+  at end-of-input. An Alt-chord heuristic was implemented, then **reverted
+  with cause** (ncurses splits Alt+chords by design; re-merging misclassifies
+  fast human input and broke the key-script model — documented in
+  `read_key`). A cross-profile ordinary relaunch now prints the
+  live-process caution that managed transitions gate on.
+- **Launch robustness one-liners:** success-path `update_last` is now
+  blocking (a won launch can never silently lose `-c` registration); the
+  execve-failure fresh cleanup's `clear_last` matches the pre-exec path's
+  blocking form; a `cwd_lease.restore()` failure can no longer mask the exec
+  error or skip state convergence.
+- **Dev pipeline.** Catalog post-images are written in the repo's
+  human-editable pretty format (promote no longer buries semantic changes in
+  a single-line reformat), and the promote review-record reload raises its
+  string cap so large catalog diffs cannot dead-end the pipeline. A claimed
+  `check_draft` scratch-dir ownership bug was refuted by its pinned tests
+  (the caller-provided parent is always a scratch tree by contract).
+- **PTY flake instrumentation.** The rare
+  `test_no_controlling_terminal_still_reaches_quick_confirm` timeout (two
+  recorded occurrences, output byte-identical to a clean exit) now arms a
+  20s `faulthandler` stack dump so the next occurrence is self-diagnosing.
+- **Evidence:** 1,160 host tests green (was 1,135; +17 regression tests, the
+  rest coverage churn), package builds offline; the flaky PTY test passed
+  every run. No real provider, transcript, or live supervisor was touched.
+  Live-state repair (repair-all + targeted forgets + quiescing two stale
+  process holders) is scripted in HANDOFF and runs at activation.
+
+## 2026-07-23 — v2.2 lifecycle identity + ordinary gateway integration (working tree)
+
+- **Identity fixed at the data-model boundary:** schema-v3 records separate
+  stable `managed_id` from authoritative Claude `runtime_session_id`, retain
+  bounded runtime aliases, distinguish managed-composition vs
+  ordinary-gateway sessions, and migrate v1/v2 records in memory without
+  rewriting on read.
+- **Official lifecycle reconciliation:** every durable scope compiles
+  synchronous metadata-only `SessionStart` and advisory `SessionEnd` hooks.
+  Startup/resume/clear/compact updates the runtime UUID atomically; monotonic
+  launch epochs reject delayed hooks from older launches, and forks never
+  overwrite the parent identity. `transcript_path` is ignored and never stored.
+  Hook commands always read stdin rather than `/dev/tty`.
+- **Resume/CWD correctness:** native `--resume` now targets the runtime UUID,
+  while scopes/pointers/locks remain keyed by the stable ID. The original CWD
+  is opened and entered successfully before any state commit; missing or
+  inaccessible CWD fails closed. Transition and exec-failure CAS semantics are
+  preserved.
+- **Picker/adoption correctness:** native UUIDs are deduplicated before the row
+  limit; managed runtime IDs/aliases are excluded from unmanaged discovery;
+  slash-to-dash ambiguity no longer chooses a nondeterministic shallow path.
+  Adoption mints a stable ID and records the native UUID separately.
+- **Ordinary multi-model mode:** `claude-gateway` / `claude-multi direct`
+  launches normal gateway-backed Claude Code with no generated `cm-*` agents
+  or composition policy. Native `/model` is available within a context-safe
+  profile; cross-profile changes are explicit resume/relaunch operations.
+  Upstream bare `claude` remains untouched by default.
+- **Managed model fence:** `availableModels` contains only the compiled lead;
+  composition transitions are the only supported lead change. A lifecycle
+  observation of a different model marks the record repair-needed.
+- **Context/compaction corrected:** explicit catalog fields separate client
+  classification, provider bound, process scalar, and ordinary profile. The
+  compiler treats `CLAUDE_CODE_AUTO_COMPACT_WINDOW` as capacity and sets
+  `CLAUDE_AUTOCOMPACT_PCT_OVERRIDE=90`. Pinned Claude Code 2.1.217 reserves up
+  to 20K output tokens before applying that percentage: deterministic reactive
+  thresholds are Sol 316800, managed 1M process 882000, and Qwen/ordinary-large
+  867254. Proactive summary preparation is runtime-controlled and may occur
+  earlier. Mixed processes retain Sol/GPT protection through their client caps;
+  an extended selector with a tighter provider bound narrows the shared capacity,
+  so Qwen lowers a 1M process to 983616. Qwen's `[1m]` selector strips to exact
+  `qwen3.8-max-preview`; Kimi remains the intended, user-attested 1M route,
+  explicitly labeled unverified rather than provider-safe until near-limit live
+  acceptance.
+  Metadata-only pinned probes now prove both manual and automatic compaction
+  emit `SessionStart(source=compact)` using only the loopback fake provider.
+- **Safety/polish:** the probe live-domain tripwire is strictly observe-only;
+  the fake provider supports `/v1/models`; expected connection resets are
+  quiet; PTY pipe handles close deterministically.
+- **Concurrency and cleanup:** mutation tokens preserve rollback ownership
+  across lifecycle-only hooks; relink/adoption/forget are serialized and
+  failure-aware; managed and ordinary `--continue` pointers are independent.
+- **Evidence:** **1,135 host tests green** with one intentionally gated
+  real-provider/native-contract skip (81.305s). The pinned loopback-only probes
+  observed both automatic and manual compact lifecycle hooks; the offline
+  package build, Nix sandbox suite, and `git diff --check` are green. No real
+  provider, transcript, or live supervisor was touched. Final standalone package:
+  `/nix/store/v1jvhlp93whsdysi6gn6cfaqicz0ckj7-claude-multi-2.2.0`; sandbox
+  evidence: `/nix/store/vrdmfsb8dk697zlhx1w1cs98cknnxa9z-claude-multi-tests`.
+  The first final sandbox attempt hit one no-controlling-terminal PTY timeout;
+  the immediate clean retry passed.
+- **Activated for acceptance:** Home Manager generation 95 is current at
+  `/nix/store/ks2l3v96ax8fz8smks95imczcali50l5-home-manager-generation`, with
+  claude-multi package
+  `/nix/store/7qisrz1b5i7kc92f91sgzlzsnja5nvcp-claude-multi-2.2.0`.
+  Post-activation verification found and fixed one packaging-only defect: the
+  new `claude-gateway` source file had been absent from the dirty flake input.
+  The sandbox now executes all three packaged `--version` entrypoints, and
+  activated `claude-multi`, `claude-gateway`, and `claude-multi-proxy` all report
+  2.2.0. The loopback gateway is running. `doctor` correctly blocks on 18
+  early-schema-v3 durable records whose snapshots predate explicit context
+  fields; each upgrades on resume/transition. No commit or push has been
+  performed.
+
 ## 2026-07-22 — M0 design package
 
 **Done**
@@ -53,13 +211,13 @@ appeared — the doctor's advisory shows the symlink moved).
 
 ## 2026-07-23 — compaction race + adopt/resume + cwd filter (`b07d2d4`)
 
-- **Compaction root cause verified** (binary evidence): the auto-compact
-  trigger is unrelated to the composition's MAX_CONTEXT_TOKENS cap —
-  explicit lead values exceeded their caps (kimi 1M, qwen 983K vs 372K)
-  and absent values raced the provider's 400. Compiler now clamps the
-  trigger to 90% of the scalar with explicit lower values respected;
-  compaction always fires before the cap with headroom for the
-  compaction request itself.
+- **Compaction root cause revised by later binary evidence:** the original
+  scalar-clamped trigger interpretation was incomplete. The window variable is
+  capacity; pinned 2.1.217 caps it per model, reserves up to 20K output tokens,
+  and applies the percentage to the remaining prompt budget. Proactive
+  preparation uses a runtime-controlled fraction and is deliberately not
+  reported as an exact invariant. Synchronized loopback probes prove the
+  automatic compact lifecycle hook without claiming its preparation point.
 - **Adopt/resume fixed**: adopted records now carry the decoded original
   project cwd (prefix-matching slug decoder); resume enters it. Records
   adopted before this fix need forget + re-adopt.

@@ -212,7 +212,9 @@ class CompileScopeSettingsTests(unittest.TestCase):
                 "workflowKeywordTriggerEnabled",
                 "permissions",
                 "availableModels",
+                "model",
                 "worktree",
+                "autoCompactEnabled",
             },
         )
 
@@ -251,20 +253,50 @@ class CompileScopeSettingsTests(unittest.TestCase):
         self.assertNotIn("Agent(Plan)", denies)
         self.assertEqual(denies, ["Agent(claude)"])
 
-    def test_available_models_sorted_catalog_selectors_plus_lead(self) -> None:
+    def test_available_models_fences_exact_managed_lead(self) -> None:
         _, _, plan = _plan()
+        self.assertEqual(plan.settings["availableModels"], ["claude-fable-5[1m]"])
+        self.assertEqual(plan.settings["model"], "claude-fable-5[1m]")
+
+    def test_lifecycle_hooks_are_scoped_and_metadata_only(self) -> None:
+        bundle, resolved, _ = _plan()
+        plan = scope.compile_scope(
+            resolved,
+            bundle.docs["roles"]["roles"],
+            bundle.prompt_bodies,
+            scope.catalog_meta_from_docs(bundle.docs),
+            managed_id=FIXED_SESSION,
+            hook_command="/nix/store/test/bin/claude-multi",
+            launch_epoch=7,
+        )
+        self.assertEqual(
+            plan.settings["env"]["CLAUDE_MULTI_MANAGED_ID"], FIXED_SESSION
+        )
+        self.assertEqual(plan.settings["env"]["CLAUDE_MULTI_LAUNCH_EPOCH"], "7")
+        start = plan.settings["hooks"]["SessionStart"][0]["hooks"][0]
+        end = plan.settings["hooks"]["SessionEnd"][0]["hooks"][0]
+        self.assertEqual(start["timeout"], 5)
+        self.assertIn("session-event start", start["command"])
+        self.assertIn("session-event end", end["command"])
+        self.assertIn("--launch-epoch 7", start["command"])
+        self.assertIn("--launch-epoch 7", end["command"])
+        self.assertNotIn("matcher", plan.settings["hooks"]["SessionStart"][0])
+        self.assertNotIn("transcript", strict_json.canonical_bytes(plan.settings).decode())
+
+    def test_ordinary_scope_has_no_generated_agents_or_composition_policy(self) -> None:
+        plan = scope.compile_ordinary_scope(
+            managed_id=FIXED_SESSION,
+            hook_command="/nix/store/test/bin/claude-multi",
+            available_models=("claude-fable-5[1m]", "claude-multi-qwen38-max[1m]"),
+        )
+        self.assertEqual(plan.agent_files, {})
         self.assertEqual(
             plan.settings["availableModels"],
-            [
-                "claude-fable-5[1m]",
-                "claude-multi-kimi-k3[1m]",
-                "claude-multi-opus-4-8[1m]",
-                "claude-multi-qwen38-max",
-                "gpt-multi-gpt55-high",
-                "gpt-multi-sol-high",
-                "gpt-multi-sol-xhigh",
-            ],
+            ["claude-fable-5[1m]", "claude-multi-qwen38-max[1m]"],
         )
+        self.assertEqual(plan.settings["model"], "claude-fable-5[1m]")
+        self.assertNotIn("permissions", plan.settings)
+        self.assertNotIn("disableWorkflows", plan.settings)
 
     def test_worktree_baseref_only_with_worktree_isolation(self) -> None:
         _, _, plan = _plan()
@@ -578,3 +610,100 @@ class ScopeGoldenTests(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class HookShimTests(unittest.TestCase):
+    """Stable lifecycle-hook indirection (store-path volatility root fix)."""
+
+    def setUp(self) -> None:
+        self.root = Path(tempfile.mkdtemp(prefix="claude-multi-shim-"))
+        os.chmod(self.root, 0o700)
+        self.addCleanup(lambda: shutil.rmtree(self.root, ignore_errors=True))
+
+    def test_shim_written_executable_and_idempotent(self) -> None:
+        path = scope.ensure_hook_shim(self.root, "/nix/store/a/bin/claude-multi")
+        self.assertEqual(path, scope.hook_shim_path(self.root))
+        info = os.lstat(path)
+        self.assertTrue(stat.S_ISREG(info.st_mode))
+        self.assertEqual(stat.S_IMODE(info.st_mode) & 0o111, 0o100)
+        body = path.read_text()
+        self.assertIn("exec /nix/store/a/bin/claude-multi", body)
+        self.assertIn("command -v claude-multi", body)
+        before = path.read_bytes()
+        again = scope.ensure_hook_shim(self.root, "/nix/store/a/bin/claude-multi")
+        self.assertEqual(again, path)
+        self.assertEqual(path.read_bytes(), before)
+
+    def test_shim_refreshes_when_resolved_command_changes(self) -> None:
+        path = scope.ensure_hook_shim(self.root, "/nix/store/a/bin/claude-multi")
+        scope.ensure_hook_shim(self.root, "/nix/store/b/bin/claude-multi")
+        body = path.read_text()
+        self.assertIn("/nix/store/b/bin/claude-multi", body)
+        self.assertNotIn("/nix/store/a/bin/claude-multi", body)
+
+    def test_shim_target_is_shell_quoted(self) -> None:
+        path = scope.ensure_hook_shim(self.root, "/nix/store/a b/bin/claude-multi")
+        body = path.read_text()
+        self.assertIn("'/nix/store/a b/bin/claude-multi'", body)
+
+    def test_shim_requires_a_resolved_command(self) -> None:
+        with self.assertRaises(ScopeError):
+            scope.ensure_hook_shim(self.root, "")
+
+    def test_resolve_hook_command_precedence(self) -> None:
+        env = {"CLAUDE_MULTI_HOOK_COMMAND": "/some/wrapper/../wrapper/claude-multi"}
+        self.assertEqual(
+            scope.resolve_hook_command(env, Path("/assets")),
+            "/some/wrapper/claude-multi",
+        )
+        self.assertEqual(
+            scope.resolve_hook_command({}, Path("/assets")),
+            "/assets/bin/claude-multi",
+        )
+        with self.assertRaises(ScopeError):
+            scope.resolve_hook_command({}, None)
+
+    def test_scope_bytes_stable_across_package_rebuilds(self) -> None:
+        """The money test: a rebuilt package (new store path) must not change
+        the compiled scope bytes for the same record — only the shim's target
+        moves."""
+        bundle, resolved = _resolved()
+
+        def compile_with(environ):
+            resolved_cmd = scope.resolve_hook_command(environ, CATALOG_ROOT)
+            shim = scope.ensure_hook_shim(self.root, resolved_cmd)
+            return scope.compile_scope(
+                resolved,
+                bundle.docs["roles"]["roles"],
+                bundle.prompt_bodies,
+                scope.catalog_meta_from_docs(bundle.docs),
+                managed_id=FIXED_SESSION,
+                hook_command=str(shim),
+                launch_epoch=1,
+            )
+
+        plan_a = compile_with(
+            {"CLAUDE_MULTI_HOOK_COMMAND": "/nix/store/gen95/bin/claude-multi"}
+        )
+        plan_b = compile_with(
+            {"CLAUDE_MULTI_HOOK_COMMAND": "/nix/store/gen96/bin/claude-multi"}
+        )
+        self.assertEqual(scope.plan_hash(plan_a), scope.plan_hash(plan_b))
+        shim_body = scope.hook_shim_path(self.root).read_text()
+        self.assertIn("/nix/store/gen96/bin/claude-multi", shim_body)
+
+
+class ManagedCompactionPinTests(unittest.TestCase):
+    def test_managed_scope_pins_auto_compact_on(self) -> None:
+        # The launcher owns managed compaction policy; a user-level
+        # autoCompactEnabled:false must never defeat it.
+        bundle, resolved, plan = _plan()
+        self.assertIs(plan.settings["autoCompactEnabled"], True)
+
+    def test_ordinary_scope_leaves_auto_compact_to_the_user(self) -> None:
+        plan = scope.compile_ordinary_scope(
+            managed_id=FIXED_SESSION,
+            hook_command="/hook/shim",
+            available_models=("gpt-multi-sol-high",),
+        )
+        self.assertNotIn("autoCompactEnabled", plan.settings)

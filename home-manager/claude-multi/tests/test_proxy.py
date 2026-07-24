@@ -227,7 +227,7 @@ class DisposableProxyTests(unittest.TestCase):
         self.assertIn("claude-multi-kimi-k3", entries)
         self.assertEqual(entries["claude-multi-kimi-k3"].get("owned_by"), "moonshot")
         self.assertEqual(
-            entries["claude-multi-kimi-k3"].get("max_input_tokens"), 1048576
+            entries["claude-multi-kimi-k3"].get("max_input_tokens"), 1000000
         )
 
         message = self._request(

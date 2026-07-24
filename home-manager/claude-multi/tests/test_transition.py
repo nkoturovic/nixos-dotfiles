@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import copy
 import dataclasses
+import errno
 import os
 import shutil
 import stat
@@ -75,12 +76,15 @@ class TransitionTestCase(unittest.TestCase):
             mutate(document)
         return document
 
-    def _compile_scope(self, resolved) -> scope.ScopePlan:
+    def _compile_scope(self, resolved, launch_epoch: int = 0) -> scope.ScopePlan:
         return scope.compile_scope(
             resolved,
             self.bundle.docs["roles"]["roles"],
             self.bundle.prompt_bodies,
             scope.catalog_meta_from_docs(self.bundle.docs),
+            managed_id=FIXED_ID,
+            hook_command=str(scope.hook_shim_path(self.root / "state")),
+            launch_epoch=launch_epoch,
         )
 
     def _make_session(
@@ -110,7 +114,7 @@ class TransitionTestCase(unittest.TestCase):
             now="2026-07-21T00:00:00Z",
         )
         self.store.save(record)
-        plan = self._compile_scope(resolved)
+        plan = self._compile_scope(resolved, record["launch_epoch"])
         if write_live_scope:
             scope.write_scope(self.store.root, session_id, plan)
         return record, resolved, plan
@@ -250,7 +254,7 @@ class PrepareTests(TransitionTestCase):
         self.assertEqual(plan.session_id, FIXED_ID)
         self.assertEqual(plan.prior_record, record)
         self.assertEqual(plan.new_record["scope_generation"], 2)
-        self.assertEqual(plan.new_record["session_id"], FIXED_ID)
+        self.assertEqual(plan.new_record["managed_id"], FIXED_ID)
         self.assertEqual(plan.new_record["created_at"], record["created_at"])
         self.assertEqual(
             plan.new_record["composition_hash"],
@@ -380,7 +384,11 @@ class ExecuteRelaunchTests(TransitionTestCase):
 
         self.assertEqual(outcome.kind, transition.RELAUNCH)
         self.assertEqual(outcome.prior_record_bytes, prior_bytes)
-        self.assertEqual(outcome.record, plan.new_record)
+        self.assertEqual(
+            {key: value for key, value in outcome.record.items() if key != "mutation_token"},
+            plan.new_record,
+        )
+        self.assertRegex(outcome.record["mutation_token"], sessions.UUID4)
         self.assertIsNotNone(outcome.compile_result)
         # The outcome carries the exact committed bytes as the restore guard's
         # ownership token (CAS-by-own-write).
@@ -406,7 +414,7 @@ class ExecuteRelaunchTests(TransitionTestCase):
         # The on-disk record is exactly the generation N+1 record.
         self.assertEqual(
             self.store.read_record_bytes(FIXED_ID),
-            strict_json.canonical_file_bytes(plan.new_record),
+            strict_json.canonical_file_bytes(outcome.record),
         )
         stored = self.store.load(FIXED_ID)
         self.assertEqual(stored["scope_generation"], 2)
@@ -451,6 +459,32 @@ class ExecuteRelaunchTests(TransitionTestCase):
             ],
         )
 
+    def test_scope_fsync_failure_restores_prior_scope_and_raises_transition_error(self) -> None:
+        before_record, _, old_plan = self._make_session()
+        plan = self._prepare(_lead_to_kimi)
+        calls = 0
+
+        def fail_first_fsync(_path: Path) -> None:
+            nonlocal calls
+            calls += 1
+            if calls == 1:
+                raise OSError(errno.EIO, "injected scope fsync failure")
+
+        with self.assertRaisesRegex(TransitionError, "prior scope was restored"):
+            transition.execute(
+                plan,
+                confirm_exited=True,
+                environ={},
+                dir_fsync=fail_first_fsync,
+            )
+        self.assertEqual(self.store.load(FIXED_ID), before_record)
+        self.assertEqual(
+            self._live_file_bytes("settings.json"),
+            strict_json.canonical_file_bytes(old_plan.settings),
+        )
+        self.assertFalse(self._prev().exists())
+        self.assertFalse(self._staging().exists())
+
     def test_previous_prev_is_replaced_by_the_new_prior_generation(self) -> None:
         _, _, old_plan = self._make_session()
         stale = self._prev()
@@ -477,7 +511,13 @@ class ExecuteRelaunchTests(TransitionTestCase):
         )
         self.assertEqual(
             self._live_file_bytes("settings.json"),
-            strict_json.canonical_file_bytes(old_plan.settings),
+            strict_json.canonical_file_bytes(outcome.compile_result.scope_plan.settings),
+        )
+        self.assertNotEqual(
+            outcome.compile_result.scope_plan.settings["env"][
+                "CLAUDE_MULTI_LAUNCH_EPOCH"
+            ],
+            old_plan.settings["env"]["CLAUDE_MULTI_LAUNCH_EPOCH"],
         )
 
     def test_transition_with_catalog_drift_records_installed_hash(self) -> None:
@@ -587,6 +627,56 @@ class ExecuteRelaunchTests(TransitionTestCase):
             )
         self.assertEqual(self.store.read_record_bytes(FIXED_ID), prior_bytes)
 
+    def test_committed_record_write_failure_restores_prior_generation(self) -> None:
+        _, _, old_plan = self._make_session()
+        prior_bytes = self.store.read_record_bytes(FIXED_ID)
+        plan = self._prepare(_lead_to_kimi)
+        real_save = self.store.save
+        injected = False
+
+        def fail_after_replace(record):
+            nonlocal injected
+            result = real_save(record)
+            if record.get("scope_generation") == 2 and not injected:
+                injected = True
+                raise state.CommittedStateError("injected directory fsync failure")
+            return result
+
+        with mock.patch.object(self.store, "save", side_effect=fail_after_replace):
+            with self.assertRaisesRegex(
+                state.CommittedStateError, "injected directory fsync failure"
+            ):
+                transition.execute(plan, confirm_exited=True, environ={})
+        self.assertEqual(self.store.read_record_bytes(FIXED_ID), prior_bytes)
+        self.assertEqual(
+            self._live_file_bytes("settings.json"),
+            strict_json.canonical_file_bytes(old_plan.settings),
+        )
+        self.assertFalse(self._prev().exists())
+        self.assertFalse(self._staging().exists())
+
+    def test_precommit_record_write_failure_restores_prior_generation(self) -> None:
+        _, _, old_plan = self._make_session()
+        prior_bytes = self.store.read_record_bytes(FIXED_ID)
+        plan = self._prepare(_lead_to_kimi)
+        real_save = self.store.save
+
+        def fail_before_replace(record):
+            if record.get("scope_generation") == 2:
+                raise state.StateError(errno.ENOSPC, "injected precommit failure")
+            return real_save(record)
+
+        with mock.patch.object(self.store, "save", side_effect=fail_before_replace):
+            with self.assertRaisesRegex(state.StateError, "injected precommit failure"):
+                transition.execute(plan, confirm_exited=True, environ={})
+        self.assertEqual(self.store.read_record_bytes(FIXED_ID), prior_bytes)
+        self.assertEqual(
+            self._live_file_bytes("settings.json"),
+            strict_json.canonical_file_bytes(old_plan.settings),
+        )
+        self.assertFalse(self._prev().exists())
+        self.assertFalse(self._staging().exists())
+
     def test_exec_failure_restore_rejects_non_uuid_before_path_access(self) -> None:
         with self.assertRaisesRegex(TransitionError, "managed-session UUID"):
             transition.restore_exec_failure(
@@ -634,6 +724,112 @@ class ExecuteRelaunchTests(TransitionTestCase):
             stored["composition_hash"], plan_b.new_record["composition_hash"]
         )
 
+    def test_intervening_launch_authority_invalidates_transition_plan(self) -> None:
+        self._make_session()
+        plan = self._prepare(_lead_to_kimi)
+        current = self.store.load(FIXED_ID)
+        current["launch_epoch"] += 1
+        current["mutation_token"] = sessions.new_mutation_token()
+        self.store.save(current)
+        after_launch = self.store.read_record_bytes(FIXED_ID)
+        live_before = self._live_file_bytes("settings.json")
+        with self.assertRaisesRegex(
+            TransitionError, "launch authority advanced concurrently"
+        ):
+            transition.execute(plan, confirm_exited=True, environ={})
+        self.assertEqual(self.store.read_record_bytes(FIXED_ID), after_launch)
+        self.assertEqual(self._live_file_bytes("settings.json"), live_before)
+        self.assertFalse(self._prev().exists())
+        self.assertFalse(self._staging().exists())
+
+    def test_runtime_change_after_prepare_aborts_before_scope_mutation(self) -> None:
+        self._make_session()
+        plan = self._prepare(_lead_to_kimi)
+        self.store.reconcile_runtime(
+            FIXED_ID,
+            observed_runtime_id=OTHER_ID,
+            source="compact",
+            cwd=str(self.project),
+            now="2026-07-22T00:00:00Z",
+        )
+        after_hook = self.store.read_record_bytes(FIXED_ID)
+        live_before = self._live_file_bytes("settings.json")
+        with self.assertRaisesRegex(TransitionError, "runtime identity changed"):
+            transition.execute(plan, confirm_exited=True, environ={})
+        self.assertEqual(self.store.read_record_bytes(FIXED_ID), after_hook)
+        self.assertEqual(self._live_file_bytes("settings.json"), live_before)
+        self.assertFalse(self._prev().exists())
+        self.assertFalse(self._staging().exists())
+
+    def test_lifecycle_metadata_after_prepare_is_carried_into_transition(self) -> None:
+        self._make_session()
+        plan = self._prepare(_lead_to_kimi)
+        self.store.reconcile_runtime(
+            FIXED_ID,
+            observed_runtime_id=FIXED_ID,
+            source="compact",
+            cwd=str(self.project),
+            now="2026-07-22T00:00:00Z",
+        )
+        self.store.record_session_end(
+            FIXED_ID,
+            observed_runtime_id=FIXED_ID,
+            reason="other",
+            now="2026-07-22T00:00:01Z",
+        )
+        prior_bytes = self.store.read_record_bytes(FIXED_ID)
+        outcome = transition.execute(plan, confirm_exited=True, environ={})
+        self.assertEqual(outcome.prior_record_bytes, prior_bytes)
+        self.assertEqual(outcome.record["last_event_source"], "end")
+        self.assertEqual(outcome.record["last_end_reason"], "other")
+        self.assertEqual(outcome.record["last_seen_at"], "2026-07-22T00:00:01Z")
+        self.assertEqual(outcome.record, self.store.load(FIXED_ID))
+
+    def test_restore_survives_lifecycle_hook_after_transition_commit(self) -> None:
+        _, _, old_plan = self._make_session()
+        plan = self._prepare(_lead_to_kimi)
+        outcome = transition.execute(plan, confirm_exited=True, environ={})
+        self.store.record_session_end(
+            FIXED_ID,
+            observed_runtime_id=FIXED_ID,
+            reason="other",
+            launch_epoch=outcome.record["launch_epoch"],
+            now="2026-07-22T00:00:01Z",
+        )
+        transition.restore_exec_failure(
+            self.store,
+            FIXED_ID,
+            outcome.prior_record_bytes,
+            expected_record_bytes=outcome.committed_record_bytes,
+        )
+        restored = self.store.load(FIXED_ID)
+        self.assertEqual(restored["scope_generation"], 1)
+        self.assertEqual(restored["last_end_reason"], "other")
+        self.assertEqual(
+            self._live_file_bytes("settings.json"),
+            strict_json.canonical_file_bytes(old_plan.settings),
+        )
+        self.assertFalse(self._prev().exists())
+
+    def test_model_repair_transition_cannot_bypass_pending_fork(self) -> None:
+        self._make_session()
+        current = self.store.load(FIXED_ID)
+        current["identity_state"] = sessions.IDENTITY_REPAIR_NEEDED
+        current["observed_model"] = "gpt-multi-sol-high"
+        current["pending_forks"] = [
+            {"session_id": OTHER_ID, "observed_at": "2026-07-22T00:00:00Z"}
+        ]
+        self.store.save(current)
+        plan = self._prepare(_lead_to_kimi)
+        before = self.store.read_record_bytes(FIXED_ID)
+        live_before = self._live_file_bytes("settings.json")
+        with self.assertRaisesRegex(TransitionError, "unresolved native fork"):
+            transition.execute(plan, confirm_exited=True, environ={})
+        self.assertEqual(self.store.read_record_bytes(FIXED_ID), before)
+        self.assertEqual(self._live_file_bytes("settings.json"), live_before)
+        self.assertFalse(self._prev().exists())
+        self.assertFalse(self._staging().exists())
+
     def test_restore_with_matching_expected_bytes_restores(self) -> None:
         _, _, old_plan = self._make_session()
         prior_bytes = self.store.read_record_bytes(FIXED_ID)
@@ -652,6 +848,29 @@ class ExecuteRelaunchTests(TransitionTestCase):
         )
         self.assertFalse(self._prev().exists())
         self.assertFalse(self._staging().exists())
+
+    def test_restore_noops_after_authoritative_relink_changes_token(self) -> None:
+        self._make_session()
+        outcome = transition.execute(
+            self._prepare(_lead_to_kimi), confirm_exited=True, environ={}
+        )
+        repaired_cwd = self.root / "repaired-project"
+        repaired_cwd.mkdir()
+        self.store.relink_runtime(
+            FIXED_ID,
+            observed_runtime_id=FIXED_ID,
+            cwd=str(repaired_cwd),
+        )
+        after_relink = self.store.read_record_bytes(FIXED_ID)
+        transition.restore_exec_failure(
+            self.store,
+            FIXED_ID,
+            outcome.prior_record_bytes,
+            expected_record_bytes=outcome.committed_record_bytes,
+        )
+        self.assertEqual(self.store.read_record_bytes(FIXED_ID), after_relink)
+        self.assertEqual(self.store.load(FIXED_ID)["scope_generation"], 2)
+        self.assertEqual(self.store.load(FIXED_ID)["cwd"], str(repaired_cwd))
 
     def test_restore_noops_when_a_newer_attempt_committed(self) -> None:
         # L2: the failing execute's cleanup must not clobber a newer commit.
@@ -877,7 +1096,7 @@ class TransitionRecordTests(TransitionTestCase):
             launcher_version="2.1.0",
         )
         self.assertEqual(bumped["scope_generation"], 2)
-        self.assertEqual(bumped["session_id"], record["session_id"])
+        self.assertEqual(bumped["managed_id"], record["managed_id"])
         self.assertEqual(bumped["cwd"], record["cwd"])
         self.assertEqual(bumped["created_at"], record["created_at"])
         self.assertEqual(bumped["forked_from"], record["forked_from"])

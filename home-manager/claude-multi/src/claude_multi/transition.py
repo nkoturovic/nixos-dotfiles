@@ -82,7 +82,8 @@ PRINT_ONLY = "print_only"
 
 # Environment sentinel compiled into every managed launch (compiler.py); the
 # session's own agents and nested CLI invocations self-identify against it.
-SESSION_ENV_VAR = "CLAUDE_MULTI_SESSION_ID"
+SESSION_ENV_VAR = "CLAUDE_MULTI_MANAGED_ID"
+LEGACY_SESSION_ENV_VAR = "CLAUDE_MULTI_SESSION_ID"
 
 # Exact post-exit command printed by every print-only outcome. Lane C's CLI
 # renders this verbatim.
@@ -240,11 +241,14 @@ def prepare(
         raise TransitionError(
             f"session id {session_id!r} is not a managed-session UUID"
         )
-    # store.load raises SessionError on a missing/corrupt record (fail closed).
-    record = store.load(session_id)
+    # Resolve either the stable managed ID or a current/historical runtime ID.
+    record = store.resolve(session_id)
+    stable_id = sessions.managed_id(record)
+    if record["session_type"] != sessions.SESSION_TYPE_MANAGED:
+        raise TransitionError("ordinary gateway sessions have no composition to transition")
     if record["mode"] != "durable":
         raise TransitionError(
-            f"session {session_id} is {record['mode']}; v1 transitions require "
+            f"session {stable_id} is {record['mode']}; v1 transitions require "
             "a durable session — resume it once to upgrade, then transition"
         )
     try:
@@ -267,13 +271,13 @@ def prepare(
         raise TransitionError(str(exc)) from exc
     diff = build_diff(record, resolved, catalog_meta_from_catalog(trusted))
     return Plan(
-        session_id=session_id,
+        session_id=stable_id,
         prior_record=record,
         new_record=new_record,
         target_resolved=resolved,
         diff=tuple(diff),
         command_text=COMMAND_TEMPLATE.format(
-            session_id=session_id, name=resolved.name
+            session_id=stable_id, name=resolved.name
         ),
         store=store,
         trusted=trusted,
@@ -364,7 +368,10 @@ def execute(
     """
 
     env = os.environ if environ is None else environ
-    if env.get(SESSION_ENV_VAR) == plan.session_id:
+    if (
+        env.get(SESSION_ENV_VAR) == plan.session_id
+        or env.get(LEGACY_SESSION_ENV_VAR) == plan.session_id
+    ):
         return Outcome(
             kind=PRINT_ONLY, diff=list(plan.diff), command_text=plan.command_text
         )
@@ -384,12 +391,20 @@ def execute(
         docs=trusted.docs,
         prompt_bodies=trusted.prompt_bodies,
         resolved=plan.target_resolved,
-        session_action=compiler.build_resume(session_id),
+        session_action=compiler.build_resume(
+            session_id, sessions.runtime_session_id(plan.prior_record)
+        ),
         passthrough=[],
         settings_path=trusted.root / "settings.json",
         lead_prompt_path=compiler.lead_prompt_path(store.root, digest, session_id),
         durable=True,
         scope_dir=scope.scope_dir(store.root, session_id),
+        hook_command=str(
+            scope.ensure_hook_shim(
+                store.root, scope.resolve_hook_command(env, trusted.root)
+            )
+        ),
+        launch_epoch=plan.new_record.get("launch_epoch", 0),
     )
     if result.scope_plan is None:
         raise TransitionError("durable compile produced no scope plan")
@@ -424,12 +439,64 @@ def execute(
             )
         current = store.load(session_id)
         if (
+            sessions.managed_id(current) != session_id
+            or current["session_type"] != sessions.SESSION_TYPE_MANAGED
+        ):
+            raise TransitionError(
+                "session identity changed concurrently; re-run the transition"
+            )
+        if (
             current["scope_generation"] != plan.prior_record["scope_generation"]
             or current["composition_hash"] != plan.prior_record["composition_hash"]
         ):
             raise TransitionError(
                 "session composition advanced concurrently; re-run the transition"
             )
+        if (
+            current.get("launch_epoch", 0)
+            != plan.prior_record.get("launch_epoch", 0)
+            or current.get("mutation_token")
+            != plan.prior_record.get("mutation_token")
+            or plan.new_record.get("launch_epoch", 0)
+            != current.get("launch_epoch", 0) + 1
+        ):
+            raise TransitionError(
+                "session launch authority advanced concurrently; re-run the transition"
+            )
+        if sessions.runtime_session_id(current) != sessions.runtime_session_id(
+            plan.prior_record
+        ):
+            raise TransitionError(
+                "session runtime identity changed concurrently; re-run the transition"
+            )
+        if current["cwd"] != plan.prior_record["cwd"]:
+            raise TransitionError(
+                "session CWD changed concurrently; re-run the transition"
+            )
+        identity_state = current.get(
+            "identity_state", sessions.IDENTITY_UNVERIFIED
+        )
+        if current.get("pending_forks"):
+            raise TransitionError(
+                "session has an unresolved native fork; adopt it before transition"
+            )
+        model_repair = (
+            identity_state == sessions.IDENTITY_REPAIR_NEEDED
+            and "observed_model" in current
+            and "observed_cwd" not in current
+        )
+        if identity_state == sessions.IDENTITY_REPAIR_NEEDED and not model_repair:
+            raise TransitionError(
+                "session runtime/CWD identity needs repair before transition"
+            )
+        committed_record = sessions.carry_lifecycle_state(plan.new_record, current)
+        if model_repair:
+            committed_record.pop("observed_model", None)
+            committed_record["identity_state"] = sessions.IDENTITY_UNVERIFIED
+        committed_record = {
+            **committed_record,
+            "mutation_token": sessions.new_mutation_token(),
+        }
 
         scopes_root = state.ensure_private_dir(Path(store.root) / "scopes")
         live = scopes_root / session_id
@@ -437,18 +504,70 @@ def execute(
         _check_real_scope_dir(live, "live")
         _check_real_scope_dir(prev, "previous-generation")
         staging = _stage_scope(store.root, session_id, result.scope_plan)
-        if os.path.lexists(prev):
-            # The previous successful transition's rollback copy is superseded
-            # (TRANSITIONS section 3 step 7).
-            scope._remove_tree(prev)
+        live_moved = False
+        staging_moved = False
+        try:
+            if os.path.lexists(prev):
+                # The previous successful transition's rollback copy is
+                # superseded (TRANSITIONS section 3 step 7).
+                scope._remove_tree(prev)
+                sync(scopes_root)
+            if os.path.lexists(live):
+                os.rename(live, prev)
+                live_moved = True
+                sync(scopes_root)
+            os.rename(staging, live)
+            staging_moved = True
             sync(scopes_root)
-        if os.path.lexists(live):
-            os.rename(live, prev)
-            sync(scopes_root)
-        os.rename(staging, live)
-        sync(scopes_root)
+        except OSError as exc:
+            try:
+                if staging_moved and os.path.lexists(live):
+                    scope._remove_tree(live)
+                if live_moved and os.path.lexists(prev):
+                    os.rename(prev, live)
+                if os.path.lexists(staging):
+                    scope._remove_tree(staging)
+                sync(scopes_root)
+            except OSError as rollback_exc:
+                raise TransitionError(
+                    "scope transition failed and rollback durability could not "
+                    f"be confirmed: {exc}; rollback: {rollback_exc}; run "
+                    f"`claude-multi doctor --repair {session_id}`"
+                ) from exc
+            raise TransitionError(
+                f"scope transition failed before the record commit: {exc}; "
+                "the prior scope was restored"
+            ) from exc
 
-        store.save(plan.new_record)
+        def restore_prior_scope() -> None:
+            if os.path.lexists(prev):
+                if os.path.lexists(live):
+                    scope._remove_tree(live)
+                os.rename(prev, live)
+            elif os.path.lexists(live):
+                scope._remove_tree(live)
+            if os.path.lexists(staging):
+                scope._remove_tree(staging)
+            sync(scopes_root)
+
+        try:
+            store.save(committed_record)
+        except state.CommittedStateError:
+            current_bytes = store.read_record_bytes(session_id)
+            if current_bytes == strict_json.canonical_file_bytes(committed_record):
+                store.restore_record_bytes(session_id, prior_bytes)
+                restore_prior_scope()
+            raise
+        except BaseException as exc:
+            try:
+                restore_prior_scope()
+            except OSError as rollback_exc:
+                raise TransitionError(
+                    "record commit failed before replacement and scope rollback "
+                    f"could not be confirmed: {exc}; rollback: {rollback_exc}; run "
+                    f"`claude-multi doctor --repair {session_id}`"
+                ) from exc
+            raise
         # The exact bytes this execute committed: the restore guard's
         # ownership token (CAS-by-own-write, audit L2).
         committed_bytes = store.read_record_bytes(session_id)
@@ -458,7 +577,7 @@ def execute(
         kind=RELAUNCH,
         diff=list(plan.diff),
         compile_result=result,
-        record=plan.new_record,
+        record=committed_record,
         prior_record_bytes=prior_bytes,
         committed_record_bytes=committed_bytes,
     )
@@ -502,11 +621,30 @@ def restore_exec_failure(
     lock.acquire(blocking=True)
     try:
         current_bytes = store.read_record_bytes(session_id)
-        if current_bytes != expected_record_bytes:
+        try:
+            expected = strict_json.loads(expected_record_bytes)
+            current = store.load(session_id)
+        except (strict_json.StrictJSONError, sessions.SessionError):
+            return
+        if (
+            not isinstance(expected, dict)
+            or expected.get("mutation_token") is None
+            or current.get("mutation_token") != expected.get("mutation_token")
+        ):
             # A newer attempt committed since the failing execute; it owns
             # the record and the scope now — restore nothing.
             return
-        store.restore_record_bytes(session_id, prior_record_bytes)
+        if current_bytes == expected_record_bytes:
+            store.restore_record_bytes(session_id, prior_record_bytes)
+        else:
+            try:
+                prior = strict_json.loads(prior_record_bytes)
+                if not isinstance(prior, dict):
+                    return
+                prior = sessions._normalize_legacy_record(prior)
+                store.save(sessions.carry_lifecycle_state(prior, current))
+            except (strict_json.StrictJSONError, sessions.SessionError):
+                return
         sync = dir_fsync if dir_fsync is not None else scope._fsync_directory
         # Validate the scopes parent before destructive work beneath it: a
         # symlinked ancestor fails closed here (final audit L3).
@@ -567,16 +705,61 @@ def _document_from_record(record: dict[str, Any]) -> dict[str, Any]:
     return document
 
 
-def _expected_plan(record: dict[str, Any], trusted: Catalog) -> scope.ScopePlan:
+def _ordinary_expected_plan(
+    record: dict[str, Any], trusted: Catalog, hook_command: str
+) -> scope.ScopePlan:
+    """The record-authoritative ordinary gateway scope."""
+
+    model = trusted.docs["models"]["models"].get(record["ordinary_model"])
+    if model is None:
+        raise TransitionError(
+            f"ordinary model {record['ordinary_model']!r} is no longer in the "
+            "installed catalog; resume with an explicit supported `--model`"
+        )
+    try:
+        selectors = compiler.direct_profile_selectors(
+            trusted.docs, record["context_profile"]
+        )
+    except compiler.CompilerError as exc:
+        raise TransitionError(str(exc)) from exc
+    return scope.compile_ordinary_scope(
+        managed_id=sessions.managed_id(record),
+        hook_command=hook_command,
+        available_models=selectors,
+        default_model=model["client_selector"],
+        launch_epoch=record.get("launch_epoch", 0),
+    )
+
+
+def _expected_plan(
+    record: dict[str, Any],
+    trusted: Catalog,
+    *,
+    state_root: Path | str | None = None,
+    hook_command: str | None = None,
+) -> scope.ScopePlan:
     """The record-authoritative scope: record composition + installed catalog."""
 
     document = _document_from_record(record)
     resolved = composition.resolve(trusted.docs, document)
+    if hook_command is None:
+        if state_root is None:
+            raise TransitionError(
+                "record-authoritative compile requires state_root or hook_command"
+            )
+        hook_command = str(
+            scope.ensure_hook_shim(
+                state_root, scope.resolve_hook_command(None, trusted.root)
+            )
+        )
     return scope.compile_scope(
         resolved,
         trusted.docs["roles"]["roles"],
         trusted.prompt_bodies,
         scope.catalog_meta_from_docs(trusted.docs),
+        managed_id=sessions.managed_id(record),
+        hook_command=hook_command,
+        launch_epoch=record.get("launch_epoch", 0),
     )
 
 
@@ -721,7 +904,41 @@ def converge(
         _check_real_scope_dir(prev, "previous-generation")
         report = [f"record generation {record['scope_generation']} is authoritative"]
 
-        expected = _expected_plan(record, trusted)
+        hook_command = str(
+            scope.ensure_hook_shim(
+                store.root, scope.resolve_hook_command(None, trusted.root)
+            )
+        )
+        if record["session_type"] == sessions.SESSION_TYPE_ORDINARY:
+            expected = _ordinary_expected_plan(record, trusted, hook_command)
+        else:
+            # Repair-time record refresh: re-resolve the recorded composition
+            # against the installed catalog and absorb catalog-derived drift
+            # (context fields, selectors) into the record. The composition
+            # itself can never change here — refresh_record_snapshot fails
+            # closed on any slot/lead difference (that is a transition).
+            resolved = composition.resolve(
+                trusted.docs, _document_from_record(record)
+            )
+            fresh_snapshot = composition.snapshot(resolved)
+            if fresh_snapshot != record["snapshot"]:
+                version_doc = trusted.docs["version"]
+                refreshed = sessions.refresh_record_snapshot(
+                    record,
+                    snapshot=fresh_snapshot,
+                    catalog_version=version_doc["catalog_version"],
+                    catalog_hash=trusted.bundle_sha256,
+                    launcher_version=version_doc["launcher_version"],
+                )
+                store.save(refreshed)
+                record = refreshed
+                report.append(
+                    "record snapshot refreshed against the installed catalog "
+                    "(catalog-derived fields absorbed; composition unchanged)"
+                )
+            expected = _expected_plan(
+                record, trusted, state_root=store.root, hook_command=hook_command
+            )
 
         if not os.path.lexists(live) and os.path.lexists(prev):
             # Crash between the two swap renames: the record still names the

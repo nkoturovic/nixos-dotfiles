@@ -11,8 +11,10 @@ is fsynced but before ``os.replace`` may leave a same-directory
 ``.<name>.*.tmp`` stale file (mode 0600, owner-only). The previous target
 content remains intact and no partial target is ever visible; the stale temp
 file is harmless and may be removed by the owner. No automatic reaper is
-provided. Ordinary Python exceptions always clean up the temporary file and
-are covered by tests.
+provided. Exceptions before replacement clean up the temporary file and leave
+the previous target intact. A directory-fsync failure after replacement raises
+``CommittedStateError`` so callers know the new bytes may already be visible
+and can perform transaction-specific recovery.
 """
 
 from __future__ import annotations
@@ -28,6 +30,10 @@ from pathlib import Path
 
 class StateError(OSError):
     """Raised when a state path or write violates safety requirements."""
+
+
+class CommittedStateError(StateError):
+    """The target was replaced, but directory durability was not confirmed."""
 
 
 SAFE_NAME = re.compile(r"^[a-z0-9][a-z0-9._-]{0,63}$")
@@ -136,7 +142,13 @@ def atomic_write(path: Path | str, data: bytes) -> None:
         except OSError:
             pass
         raise
-    _fsync_directory(parent)
+    try:
+        _fsync_directory(parent)
+    except OSError as exc:
+        raise CommittedStateError(
+            exc.errno or errno.EIO,
+            f"state file {target} was replaced but directory fsync failed: {exc}",
+        ) from exc
 
 
 def read_private(path: Path | str) -> bytes:
@@ -188,7 +200,7 @@ class FileLock:
         if os.path.lexists(self._lock_path):
             _check_regular_file(self._lock_path)
         descriptor = os.open(
-            self._lock_path, os.O_RDWR | os.O_CREAT, 0o600
+            self._lock_path, os.O_RDWR | os.O_CREAT | os.O_CLOEXEC, 0o600
         )
         try:
             os.fchmod(descriptor, 0o600)

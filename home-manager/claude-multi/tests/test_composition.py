@@ -180,7 +180,7 @@ class KimiReviewerTests(unittest.TestCase):
     def test_scalar_bound_remains_372k(self) -> None:
         bundle, document = self._kimi_reviewer_doc()
         resolved = composition.resolve(bundle.docs, document)
-        # selector-1m (Fable, Kimi) never reduces the scalar; only Sol counts.
+        # Fable and Kimi have no process scalar; only Sol counts.
         self.assertEqual(resolved.scalar_context_tokens, 372000)
 
     def test_independence_rules_cover_both_reviewer_families(self) -> None:
@@ -315,6 +315,7 @@ class SnapshotTests(unittest.TestCase):
         self.assertEqual(snap["lead"]["model"], "fable")
         self.assertEqual(len(snap["variants"]), 6)
         self.assertEqual(snap["scalar_context_tokens"], 372000)
+        self.assertEqual(snap["auto_compact_window_tokens"], 1000000)
         self.assertEqual(
             snap["native_agents"],
             {"explore": "replace", "plan": "native", "general_purpose": "off"},

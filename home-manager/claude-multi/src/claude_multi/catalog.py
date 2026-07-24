@@ -35,8 +35,8 @@ CANONICAL_FORK_ROUTES = {
 }
 
 # Compiler-owned environment keys: never settable from a model lead.env block.
-# CLAUDE_CODE_AUTO_COMPACT_WINDOW deliberately remains the allowed lead-scoped
-# setting; every other process-scoped key is compiled by the launcher only.
+# Context capacity and the proactive compaction percentage are derived from the
+# catalog's explicit context policy; model-specific env cannot contradict them.
 # G0' additionally reserves the config-dir, updater, and nested-spawn keys
 # against lead.env while the nested decision chain is pending.
 # CLAUDE_CODE_DISABLE_EXPLORE_PLAN_AGENTS is compiled from native-agent
@@ -47,6 +47,8 @@ RESERVED_LEAD_ENV_KEYS = frozenset(
         "CLAUDE_CODE_MAX_OUTPUT_TOKENS",
         "CLAUDE_CODE_ENABLE_GATEWAY_MODEL_DISCOVERY",
         "CLAUDE_CODE_MAX_CONTEXT_TOKENS",
+        "CLAUDE_CODE_AUTO_COMPACT_WINDOW",
+        "CLAUDE_AUTOCOMPACT_PCT_OVERRIDE",
         "CLAUDE_CONFIG_DIR",
         "DISABLE_AUTOUPDATER",
         "CLAUDE_CODE_MAX_SUBAGENT_SPAWN_DEPTH",
@@ -422,6 +424,66 @@ def validate_catalog(raw: dict[str, Any]) -> list[str]:
             errors.append(f"{where}.provider: unknown provider {provider_id!r}")
             continue
         provider = providers[provider_id]
+        context = model["context"]
+        client_tokens = context["client_tokens"]
+        provider_tokens = context["provider_tokens"]
+        scalar_tokens = context["scalar_tokens"]
+        if provider_tokens > client_tokens:
+            errors.append(
+                f"{where}.context.provider_tokens: {provider_tokens} exceeds "
+                f"client_tokens {client_tokens}"
+            )
+        if provider_tokens > context["declared_tokens"]:
+            errors.append(
+                f"{where}.context.provider_tokens: {provider_tokens} exceeds "
+                f"declared_tokens {context['declared_tokens']}"
+            )
+        if context["validated_tokens"] > context["declared_tokens"]:
+            errors.append(
+                f"{where}.context.validated_tokens: {context['validated_tokens']} "
+                f"exceeds declared_tokens {context['declared_tokens']}"
+            )
+        if (
+            context["validated_tokens"] < provider_tokens
+            and "user_reported_tokens" in context
+        ):
+            if context["user_reported_tokens"] != provider_tokens:
+                errors.append(
+                    f"{where}.context.provider_tokens: a user-attested configured "
+                    "bound must match user_reported_tokens"
+                )
+            if "not benchmark-verified" not in context["qualification"]:
+                errors.append(
+                    f"{where}.context.qualification: a user-attested configured "
+                    "bound must say it is not benchmark-verified"
+                )
+        if scalar_tokens is not None and scalar_tokens > provider_tokens:
+            errors.append(
+                f"{where}.context.scalar_tokens: {scalar_tokens} exceeds "
+                f"provider_tokens {provider_tokens}"
+            )
+        extended_selector = model["client_selector"].endswith("[1m]")
+        if extended_selector != (client_tokens >= 1_000_000):
+            errors.append(
+                f"{where}.context.client_tokens: [1m] selector classification and "
+                f"client_tokens={client_tokens} disagree"
+            )
+        ordinary_profile = context["ordinary_profile"]
+        if "lead" in model["capabilities"] and ordinary_profile is None:
+            errors.append(
+                f"{where}.context.ordinary_profile: lead-capable models must belong "
+                "to an ordinary gateway profile"
+            )
+        if "lead" not in model["capabilities"] and ordinary_profile is not None:
+            errors.append(
+                f"{where}.context.ordinary_profile: agents-only models cannot be "
+                "ordinary gateway leads"
+            )
+        if ordinary_profile == "large" and client_tokens < 1_000_000:
+            errors.append(
+                f"{where}.context.ordinary_profile: large profile requires a 1M "
+                "client context"
+            )
 
         if model["default_lane"] not in model["lanes"]:
             errors.append(
@@ -481,13 +543,17 @@ def validate_catalog(raw: dict[str, Any]) -> list[str]:
                     f"{where}.lead.effort: {lead['effort']!r} is outside the trusted "
                     f"effort vocabulary {list(efforts)}"
                 )
-            for env_key in lead["env"]:
+            for env_key, env_value in lead["env"].items():
                 if env_key in RESERVED_LEAD_ENV_KEYS:
                     errors.append(
                         f"{where}.lead.env: {env_key!r} is compiler-owned and reserved"
                     )
                 elif not env_key.startswith("CLAUDE_CODE_"):
                     errors.append(f"{where}.lead.env: unexpected variable {env_key!r}")
+                if env_value.isdigit() and int(env_value) <= 0:
+                    errors.append(
+                        f"{where}.lead.env: {env_key!r} must be a positive integer"
+                    )
         if "lead" in model["capabilities"] and lead is None:
             errors.append(f"{where}: lead capability requires a lead block")
 

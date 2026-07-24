@@ -368,6 +368,11 @@ def _bare_launch_code(temp: str, secret_file: Path) -> str:
     return f"""
 import sys
 from pathlib import Path
+import faulthandler
+# Self-diagnosing flake guard (this test has timed out twice under heavy
+# suite load with output byte-identical to a clean exit): dump the child
+# stack into the captured output before the harness deadline kills it.
+faulthandler.dump_traceback_later(20, exit=True)
 from claude_multi.cli import Runtime, main
 root = Path({str(CATALOG_ROOT)!r})
 base = Path({temp!r})
@@ -556,12 +561,24 @@ class _CttyPipesChild:
             self.output.extend(chunk)
         os.close(self.master)
         pipe_out = self.process.stdout.read() if self.process.stdout else b""
+        if self.process.stdin is not None:
+            self.process.stdin.close()
+        if self.process.stdout is not None:
+            self.process.stdout.close()
         return self.process.returncode, bytes(self.output), pipe_out
 
     def close(self) -> None:
         if self.process.poll() is None:
             self.process.kill()
             self.process.wait(timeout=2)
+        try:
+            os.close(self.master)
+        except OSError:
+            pass
+        if self.process.stdin is not None:
+            self.process.stdin.close()
+        if self.process.stdout is not None:
+            self.process.stdout.close()
 
 
 class SessionsAndTransitionPTYTests(unittest.TestCase):
@@ -605,7 +622,7 @@ plan = scope_mod.compile_scope(
     runtime.catalog.prompt_bodies,
     scope_mod.catalog_meta_from_docs(runtime.catalog.docs),
 )
-scope_mod.write_scope(runtime.session_store.root, record['session_id'], plan)
+scope_mod.write_scope(runtime.session_store.root, record['managed_id'], plan)
 shifted = runtime.compositions.load('default')
 shifted['name'] = 'shifted'
 shifted['slots'][0]['model'] = 'sol'

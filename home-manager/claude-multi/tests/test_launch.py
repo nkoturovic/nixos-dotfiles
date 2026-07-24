@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import copy
 import hashlib
 import os
 import stat
@@ -48,6 +49,8 @@ class LaunchTestCase(unittest.TestCase):
         self.root = Path(tempfile.mkdtemp(prefix="claude-multi-launch-"))
         os.chmod(self.root, 0o700)
         self.addCleanup(self._cleanup)
+        self.project = self.root / "project"
+        self.project.mkdir()
         self.bundle = catalog.load_catalog(CATALOG_ROOT)
         self.resolved = composition.resolve(
             self.bundle.docs, self.bundle.default_composition
@@ -124,12 +127,13 @@ class LaunchTestCase(unittest.TestCase):
             ),
             durable=True,
             scope_dir=scope.scope_dir(self.root / "state", session_id),
+            hook_command=str(scope.hook_shim_path(self.root / "state")),
         )
 
     def _record(self):
         return sessions.make_record(
             session_id=FIXED_ID,
-            cwd="/project/path",
+            cwd=str(self.project),
             composition_name="default",
             snapshot=self.snapshot,
             catalog_version=1,
@@ -525,7 +529,7 @@ class PerformLaunchTests(LaunchTestCase):
             )
         self.assertFalse(self.store.exists(FIXED_ID))
         self.assertFalse(result.lead_prompt_path.exists())
-        self.assertIsNone(self.store.last("/project/path"))
+        self.assertIsNone(self.store.last(str(self.project)))
 
     def test_execve_signal_identity_preserved(self) -> None:
         result = self._compile_result()
@@ -560,7 +564,7 @@ class PerformLaunchTests(LaunchTestCase):
     def test_successful_launch_updates_pointer(self) -> None:
         result = self._compile_result()
         self._perform(result, self._record())
-        self.assertEqual(self.store.last("/project/path"), FIXED_ID)
+        self.assertEqual(self.store.last(str(self.project)), FIXED_ID)
 
     def test_execve_oserror_forgets_record_and_clears_pointer(self) -> None:
         result = self._compile_result()
@@ -592,7 +596,7 @@ class PerformLaunchTests(LaunchTestCase):
             server.server_close()
         self.assertEqual(str(raised.exception), "boom")
         self.assertFalse(self.store.exists(FIXED_ID))
-        self.assertIsNone(self.store.last("/project/path"))
+        self.assertIsNone(self.store.last(str(self.project)))
 
     def test_scalar_absent_unsets_inherited_context_at_exec(self) -> None:
         import copy
@@ -621,7 +625,7 @@ class PerformLaunchTests(LaunchTestCase):
             result,
             sessions.make_record(
                 session_id=FIXED_ID,
-                cwd="/project/path",
+                cwd=str(self.project),
                 composition_name="default",
                 snapshot=snap,
                 catalog_version=1,
@@ -677,7 +681,7 @@ class PerformLaunchTests(LaunchTestCase):
         self.assertNotEqual(result_a.lead_prompt_path, result_b.lead_prompt_path)
         record_b = sessions.make_record(
             session_id=other_id,
-            cwd="/project/path",
+            cwd=str(self.project),
             composition_name="default",
             snapshot=self.snapshot,
             catalog_version=1,
@@ -726,6 +730,17 @@ class PerformLaunchTests(LaunchTestCase):
         self._perform(result_b, self._record())
         self.assertTrue(previous.exists())
         self.assertTrue(result_b.lead_prompt_path.exists())
+
+
+    def test_missing_original_cwd_fails_before_state_commit(self) -> None:
+        result = self._compile_result()
+        record = self._record()
+        record["cwd"] = str(self.root / "missing-project")
+        with self.assertRaisesRegex(LaunchError, "original project directory"):
+            self._perform(result, record)
+        self.assertFalse(self.store.exists(FIXED_ID))
+        self.assertIsNone(self.store.last(record["cwd"]))
+        self.assertFalse(result.lead_prompt_path.exists())
 
 
 class DurablePerformLaunchTests(LaunchTestCase):
@@ -783,7 +798,7 @@ class DurablePerformLaunchTests(LaunchTestCase):
         self.assertTrue(agent.is_file())
         self.assertEqual(stat.S_IMODE(os.lstat(agent).st_mode), 0o600)
         self.assertTrue(self.store.exists(FIXED_ID))
-        self.assertEqual(self.store.last("/project/path"), FIXED_ID)
+        self.assertEqual(self.store.last(str(self.project)), FIXED_ID)
 
     def test_fresh_launch_refuses_to_overwrite_existing_record(self) -> None:
         prior = self._record()
@@ -825,6 +840,7 @@ class DurablePerformLaunchTests(LaunchTestCase):
             ),
             durable=True,
             scope_dir=self.root / "elsewhere" / "scopes" / FIXED_ID,
+            hook_command=str(scope.hook_shim_path(self.root / "state")),
         )
         with self.assertRaisesRegex(LaunchError, "does not match"):
             self._perform(result, self._record())
@@ -915,13 +931,13 @@ class DurablePerformLaunchTests(LaunchTestCase):
         with self.assertRaises(OSError):
             self._perform(result, self._record(), execve=failing_execve)
         self.assertFalse(self.store.exists(FIXED_ID))
-        self.assertIsNone(self.store.last("/project/path"))
+        self.assertIsNone(self.store.last(str(self.project)))
         self.assertFalse(self._scope_dir().exists())
 
     def test_execve_oserror_resume_restores_record_and_pointer_preserves_scope(self) -> None:
         prior = sessions.make_record(
             session_id=FIXED_ID,
-            cwd="/project/path",
+            cwd=str(self.project),
             composition_name="default",
             snapshot=self.snapshot,
             catalog_version=1,
@@ -932,14 +948,16 @@ class DurablePerformLaunchTests(LaunchTestCase):
             now="2026-07-20T00:00:00Z",
         )
         self.store.save(prior)
-        self.store.update_last("/project/path", FIXED_ID)
+        self.store.update_last(str(self.project), FIXED_ID)
         prior_bytes = self.store.read_record_bytes(FIXED_ID)
         # Audit L4: a durable resume's failed exec must NOT delete the valid
         # scope; it converges to the record-authoritative compile.
-        expected = transition._expected_plan(self.store.load(FIXED_ID), self.bundle)
+        expected = transition._expected_plan(
+            self.store.load(FIXED_ID), self.bundle, state_root=self.store.root
+        )
         newer = sessions.make_record(
             session_id=FIXED_ID,
-            cwd="/project/path",
+            cwd=str(self.project),
             composition_name="default",
             snapshot=self.snapshot,
             catalog_version=1,
@@ -955,11 +973,13 @@ class DurablePerformLaunchTests(LaunchTestCase):
             raise OSError("boom")
 
         with self.assertRaises(OSError):
-            self._perform(result, newer, execve=failing_execve)
+            self._perform(
+                result, newer, execve=failing_execve, trusted=self.bundle
+            )
         # Exact pre-read bytes restored; pointer preserved; scope kept and
         # equal to the record-authoritative compile (not deleted).
         self.assertEqual(self.store.read_record_bytes(FIXED_ID), prior_bytes)
-        self.assertEqual(self.store.last("/project/path"), FIXED_ID)
+        self.assertEqual(self.store.last(str(self.project)), FIXED_ID)
         live = self._scope_dir()
         self.assertTrue(live.is_dir())
         self.assertEqual(
@@ -972,7 +992,7 @@ class DurablePerformLaunchTests(LaunchTestCase):
     def test_execve_oserror_resume_restores_different_prior_pointer(self) -> None:
         prior = sessions.make_record(
             session_id=FIXED_ID,
-            cwd="/project/path",
+            cwd=str(self.project),
             composition_name="default",
             snapshot=self.snapshot,
             catalog_version=1,
@@ -984,8 +1004,8 @@ class DurablePerformLaunchTests(LaunchTestCase):
         )
         self.store.save(prior)
         other_id = "22222222-2222-4222-8222-222222222222"
-        self.store.update_last("/project/path", other_id)
-        pointer_bytes = self.store.read_pointer_bytes("/project/path")
+        self.store.update_last(str(self.project), other_id)
+        pointer_bytes = self.store.read_pointer_bytes(str(self.project))
         result = self._compile_result_durable(action=compiler.build_resume(FIXED_ID))
 
         def failing_execve(_executable, _argv, _env):
@@ -993,15 +1013,15 @@ class DurablePerformLaunchTests(LaunchTestCase):
 
         with self.assertRaises(OSError):
             self._perform(result, prior, execve=failing_execve)
-        self.assertEqual(self.store.last("/project/path"), other_id)
+        self.assertEqual(self.store.last(str(self.project)), other_id)
         self.assertEqual(
-            self.store.read_pointer_bytes("/project/path"), pointer_bytes
+            self.store.read_pointer_bytes(str(self.project)), pointer_bytes
         )
 
     def test_execve_oserror_resume_restores_absent_prior_pointer(self) -> None:
         prior = sessions.make_record(
             session_id=FIXED_ID,
-            cwd="/project/path",
+            cwd=str(self.project),
             composition_name="default",
             snapshot=self.snapshot,
             catalog_version=1,
@@ -1019,15 +1039,15 @@ class DurablePerformLaunchTests(LaunchTestCase):
 
         with self.assertRaises(OSError):
             self._perform(result, prior, execve=failing_execve)
-        self.assertIsNone(self.store.last("/project/path"))
-        self.assertIsNone(self.store.read_pointer_bytes("/project/path"))
+        self.assertIsNone(self.store.last(str(self.project)))
+        self.assertIsNone(self.store.read_pointer_bytes(str(self.project)))
 
     def test_execve_oserror_legacy_upgrade_restores_legacy_record_bytes(self) -> None:
         # A v1 (legacy) record being resumed into durable mode: the exact
         # pre-read legacy bytes come back, untouched.
         legacy_record = sessions.make_record(
             session_id=FIXED_ID,
-            cwd="/project/path",
+            cwd=str(self.project),
             composition_name="default",
             snapshot=self.snapshot,
             catalog_version=1,
@@ -1036,13 +1056,27 @@ class DurablePerformLaunchTests(LaunchTestCase):
             now="2026-07-19T00:00:00Z",
         )
         legacy_record["version"] = 1
-        for key in ("mode", "scope_generation", "workflows"):
+        legacy_record["session_id"] = legacy_record.pop("managed_id")
+        for key in (
+            "runtime_session_id",
+            "runtime_aliases",
+            "session_type",
+            "identity_state",
+            "last_event_source",
+            "last_seen_at",
+            "pending_forks",
+            "launch_epoch",
+            "migrated_from_version",
+            "mode",
+            "scope_generation",
+            "workflows",
+        ):
             del legacy_record[key]
         self.store.save(legacy_record)
         legacy_bytes = self.store.read_record_bytes(FIXED_ID)
         upgraded = sessions.make_record(
             session_id=FIXED_ID,
-            cwd="/project/path",
+            cwd=str(self.project),
             composition_name="default",
             snapshot=self.snapshot,
             catalog_version=1,
@@ -1061,14 +1095,15 @@ class DurablePerformLaunchTests(LaunchTestCase):
             self._perform(result, upgraded, execve=failing_execve)
         self.assertEqual(self.store.read_record_bytes(FIXED_ID), legacy_bytes)
         loaded = self.store.load(FIXED_ID)
-        self.assertEqual(loaded["version"], 1)
+        self.assertEqual(loaded["version"], 3)
+        self.assertEqual(loaded["migrated_from_version"], 1)
         self.assertEqual(loaded["mode"], "legacy")
         self.assertFalse(self._scope_dir().exists())
 
     def test_execve_oserror_legacy_resume_preserves_record_and_pointer(self) -> None:
         prior = self._record()
         self.store.save(prior)
-        self.store.update_last("/project/path", FIXED_ID)
+        self.store.update_last(str(self.project), FIXED_ID)
         result = compiler.compile_launch(
             docs=self.docs,
             prompt_bodies=self.bundle.prompt_bodies,
@@ -1087,7 +1122,37 @@ class DurablePerformLaunchTests(LaunchTestCase):
         with self.assertRaises(OSError):
             self._perform(result, self._record(), execve=failing_execve)
         self.assertTrue(self.store.exists(FIXED_ID))
-        self.assertEqual(self.store.last("/project/path"), FIXED_ID)
+        self.assertEqual(self.store.last(str(self.project)), FIXED_ID)
+
+
+    def test_ordinary_gateway_launch_writes_hook_scope_without_prompt(self) -> None:
+        result = compiler.compile_direct_launch(
+            docs=self.docs,
+            session_action=compiler.build_fresh(FIXED_ID),
+            model_id="qwen38",
+            passthrough=[],
+            scope_dir=scope.scope_dir(self.root / "state", FIXED_ID),
+            hook_command=str(scope.hook_shim_path(self.root / "state")),
+            state_root=self.root / "state",
+        )
+        record = sessions.make_ordinary_record(
+            managed_id=FIXED_ID,
+            runtime_session_id=FIXED_ID,
+            cwd=str(self.project),
+            model="qwen38",
+            context_profile="large",
+            catalog_version=1,
+            catalog_hash="sha256:" + "0" * 64,
+            launcher_version="2.1.0",
+        )
+        outcome, captured = self._perform(result, record)
+        self.assertEqual(outcome, "EXECUTED")
+        self.assertEqual(captured["argv"][1:3], ["--session-id", FIXED_ID])
+        self.assertFalse(result.lead_prompt_path.exists())
+        live = self._scope_dir()
+        self.assertTrue((live / "settings.json").is_file())
+        self.assertFalse((live / ".claude" / "agents").exists())
+        self.assertEqual(self.store.load(FIXED_ID)["session_type"], sessions.SESSION_TYPE_ORDINARY)
 
 
 class LifecycleCleanupTests(LaunchTestCase):
@@ -1096,7 +1161,7 @@ class LifecycleCleanupTests(LaunchTestCase):
     def _durable_prior(self, now="2026-07-20T00:00:00Z", snapshot=None) -> dict:
         record = sessions.make_record(
             session_id=FIXED_ID,
-            cwd="/project/path",
+            cwd=str(self.project),
             composition_name="default",
             snapshot=snapshot if snapshot is not None else self.snapshot,
             catalog_version=1,
@@ -1119,7 +1184,9 @@ class LifecycleCleanupTests(LaunchTestCase):
         resolved = composition.resolve(self.bundle.docs, document)
         return resolved, composition.snapshot(resolved)
 
-    def _compile_durable_resume(self, resolved, snapshot) -> object:
+    def _compile_durable_resume(
+        self, resolved, snapshot, *, launch_epoch: int = 0
+    ) -> object:
         return compiler.compile_launch(
             docs=self.docs,
             prompt_bodies=self.bundle.prompt_bodies,
@@ -1132,6 +1199,8 @@ class LifecycleCleanupTests(LaunchTestCase):
             ),
             durable=True,
             scope_dir=scope.scope_dir(self.root / "state", FIXED_ID),
+            hook_command=str(scope.hook_shim_path(self.root / "state")),
+            launch_epoch=launch_epoch,
         )
 
     def _scope_dir(self, session_id=FIXED_ID):
@@ -1194,17 +1263,470 @@ class LifecycleCleanupTests(LaunchTestCase):
         self.assertEqual(done, ["EXECUTED"])
         self.assertTrue(self._scope_dir().is_dir())
 
+    def test_runtime_change_after_prepare_aborts_without_mutation(self) -> None:
+        prepared_record = self._durable_prior()
+        result = self._compile_durable_resume(self.resolved, self.snapshot)
+        self.store.reconcile_runtime(
+            FIXED_ID,
+            observed_runtime_id=OTHER_ID,
+            source="compact",
+            cwd=str(self.project),
+            now="2026-07-22T00:00:00Z",
+        )
+        newer_bytes = self.store.read_record_bytes(FIXED_ID)
+        with self.assertRaisesRegex(launch.LaunchError, "now targets runtime"):
+            self._perform(result, prepared_record, lambda *_args: "EXECUTED")
+        self.assertEqual(self.store.read_record_bytes(FIXED_ID), newer_bytes)
+        self.assertFalse(self._scope_dir().exists())
+        self.assertIsNone(self.store.last(str(self.project)))
+
+    def test_pending_fork_arriving_after_prepare_blocks_launch(self) -> None:
+        prepared_record = self._durable_prior()
+        result = self._compile_durable_resume(self.resolved, self.snapshot)
+        self.store.reconcile_runtime(
+            FIXED_ID,
+            observed_runtime_id=OTHER_ID,
+            source="fork",
+            cwd=str(self.project),
+            now="2026-07-22T00:00:00Z",
+        )
+        newer_bytes = self.store.read_record_bytes(FIXED_ID)
+        with self.assertRaisesRegex(launch.LaunchError, "unresolved native fork"):
+            self._perform(result, prepared_record, lambda *_args: "EXECUTED")
+        self.assertEqual(self.store.read_record_bytes(FIXED_ID), newer_bytes)
+        self.assertFalse(self._scope_dir().exists())
+
+    def test_guard_failure_preserves_prior_scope_and_pointer(self) -> None:
+        # Regression: a resume failing a pre-mutation guard must NOT roll
+        # anything back — this attempt never touched the record, the live
+        # scope, or the per-CWD pointer (previously the rollback deleted the
+        # pointer and rewrote the valid scope).
+        prepared_record = self._durable_prior()
+        prior_plan = transition._expected_plan(
+            self.store.load(FIXED_ID), self.bundle, state_root=self.store.root
+        )
+        scope.write_scope(self.store.root, FIXED_ID, prior_plan)
+        scope_bytes = (self._scope_dir() / "settings.json").read_bytes()
+        self.assertTrue(self.store.update_last(str(self.project), FIXED_ID))
+        pointer_bytes = self.store.read_pointer_bytes(str(self.project))
+        self.assertIsNotNone(pointer_bytes)
+        result = self._compile_durable_resume(self.resolved, self.snapshot)
+        self.store.reconcile_runtime(
+            FIXED_ID,
+            observed_runtime_id=OTHER_ID,
+            source="fork",
+            cwd=str(self.project),
+            now="2026-07-22T00:00:00Z",
+        )
+        with self.assertRaisesRegex(launch.LaunchError, "unresolved native fork"):
+            self._perform(result, prepared_record, lambda *_args: "EXECUTED")
+        self.assertEqual((self._scope_dir() / "settings.json").read_bytes(), scope_bytes)
+        self.assertEqual(self.store.read_pointer_bytes(str(self.project)), pointer_bytes)
+        self.assertEqual(self.store.last(str(self.project)), FIXED_ID)
+
+    def test_benign_lifecycle_update_is_carried_into_launch_commit(self) -> None:
+        prepared_record = self._durable_prior()
+        result = self._compile_durable_resume(self.resolved, self.snapshot)
+        self.store.reconcile_runtime(
+            FIXED_ID,
+            observed_runtime_id=FIXED_ID,
+            source="compact",
+            cwd=str(self.project),
+            now="2026-07-22T00:00:00Z",
+        )
+        self.store.record_session_end(
+            FIXED_ID,
+            observed_runtime_id=FIXED_ID,
+            reason="other",
+            now="2026-07-22T00:00:01Z",
+        )
+        outcome = self._perform(result, prepared_record, lambda *_args: "EXECUTED")
+        self.assertEqual(outcome, "EXECUTED")
+        stored = self.store.load(FIXED_ID)
+        self.assertEqual(stored["last_event_source"], "end")
+        self.assertEqual(stored["last_end_reason"], "other")
+        self.assertEqual(stored["last_seen_at"], "2026-07-22T00:00:01Z")
+        self.assertEqual(stored["identity_state"], sessions.IDENTITY_AUTHORITATIVE)
+
+    def test_v2_same_generation_resume_heals_snapshot_and_persists_v3(self) -> None:
+        current = self._durable_prior()
+        old_snapshot = copy.deepcopy(self.snapshot)
+        for key in (
+            "client_context_tokens",
+            "provider_context_tokens",
+            "auto_compact_tokens",
+        ):
+            old_snapshot["lead"].pop(key, None)
+        old_snapshot.pop("auto_compact_window_tokens", None)
+        raw_v2 = {
+            **current,
+            "version": 2,
+            "session_id": current["managed_id"],
+            "snapshot": old_snapshot,
+            "composition_hash": strict_json.bundle_digest(old_snapshot),
+        }
+        raw_v2.pop("managed_id")
+        for key in (
+            "runtime_session_id",
+            "runtime_aliases",
+            "session_type",
+            "identity_state",
+            "last_event_source",
+            "last_seen_at",
+            "pending_forks",
+            "launch_epoch",
+            "migrated_from_version",
+            "mutation_token",
+        ):
+            raw_v2.pop(key, None)
+        state.atomic_write(
+            self.store._record_path(FIXED_ID),
+            strict_json.canonical_file_bytes(raw_v2),
+        )
+        source = self.store.load(FIXED_ID)
+        self.assertEqual(source["migrated_from_version"], 2)
+        target = {
+            **source,
+            "snapshot": self.snapshot,
+            "composition_hash": strict_json.bundle_digest(self.snapshot),
+            "launch_epoch": 1,
+        }
+        result = self._compile_durable_resume(
+            self.resolved, self.snapshot, launch_epoch=1
+        )
+
+        outcome = self._perform(
+            result,
+            target,
+            lambda *_args: "EXECUTED",
+            expected_launch_epoch=0,
+            expected_mutation_token=None,
+            expected_source_scope_generation=source["scope_generation"],
+            expected_source_composition_hash=source["composition_hash"],
+        )
+
+        self.assertEqual(outcome, "EXECUTED")
+        on_disk = strict_json.loads(self.store.read_record_bytes(FIXED_ID))
+        self.assertEqual(on_disk["version"], 3)
+        self.assertIn("auto_compact_window_tokens", on_disk["snapshot"])
+        self.assertEqual(on_disk["scope_generation"], source["scope_generation"])
+
+    def test_source_hash_guard_allows_same_generation_snapshot_healing(self) -> None:
+        current = self._durable_prior()
+        current["mutation_token"] = sessions.new_mutation_token()
+        self.store.save(current)
+        resolved, healed_snapshot = self._override()
+        prepared = {
+            **current,
+            "snapshot": healed_snapshot,
+            "composition_hash": strict_json.bundle_digest(healed_snapshot),
+            "launch_epoch": current["launch_epoch"] + 1,
+        }
+        result = self._compile_durable_resume(
+            resolved, healed_snapshot, launch_epoch=prepared["launch_epoch"]
+        )
+
+        outcome = self._perform(
+            result,
+            prepared,
+            lambda *_args: "EXECUTED",
+            expected_launch_epoch=current["launch_epoch"],
+            expected_mutation_token=current["mutation_token"],
+            expected_source_scope_generation=current["scope_generation"],
+            expected_source_composition_hash=current["composition_hash"],
+        )
+
+        self.assertEqual(outcome, "EXECUTED")
+        stored = self.store.load(FIXED_ID)
+        self.assertEqual(stored["scope_generation"], current["scope_generation"])
+        self.assertEqual(stored["composition_hash"], prepared["composition_hash"])
+
+    def test_source_hash_change_after_prepare_aborts_without_mutation(self) -> None:
+        current = self._durable_prior()
+        current["mutation_token"] = sessions.new_mutation_token()
+        self.store.save(current)
+        prepared = {**current, "launch_epoch": current["launch_epoch"] + 1}
+        result = self._compile_durable_resume(
+            self.resolved, self.snapshot, launch_epoch=prepared["launch_epoch"]
+        )
+        _resolved, changed_snapshot = self._override()
+        changed = {
+            **current,
+            "snapshot": changed_snapshot,
+            "composition_hash": strict_json.bundle_digest(changed_snapshot),
+        }
+        self.store.save(changed)
+        changed_bytes = self.store.read_record_bytes(FIXED_ID)
+
+        with self.assertRaisesRegex(launch.LaunchError, "source composition changed"):
+            self._perform(
+                result,
+                prepared,
+                lambda *_args: "EXECUTED",
+                expected_launch_epoch=current["launch_epoch"],
+                expected_mutation_token=current["mutation_token"],
+                expected_source_scope_generation=current["scope_generation"],
+                expected_source_composition_hash=current["composition_hash"],
+            )
+        self.assertEqual(self.store.read_record_bytes(FIXED_ID), changed_bytes)
+        self.assertFalse(self._scope_dir().exists())
+
+    def test_second_stale_prepared_resume_cannot_reuse_launch_epoch(self) -> None:
+        current = self._durable_prior()
+        current["mutation_token"] = sessions.new_mutation_token()
+        self.store.save(current)
+        baseline_epoch = current["launch_epoch"]
+        baseline_token = current["mutation_token"]
+        prepared = {**current, "launch_epoch": baseline_epoch + 1}
+        result = self._compile_durable_resume(
+            self.resolved, self.snapshot, launch_epoch=prepared["launch_epoch"]
+        )
+        outcome = self._perform(
+            result,
+            prepared,
+            lambda *_args: "EXECUTED",
+            expected_launch_epoch=baseline_epoch,
+            expected_mutation_token=baseline_token,
+        )
+        self.assertEqual(outcome, "EXECUTED")
+        first_commit = self.store.read_record_bytes(FIXED_ID)
+        with self.assertRaisesRegex(
+            launch.LaunchError, "authority changed after preparation"
+        ):
+            self._perform(
+                result,
+                prepared,
+                lambda *_args: "EXECUTED",
+                expected_launch_epoch=baseline_epoch,
+                expected_mutation_token=baseline_token,
+            )
+        self.assertEqual(self.store.read_record_bytes(FIXED_ID), first_commit)
+
+    def test_pre_exec_pointer_failure_restores_record_and_scope(self) -> None:
+        from unittest import mock
+
+        current = self._durable_prior()
+        current["mutation_token"] = sessions.new_mutation_token()
+        self.store.save(current)
+        prior_bytes = self.store.read_record_bytes(FIXED_ID)
+        prior_plan = transition._expected_plan(current, self.bundle, state_root=self.store.root)
+        scope.write_scope(self.store.root, FIXED_ID, prior_plan)
+        prepared = {**current, "launch_epoch": current["launch_epoch"] + 1}
+        result = self._compile_durable_resume(
+            self.resolved, self.snapshot, launch_epoch=prepared["launch_epoch"]
+        )
+        with mock.patch.object(
+            self.store, "update_last", side_effect=OSError("pointer write failed")
+        ):
+            with self.assertRaisesRegex(OSError, "pointer write failed"):
+                self._perform(
+                    result,
+                    prepared,
+                    lambda *_args: "EXECUTED",
+                    trusted=self.bundle,
+                    expected_launch_epoch=current["launch_epoch"],
+                    expected_mutation_token=current["mutation_token"],
+                )
+        self.assertEqual(self.store.read_record_bytes(FIXED_ID), prior_bytes)
+        self.assertEqual(
+            (self._scope_dir() / "settings.json").read_bytes(),
+            strict_json.canonical_file_bytes(prior_plan.settings),
+        )
+        self.assertIsNone(self.store.last(str(self.project)))
+
+    def test_explicit_ordinary_model_relaunch_clears_model_repair_pending_hook(self) -> None:
+        current = sessions.make_ordinary_record(
+            managed_id=FIXED_ID,
+            runtime_session_id=FIXED_ID,
+            cwd=str(self.project),
+            model="qwen38",
+            context_profile="large",
+            catalog_version=1,
+            catalog_hash="sha256:" + "0" * 64,
+            launcher_version="2.2.0",
+            identity_state=sessions.IDENTITY_REPAIR_NEEDED,
+        )
+        current["observed_model"] = "gpt-multi-sol-high"
+        self.store.save(current)
+        prepared = {
+            **current,
+            "ordinary_model": "sol",
+            "context_profile": "sol",
+            "scope_generation": 2,
+        }
+        result = compiler.compile_direct_launch(
+            docs=self.docs,
+            session_action=compiler.build_resume(FIXED_ID),
+            model_id="sol",
+            passthrough=[],
+            scope_dir=self._scope_dir(),
+            hook_command=str(scope.hook_shim_path(self.root / "state")),
+            state_root=self.root / "state",
+            pin_model=True,
+        )
+        outcome = self._perform(
+            result,
+            prepared,
+            lambda *_args: "EXECUTED",
+            allow_model_relaunch=True,
+        )
+        self.assertEqual(outcome, "EXECUTED")
+        stored = self.store.load(FIXED_ID)
+        self.assertEqual(stored["ordinary_model"], "sol")
+        self.assertEqual(stored["context_profile"], "sol")
+        self.assertEqual(stored["identity_state"], sessions.IDENTITY_UNVERIFIED)
+        self.assertNotIn("observed_model", stored)
+
+    def test_failed_ordinary_model_relaunch_restores_prior_scope_and_lifecycle(self) -> None:
+        current = sessions.make_ordinary_record(
+            managed_id=FIXED_ID,
+            runtime_session_id=FIXED_ID,
+            cwd=str(self.project),
+            model="qwen38",
+            context_profile="large",
+            catalog_version=1,
+            catalog_hash="sha256:" + "0" * 64,
+            launcher_version="2.2.0",
+            identity_state=sessions.IDENTITY_REPAIR_NEEDED,
+        )
+        current["observed_model"] = "gpt-multi-sol-high"
+        self.store.save(current)
+        prior_plan = scope.compile_ordinary_scope(
+            managed_id=FIXED_ID,
+            hook_command=str(scope.hook_shim_path(self.root / "state")),
+            available_models=compiler.direct_profile_selectors(self.docs, "large"),
+            default_model=self.docs["models"]["models"]["qwen38"]["client_selector"],
+            launch_epoch=current["launch_epoch"],
+        )
+        scope.write_scope(self.store.root, FIXED_ID, prior_plan)
+        prepared = {
+            **current,
+            "ordinary_model": "sol",
+            "context_profile": "sol",
+            "scope_generation": 2,
+        }
+        result = compiler.compile_direct_launch(
+            docs=self.docs,
+            session_action=compiler.build_resume(FIXED_ID),
+            model_id="sol",
+            passthrough=[],
+            scope_dir=self._scope_dir(),
+            hook_command=str(scope.hook_shim_path(self.root / "state")),
+            state_root=self.root / "state",
+            pin_model=True,
+        )
+        hook_done = threading.Event()
+        hook_thread: list[threading.Thread] = []
+
+        def failing_execve(*_args):
+            thread = threading.Thread(
+                target=lambda: (
+                    self.store.record_session_end(
+                        FIXED_ID,
+                        observed_runtime_id=FIXED_ID,
+                        reason="other",
+                        now="2026-07-22T00:00:01Z",
+                    ),
+                    hook_done.set(),
+                )
+            )
+            hook_thread.append(thread)
+            thread.start()
+            thread.join(timeout=0.2)
+            self.assertTrue(thread.is_alive())
+            raise OSError("boom")
+
+        with self.assertRaises(OSError):
+            self._perform(
+                result,
+                prepared,
+                failing_execve,
+                allow_model_relaunch=True,
+                trusted=self.bundle,
+            )
+        hook_thread[0].join(timeout=30)
+        self.assertTrue(hook_done.is_set())
+        stored = self.store.load(FIXED_ID)
+        self.assertEqual(stored["ordinary_model"], "qwen38")
+        self.assertEqual(stored["context_profile"], "large")
+        self.assertEqual(stored["scope_generation"], 1)
+        self.assertEqual(stored["last_end_reason"], "other")
+        self.assertEqual(
+            (self._scope_dir() / "settings.json").read_bytes(),
+            strict_json.canonical_file_bytes(prior_plan.settings),
+        )
+
+    def test_same_profile_ordinary_model_change_after_prepare_aborts(self) -> None:
+        current = sessions.make_ordinary_record(
+            managed_id=FIXED_ID,
+            runtime_session_id=FIXED_ID,
+            cwd=str(self.project),
+            model="qwen38",
+            context_profile="large",
+            catalog_version=1,
+            catalog_hash="sha256:" + "0" * 64,
+            launcher_version="2.2.0",
+            identity_state=sessions.IDENTITY_AUTHORITATIVE,
+        )
+        self.store.save(current)
+        prepared = {**current, "scope_generation": 2}
+        result = compiler.compile_direct_launch(
+            docs=self.docs,
+            session_action=compiler.build_resume(FIXED_ID),
+            model_id="qwen38",
+            passthrough=[],
+            scope_dir=self._scope_dir(),
+            hook_command=str(scope.hook_shim_path(self.root / "state")),
+            state_root=self.root / "state",
+            pin_model=False,
+        )
+        self.store.reconcile_runtime(
+            FIXED_ID,
+            observed_runtime_id=FIXED_ID,
+            source="compact",
+            cwd=str(self.project),
+            model="fable",
+            model_profile="large",
+            observed_model="claude-fable-5[1m]",
+        )
+        after_hook = self.store.read_record_bytes(FIXED_ID)
+        with self.assertRaisesRegex(launch.LaunchError, "ordinary model changed"):
+            self._perform(result, prepared, lambda *_args: "EXECUTED")
+        self.assertEqual(self.store.read_record_bytes(FIXED_ID), after_hook)
+        self.assertFalse(self._scope_dir().exists())
+
+    def test_model_repair_cannot_bypass_pending_fork(self) -> None:
+        current = self._durable_prior()
+        current["identity_state"] = sessions.IDENTITY_REPAIR_NEEDED
+        current["observed_model"] = "gpt-multi-sol-high"
+        current["pending_forks"] = [
+            {"session_id": OTHER_ID, "observed_at": "2026-07-22T00:00:00Z"}
+        ]
+        self.store.save(current)
+        result = self._compile_durable_resume(self.resolved, self.snapshot)
+        before = self.store.read_record_bytes(FIXED_ID)
+        with self.assertRaisesRegex(launch.LaunchError, "unresolved native fork"):
+            self._perform(
+                result,
+                current,
+                lambda *_args: "EXECUTED",
+                allow_model_relaunch=True,
+            )
+        self.assertEqual(self.store.read_record_bytes(FIXED_ID), before)
+
     def test_execve_oserror_resume_cleanup_noops_when_newer_record_committed(self) -> None:
         # L2: the failing launch restores only while the record is exactly
         # what it wrote; a newer commit owns the record AND the scope.
         self._durable_prior()
-        expected = transition._expected_plan(self.store.load(FIXED_ID), self.bundle)
+        expected = transition._expected_plan(
+            self.store.load(FIXED_ID), self.bundle, state_root=self.store.root
+        )
         scope.write_scope(self.store.root, FIXED_ID, expected)
         resolved_override, snap_override = self._override()
         result = self._compile_durable_resume(resolved_override, snap_override)
         record = sessions.make_record(
             session_id=FIXED_ID,
-            cwd="/project/path",
+            cwd=str(self.project),
             composition_name="default",
             snapshot=snap_override,
             catalog_version=1,
@@ -1216,7 +1738,7 @@ class LifecycleCleanupTests(LaunchTestCase):
         )
         newest = sessions.make_record(
             session_id=FIXED_ID,
-            cwd="/project/path",
+            cwd=str(self.project),
             composition_name="default",
             snapshot=self.snapshot,
             catalog_version=1,
@@ -1255,13 +1777,15 @@ class LifecycleCleanupTests(LaunchTestCase):
         # compiled from a different (override) composition.
         self._durable_prior()
         prior_bytes = self.store.read_record_bytes(FIXED_ID)
-        expected = transition._expected_plan(self.store.load(FIXED_ID), self.bundle)
+        expected = transition._expected_plan(
+            self.store.load(FIXED_ID), self.bundle, state_root=self.store.root
+        )
         scope.write_scope(self.store.root, FIXED_ID, expected)
         resolved_override, snap_override = self._override()
         result = self._compile_durable_resume(resolved_override, snap_override)
         record = sessions.make_record(
             session_id=FIXED_ID,
-            cwd="/project/path",
+            cwd=str(self.project),
             composition_name="default",
             snapshot=snap_override,
             catalog_version=1,
@@ -1296,13 +1820,15 @@ class LifecycleCleanupTests(LaunchTestCase):
         # contradicts the restored record — remove it (converge rebuilds).
         self._durable_prior()
         prior_bytes = self.store.read_record_bytes(FIXED_ID)
-        expected = transition._expected_plan(self.store.load(FIXED_ID), self.bundle)
+        expected = transition._expected_plan(
+            self.store.load(FIXED_ID), self.bundle, state_root=self.store.root
+        )
         scope.write_scope(self.store.root, FIXED_ID, expected)
         resolved_override, snap_override = self._override()
         result = self._compile_durable_resume(resolved_override, snap_override)
         record = sessions.make_record(
             session_id=FIXED_ID,
-            cwd="/project/path",
+            cwd=str(self.project),
             composition_name="default",
             snapshot=snap_override,
             catalog_version=1,

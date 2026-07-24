@@ -20,6 +20,11 @@ Enabled provider families: anthropic, moonshot, openai.
 - A change authored by a moonshot-family variant must not receive its sole verdict or final review from another moonshot-family variant while a reviewer from anthropic/openai is enabled.
 - A change authored by an openai-family variant must not receive its sole verdict or final review from another openai-family variant while a reviewer from anthropic is enabled.
 
+## Context policy (generated)
+
+- Lead context: 1000000 client tokens; validated provider bound 1000000; process compaction capacity 1000000; deterministic reactive trigger 882000. Proactive summary preparation is runtime-controlled and may occur earlier.
+- Process scalar: CLAUDE_CODE_MAX_CONTEXT_TOKENS=372000 is exported for this mixed process; it bounds lower-context delegated variants, while the lead thread keeps the capacity and trigger above.
+
 ## Standing rules (generated)
 
 - One writer owns an overlapping file scope at a time.

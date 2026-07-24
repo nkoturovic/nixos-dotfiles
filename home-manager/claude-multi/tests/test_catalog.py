@@ -103,13 +103,16 @@ class SeedLoadTests(unittest.TestCase):
     def test_context_evidence_separated(self) -> None:
         bundle = catalog.load_catalog(CATALOG_ROOT)
         kimi = bundle.models["kimi-k3"]["context"]
-        self.assertEqual(kimi["kind"], "selector-1m")
+        self.assertEqual(kimi["client_tokens"], 1000000)
+        self.assertEqual(kimi["provider_tokens"], 1000000)
+        self.assertIsNone(kimi["scalar_tokens"])
+        self.assertEqual(kimi["ordinary_profile"], "large")
         self.assertEqual(kimi["declared_tokens"], 1048576)
         self.assertEqual(kimi["validated_tokens"], 208034)
         self.assertEqual(kimi["provider_stated_limit_tokens"], 262144)
         self.assertEqual(kimi["user_reported_tokens"], 1000000)
-        for model_id in ("sol", "gpt55"):
-            self.assertEqual(bundle.models[model_id]["context"]["kind"], "scalar")
+        self.assertEqual(bundle.models["sol"]["context"]["scalar_tokens"], 372000)
+        self.assertEqual(bundle.models["gpt55"]["context"]["scalar_tokens"], 272000)
 
     def test_settings_carry_no_worktree_keys(self) -> None:
         bundle = catalog.load_catalog(CATALOG_ROOT)
@@ -119,10 +122,10 @@ class SeedLoadTests(unittest.TestCase):
             {"disableWorkflows", "workflowSizeGuideline", "workflowKeywordTriggerEnabled"},
         )
 
-    def test_version_json_launcher_2_1_0_catalog_unchanged(self) -> None:
+    def test_version_json_matches_v2_2_schema_and_catalog_change(self) -> None:
         bundle = catalog.load_catalog(CATALOG_ROOT)
-        self.assertEqual(bundle.docs["version"]["launcher_version"], "2.1.0")
-        self.assertEqual(bundle.docs["version"]["catalog_version"], 1)
+        self.assertEqual(bundle.docs["version"]["launcher_version"], "2.3.0")
+        self.assertEqual(bundle.docs["version"]["catalog_version"], 2)
 
 
 class ReferenceViolationTests(unittest.TestCase):
@@ -311,6 +314,8 @@ class CatalogMutationMatrixTests(unittest.TestCase):
             "CLAUDE_CODE_MAX_OUTPUT_TOKENS",
             "CLAUDE_CODE_ENABLE_GATEWAY_MODEL_DISCOVERY",
             "CLAUDE_CODE_MAX_CONTEXT_TOKENS",
+            "CLAUDE_CODE_AUTO_COMPACT_WINDOW",
+            "CLAUDE_AUTOCOMPACT_PCT_OVERRIDE",
             "CLAUDE_CODE_DISABLE_WORKFLOWS",
         ):
             case(
@@ -321,11 +326,53 @@ class CatalogMutationMatrixTests(unittest.TestCase):
                 "compiler-owned and reserved",
             )
         case(
-            "allowed lead auto-compact window",
+            "zero lead env value",
             lambda raw: raw["docs"]["models"]["models"]["kimi-k3"]["lead"]["env"].__setitem__(
-                "CLAUDE_CODE_AUTO_COMPACT_WINDOW", "524288"
+                "CLAUDE_CODE_EXAMPLE_LIMIT", "0"
             ),
-            "__NO_ERROR_EXPECTED__",
+            "must be a positive integer",
+        )
+        case(
+            "provider context exceeds client",
+            lambda raw: raw["docs"]["models"]["models"]["sol"]["context"].__setitem__(
+                "provider_tokens", 400000
+            ),
+            "exceeds client_tokens",
+        )
+        case(
+            "scalar context exceeds provider",
+            lambda raw: raw["docs"]["models"]["models"]["sol"]["context"].__setitem__(
+                "scalar_tokens", 400000
+            ),
+            "exceeds provider_tokens",
+        )
+        case(
+            "validated context exceeds declaration",
+            lambda raw: raw["docs"]["models"]["models"]["sol"]["context"].__setitem__(
+                "validated_tokens", 400000
+            ),
+            "exceeds declared_tokens",
+        )
+        case(
+            "unvalidated provider context lacks matching attestation",
+            lambda raw: raw["docs"]["models"]["models"]["kimi-k3"]["context"].__setitem__(
+                "user_reported_tokens", 900000
+            ),
+            "must match user_reported_tokens",
+        )
+        case(
+            "selector and client context disagree",
+            lambda raw: raw["docs"]["models"]["models"]["sol"]["context"].__setitem__(
+                "client_tokens", 1000000
+            ),
+            "selector classification",
+        )
+        case(
+            "lead missing ordinary profile",
+            lambda raw: raw["docs"]["models"]["models"]["sol"]["context"].__setitem__(
+                "ordinary_profile", None
+            ),
+            "lead-capable models must belong",
         )
         case(
             "empty anthropic passthrough routes",

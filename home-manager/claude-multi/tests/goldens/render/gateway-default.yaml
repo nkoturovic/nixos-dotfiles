@@ -77,7 +77,7 @@ claude-api-key:
         alias: "claude-multi-kimi-k3"
         display-name: "Kimi K3 · 1M selector"
         owned-by: "moonshot"
-        context-length: 1048576
+        context-length: 1000000
         force-mapping: true
   - api-key: "dummy-kimi-key"
     base-url: "https://token-plan.ap-southeast-1.maas.aliyuncs.com/apps/anthropic"

@@ -226,6 +226,7 @@ class DurableDenyPlacementTests(unittest.TestCase):
             ),
             durable=True,
             scope_dir=Path("/state") / "scopes" / session_id,
+            hook_command="/state/bin/claude-multi-hook",
         )
 
     def test_denies_move_to_compiled_settings_not_argv(self) -> None:

@@ -22,6 +22,11 @@ running process.
 
 ## 2. Authority model
 
+- **Stable `managed_id` = claude-multi identity** (record filename, scope,
+  pointer, lifecycle lock, transition command).
+- **`runtime_session_id` = Claude identity** (authoritative native
+  `--resume` target), reconciled from official SessionStart metadata and never
+  inferred from transcript contents. Previous runtime IDs remain aliases.
 - **Record = intent** (composition snapshot + catalog hash).
 - **Catalog = trusted source of bodies/selectors** (installed, versioned).
 - **Scope = pure function of (record composition, installed catalog)**.
@@ -50,7 +55,8 @@ running process.
    - `scopes/.<uuid>.new` → `scopes/<uuid>`
    - fsync the `scopes/` directory after each rename.
 6. Save the record (generation N+1), then exec
-   `claude --resume <uuid>` with the newly compiled argv.
+   `claude --resume <runtime_session_id>` with the newly compiled argv. The
+   external transition command and scope paths continue to use `managed_id`.
 7. `.prev` is removed by the next successful transition or `doctor --prune`.
 
 Sibling staging paths are required: staging inside `scopes/<uuid>/.new`
@@ -87,15 +93,16 @@ record+catalog.
   exited; running subagents/workflows are therefore never silently mixed
   with a new composition. The confirmation text says exiting restarts the
   turn; `/background` carry-over is the user's native alternative.
-- A transition never changes the session UUID or fork lineage, and never
-  touches transcripts, `~/.claude`, or project files.
+- A transition never changes the stable managed ID or fork lineage. Lifecycle
+  reconciliation may update the runtime UUID after native resume/compact/clear;
+  the transition engine preserves that mapping. It never touches transcripts,
+  `~/.claude`, or project files.
 
 ## 7. Fork boundary (U7)
 
-Native `/fork` copies model/effort/dirs but not launch flags it can't
-inherit; sessions launched with a replaced system prompt may be **refused**
-outright (AV L330), and our `--append-system-prompt-file` may trigger that
-refusal. U7 therefore tests: (a) whether `/fork` is allowed at all for
-managed sessions; (b) if allowed, whether the scope pointer carries. Until
-verified, UX says managed forks may be refused; the supported paths are
-transition or a new session.
+Native fork remains outside the verified managed argv contract. If Claude
+emits `SessionStart(source=fork)` in a managed scope, the hook records a
+pending fork and **does not replace the parent's runtime UUID**; it also adds
+context instructing the user to exit and adopt the fork runtime UUID into its
+own stable scope. An explicit managed-fork launcher command remains blocked
+until the pinned binary proves the required resume/fork/new-ID combination.

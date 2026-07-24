@@ -48,6 +48,7 @@ def _compile(*, durable: bool, action):
         ),
         durable=durable,
         scope_dir=SCOPE_DIR if durable else None,
+        hook_command="/state/bin/claude-multi-hook" if durable else None,
     )
 
 
@@ -97,7 +98,12 @@ def main() -> int:
         GOLDENS / "argv-resume-durable.json",
         strict_json.canonical_file_bytes(resume_durable.argv),
     )
-    plan = fresh_durable.scope_plan
+    plan = scope.compile_scope(
+        resolved,
+        bundle.docs["roles"]["roles"],
+        bundle.prompt_bodies,
+        scope.catalog_meta_from_docs(bundle.docs),
+    )
     scope_goldens = GOLDENS / "scope"
     _write(
         scope_goldens / "settings.json",

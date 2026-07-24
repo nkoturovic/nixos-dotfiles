@@ -375,7 +375,14 @@ _KEY_KINDS = {
 
 
 def read_key(win: Any) -> Key:
-    """Read one key via ``get_wch`` (unicode-safe) and normalize it."""
+    """Read one key via ``get_wch`` (unicode-safe) and normalize it.
+
+    Note: ncurses deliberately delivers an Alt-chord as ESC followed by its
+    tail character (ESCDELAY disambiguation applies only to keypad function
+    sequences). Any Python-level re-merging heuristic misclassifies fast
+    human input as chords, so screens treat ESC as cancel and an immediately
+    following printable as fresh input — terminal-standard behavior.
+    """
 
     value = win.get_wch()
     if isinstance(value, str):
@@ -668,7 +675,10 @@ class TextInput:
         safe_add(win, row, col, "[", palette.attr("dim"))
         safe_add(win, row, col + 1, visible.ljust(inner), attr)
         safe_add(win, row, col + 1 + inner, "]", palette.attr("dim"))
-        cursor_x = col + 1 + min(self.cursor - self.offset, inner)
+        # At end-of-input with a full field, cursor - offset == inner would
+        # place the cursor on the closing bracket; keep it on the last field
+        # cell (the next typed character shifts into view there).
+        cursor_x = col + 1 + min(self.cursor - self.offset, inner - 1)
         return row, cursor_x
 
 

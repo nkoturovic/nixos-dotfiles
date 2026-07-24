@@ -55,7 +55,7 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import TYPE_CHECKING, Any, Callable
 
-from . import scope, state, strict_json
+from . import scope, sessions, state, strict_json
 from .compiler import CompileResult
 from .sessions import UUID4, SessionStore
 
@@ -320,6 +320,7 @@ def _resume_failure_scope(
     prior_record_bytes: bytes,
     result: CompileResult,
     trusted: "Catalog | None",
+    environ: dict[str, str] | None = None,
 ) -> None:
     """Converge the live scope after a failed durable resume exec (audit L4).
 
@@ -347,13 +348,42 @@ def _resume_failure_scope(
     if prior_record is None or prior_record.get("mode") != "durable":
         scope.remove_scope(store.root, session_id)
         return
+    if prior_record.get("session_type") == sessions.SESSION_TYPE_ORDINARY:
+        if trusted is None:
+            scope.remove_scope(store.root, session_id)
+            return
+        from . import compiler
+
+        try:
+            model = trusted.docs["models"]["models"][prior_record["ordinary_model"]]
+            expected = scope.compile_ordinary_scope(
+                managed_id=session_id,
+                hook_command=str(
+                    scope.ensure_hook_shim(
+                        store.root,
+                        scope.resolve_hook_command(environ, trusted.root),
+                    )
+                ),
+                available_models=compiler.direct_profile_selectors(
+                    trusted.docs, prior_record["context_profile"]
+                ),
+                default_model=model["client_selector"],
+                launch_epoch=prior_record.get("launch_epoch", 0),
+            )
+        except Exception:
+            scope.remove_scope(store.root, session_id)
+        else:
+            scope.write_scope(store.root, session_id, expected)
+        return
 
     if trusted is not None:
         # Local import: launch stays layered below transition.
         from . import transition
 
         try:
-            expected = transition._expected_plan(prior_record, trusted)
+            expected = transition._expected_plan(
+                prior_record, trusted, state_root=store.root
+            )
         except Exception:
             # The installed catalog no longer resolves the recorded
             # composition: fail closed to record-without-scope (converge
@@ -373,6 +403,61 @@ def _resume_failure_scope(
     scope.remove_scope(store.root, session_id)
 
 
+@dataclass
+class _CwdLease:
+    """Open directory fds make resume-CWD validation race resistant."""
+
+    original_fd: int
+    target_fd: int
+    original_path: str
+    target_path: str
+    closed: bool = False
+
+    @classmethod
+    def prepare(cls, target: Any) -> "_CwdLease":
+        if not isinstance(target, str) or not target.startswith("/"):
+            raise LaunchError(
+                f"recorded project directory {target!r} is not an absolute path"
+            )
+        flags = os.O_RDONLY | getattr(os, "O_DIRECTORY", 0) | getattr(os, "O_CLOEXEC", 0)
+        original_path = os.getcwd()
+        original_fd = os.open(".", flags)
+        try:
+            target_fd = os.open(target, flags)
+        except OSError as exc:
+            os.close(original_fd)
+            raise LaunchError(
+                f"cannot open the session's original project directory {target}: {exc}; "
+                "repair the recorded CWD before resuming"
+            ) from exc
+        lease = cls(original_fd, target_fd, original_path, target)
+        try:
+            # Prove the directory is enterable before any launch state commit.
+            os.fchdir(target_fd)
+            os.fchdir(original_fd)
+        except OSError as exc:
+            lease.close()
+            raise LaunchError(
+                f"cannot enter the session's original project directory {target}: {exc}; "
+                "repair the recorded CWD before resuming"
+            ) from exc
+        return lease
+
+    def enter(self) -> None:
+        os.fchdir(self.target_fd)
+
+    def restore(self) -> None:
+        if not self.closed:
+            os.fchdir(self.original_fd)
+
+    def close(self) -> None:
+        if self.closed:
+            return
+        os.close(self.target_fd)
+        os.close(self.original_fd)
+        self.closed = True
+
+
 def perform_launch(
     result: CompileResult,
     *,
@@ -386,6 +471,12 @@ def perform_launch(
     home: Path | None = None,
     health_get: Callable[[str, str], int] | None = None,
     trusted: "Catalog | None" = None,
+    allow_model_relaunch: bool = False,
+    expected_launch_epoch: int | None = None,
+    expected_mutation_token: str | None = None,
+    expected_source_scope_generation: int | None = None,
+    expected_source_composition_hash: str | None = None,
+    precommitted: bool = False,
 ) -> Any:
     """Execute a compiled launch: readiness → state → execve. No return on success.
 
@@ -406,15 +497,24 @@ def perform_launch(
     token = readiness(gateway, home=home, health_get=health_get)
 
     action_kind = result.session_action.kind
-    session_id = record.get("session_id")
-    if not isinstance(session_id, str) or not UUID4.fullmatch(session_id):
-        raise LaunchError(f"record session_id {session_id!r} is not a UUIDv4")
+    try:
+        stable_id = sessions.managed_id(record)
+        runtime_id = sessions.runtime_session_id(record)
+    except sessions.SessionError as exc:
+        raise LaunchError(str(exc)) from exc
     if action_kind not in {"fresh", "resume"}:
         raise LaunchError(f"unsupported session action {action_kind!r}")
-    if result.session_action.session_id != session_id:
+    if result.session_action.managed_id != stable_id:
         raise LaunchError(
-            f"compiled session action targets {result.session_action.session_id!r}, "
-            f"but the record targets {session_id!r}"
+            f"compiled session action targets managed session "
+            f"{result.session_action.managed_id!r}, but the record belongs to "
+            f"{stable_id!r}"
+        )
+    if result.session_action.runtime_session_id != runtime_id:
+        raise LaunchError(
+            f"compiled action targets runtime session "
+            f"{result.session_action.runtime_session_id!r}, but the record targets "
+            f"{runtime_id!r}"
         )
 
     durable = result.durable
@@ -423,7 +523,7 @@ def perform_launch(
             raise LaunchError(
                 "durable launch requires a compiled scope plan and scope directory"
             )
-        expected_scope = scope.scope_dir(store.root, session_id)
+        expected_scope = scope.scope_dir(store.root, stable_id)
         if result.scope_dir != expected_scope:
             raise LaunchError(
                 f"compiled scope directory {result.scope_dir} does not match the "
@@ -444,6 +544,11 @@ def perform_launch(
                 "silently shadow a guaranteed managed definition"
             )
 
+    # Validate and successfully enter the authoritative original CWD before
+    # committing prompt/scope/record/pointer state. Open fds keep the later
+    # exec-side chdir valid even if a path component is renamed concurrently.
+    cwd_lease = _CwdLease.prepare(record.get("cwd"))
+
     # The lifecycle lock serializes scope/record/pointer mutation against a
     # concurrent launcher operating on the same UUID (finisher finding). The
     # existence guards and the pre-launch byte captures run INSIDE the lock
@@ -454,52 +559,233 @@ def perform_launch(
     # bytes this launch wrote, so a newer launch always wins.
     scope_written = False
     committed_bytes: bytes | None = None
-    lock = store.lifecycle_lock(session_id)
+    committed_token: str | None = None
+    pre_existing: bytes | None = None
+    prior_pointer: bytes | None = None
+    lock = store.lifecycle_lock(stable_id)
     lock.acquire(blocking=True)
     try:
         # Pre-launch authority, captured under the lock before any
         # prompt/scope/record mutation. Fresh IDs must still be unused;
         # resumes require a pre-existing record and preserve the exact prior
         # pointer state if execve fails.
-        pre_existing: bytes | None = store.read_record_bytes(session_id)
-        prior_pointer: bytes | None = None
+        pre_existing = store.read_record_bytes(stable_id)
+        committed_record = record
         if action_kind == "fresh":
             if pre_existing is not None:
-                raise LaunchError(f"fresh session {session_id} already has a record")
+                raise LaunchError(f"fresh session {stable_id} already has a record")
         else:
             if pre_existing is None:
-                raise LaunchError(f"resume session {session_id} has no managed record")
-            # Stale-relaunch guard (final audit L1): the record on disk must
-            # not have advanced beyond the one this launch was compiled for.
-            current = strict_json.loads(pre_existing)
-            if (
-                isinstance(current, dict)
-                and current.get("scope_generation", 0) > record["scope_generation"]
-            ):
+                raise LaunchError(f"resume session {stable_id} has no managed record")
+            try:
+                current = store.load(stable_id)
+            except sessions.SessionError as exc:
+                raise LaunchError(str(exc)) from exc
+            if sessions.managed_id(current) != stable_id:
+                raise LaunchError(f"session {stable_id} changed identity concurrently")
+            if current["session_type"] != record["session_type"]:
+                raise LaunchError(f"session {stable_id} changed type concurrently")
+            if expected_launch_epoch is not None:
+                current_epoch = current.get("launch_epoch", 0)
+                current_token = current.get("mutation_token")
+                if (
+                    current_epoch != expected_launch_epoch
+                    or current_token != expected_mutation_token
+                ):
+                    raise LaunchError(
+                        f"session {stable_id} authority changed after preparation; "
+                        "prepare the launch again"
+                    )
+                target_epoch = record.get("launch_epoch", 0)
+                expected_target = current_epoch if precommitted else current_epoch + 1
+                if target_epoch != expected_target:
+                    raise LaunchError(
+                        f"session {stable_id} launch epoch is stale; prepare it again"
+                    )
+            current_runtime = sessions.runtime_session_id(current)
+            if current_runtime != result.session_action.runtime_session_id:
                 raise LaunchError(
-                    f"session {session_id} advanced to generation "
+                    f"session {stable_id} now targets runtime {current_runtime}; "
+                    "this launch was compiled for "
+                    f"{result.session_action.runtime_session_id} — prepare it again"
+                )
+            if current["cwd"] != record["cwd"]:
+                raise LaunchError(
+                    f"session {stable_id} CWD changed concurrently from "
+                    f"{record['cwd']!r} to {current['cwd']!r}; prepare it again"
+                )
+            if expected_source_scope_generation is not None:
+                if (
+                    current.get("scope_generation", 0)
+                    != expected_source_scope_generation
+                ):
+                    raise LaunchError(
+                        f"session {stable_id} source generation changed after "
+                        "preparation; prepare it again"
+                    )
+            elif current.get("scope_generation", 0) > record["scope_generation"]:
+                raise LaunchError(
+                    f"session {stable_id} advanced to generation "
                     f"{current['scope_generation']} concurrently; this launch "
                     f"was compiled for generation {record['scope_generation']} "
                     "— re-run the transition"
                 )
-            prior_pointer = store.read_pointer_bytes(record["cwd"])
+            if current["session_type"] == sessions.SESSION_TYPE_MANAGED:
+                if expected_source_composition_hash is not None:
+                    if (
+                        current.get("composition_hash")
+                        != expected_source_composition_hash
+                    ):
+                        raise LaunchError(
+                            f"session {stable_id} source composition changed after "
+                            "preparation; prepare it again"
+                        )
+                elif (
+                    current.get("scope_generation")
+                    == record.get("scope_generation")
+                    and current.get("composition_hash")
+                    != record.get("composition_hash")
+                ):
+                    raise LaunchError(
+                        f"session {stable_id} composition changed concurrently; "
+                        "prepare it again"
+                    )
+            identity_state = current.get(
+                "identity_state", sessions.IDENTITY_UNVERIFIED
+            )
+            if current.get("pending_forks"):
+                raise LaunchError(
+                    f"session {stable_id} has an unresolved native fork; adopt the "
+                    "fork UUID before resuming the parent"
+                )
+            if identity_state == sessions.IDENTITY_REPAIR_NEEDED and not (
+                allow_model_relaunch
+                and "observed_model" in current
+                and "observed_cwd" not in current
+            ):
+                raise LaunchError(
+                    f"session {stable_id} needs runtime/CWD repair before launch; "
+                    "use `claude-multi sessions relink-runtime`"
+                )
 
-        # Contingency is the only lead delivery: the prompt file is always
-        # written — after the guards, so a refused launch leaves nothing.
-        state.atomic_write(
-            result.lead_prompt_path, result.lead_prompt.encode("utf-8")
-        )
+            committed_record = sessions.carry_lifecycle_state(record, current)
+            if current["session_type"] == sessions.SESSION_TYPE_ORDINARY:
+                if allow_model_relaunch:
+                    committed_record.pop("observed_model", None)
+                    committed_record["identity_state"] = sessions.IDENTITY_UNVERIFIED
+                else:
+                    if (
+                        current["context_profile"] != record["context_profile"]
+                        or current["ordinary_model"] != record["ordinary_model"]
+                    ):
+                        raise LaunchError(
+                            f"session {stable_id} ordinary model changed concurrently; "
+                            "prepare the resume again"
+                        )
+                    committed_record["ordinary_model"] = current["ordinary_model"]
+                    committed_record["context_profile"] = current["context_profile"]
+            elif allow_model_relaunch:
+                committed_record.pop("observed_model", None)
+                committed_record["identity_state"] = sessions.IDENTITY_UNVERIFIED
+            if sessions.runtime_session_id(committed_record) != runtime_id:
+                raise LaunchError(
+                    f"session {stable_id} runtime identity changed during preparation"
+                )
+            if committed_record["cwd"] != record["cwd"]:
+                raise LaunchError(
+                    f"session {stable_id} CWD changed during preparation"
+                )
+            prior_pointer = store.read_pointer_bytes(
+                committed_record["cwd"],
+                session_type=committed_record["session_type"],
+            )
+
+        committed_token = sessions.new_mutation_token()
+        committed_record = {
+            **committed_record,
+            "mutation_token": committed_token,
+        }
+
+        # Managed compositions use the contingency lead appendix; ordinary
+        # gateway sessions deliberately have no injected composition prompt.
+        if result.write_lead_prompt:
+            state.atomic_write(
+                result.lead_prompt_path, result.lead_prompt.encode("utf-8")
+            )
 
         if durable:
-            scope.write_scope(store.root, session_id, result.scope_plan)
+            scope.write_scope(store.root, stable_id, result.scope_plan)
             scope_written = True
-        store.save(record)
+        store.save(committed_record)
         # The exact bytes this launch committed: the cleanup's ownership
         # token (CAS-by-own-write, audit L2).
-        committed_bytes = store.read_record_bytes(session_id)
-        store.update_last(record["cwd"], session_id)
-    finally:
-        lock.release()
+        committed_bytes = store.read_record_bytes(stable_id)
+        # Blocking: the pointer lock is only ever held for one atomic write,
+        # so the bounded wait is safe, and a successful launch must never
+        # silently lose its `-c` registration to momentary contention.
+        store.update_last(
+            committed_record["cwd"],
+            stable_id,
+            session_type=committed_record["session_type"],
+            blocking=True,
+        )
+    except BaseException:
+        # Any failure after scope/record/pointer mutation but before exec must
+        # roll back while this launch still owns the lifecycle lock. A failure
+        # before this attempt committed anything (guards, lead-prompt write)
+        # must NOT roll back: the pointer and the live scope belong to the
+        # pre-existing session, and this attempt never touched them.
+        try:
+            if committed_token is None:
+                raise
+            if action_kind == "resume" and pre_existing is not None:
+                current_bytes = store.read_record_bytes(stable_id)
+                try:
+                    current = store.load(stable_id)
+                except sessions.SessionError:
+                    current = None
+                if (
+                    current is not None
+                    and committed_token is not None
+                    and current.get("mutation_token") == committed_token
+                ):
+                    store.restore_record_bytes(stable_id, pre_existing)
+                elif current_bytes != pre_existing:
+                    # Unknown authority: do not guess at rollback ownership.
+                    raise
+                if durable:
+                    _resume_failure_scope(
+                        store, stable_id, pre_existing, result, trusted, environ
+                    )
+                store.restore_pointer_bytes(
+                    record["cwd"],
+                    stable_id,
+                    prior_pointer,
+                    session_type=record["session_type"],
+                )
+            elif action_kind == "fresh":
+                try:
+                    current = store.load(stable_id)
+                except sessions.SessionError:
+                    current = None
+                if (
+                    current is not None
+                    and committed_token is not None
+                    and current.get("mutation_token") == committed_token
+                ):
+                    store._forget_unlocked(stable_id)
+                store.clear_last(
+                    record["cwd"],
+                    stable_id,
+                    session_type=record["session_type"],
+                    blocking=True,
+                )
+                if durable:
+                    scope.remove_scope(store.root, stable_id)
+        finally:
+            cwd_lease.close()
+            lock.release()
+        raise
 
     base_environ = dict(os.environ if environ is None else environ)
     for key in result.env_unset:
@@ -508,60 +794,88 @@ def perform_launch(
     argv = [str(executable), *result.argv]
 
     # Claude locates transcripts under the session's ORIGINAL project
-    # directory; resuming from another cwd reports the session as missing.
-    # Adopted records carry the decoded original cwd; managed records carry
-    # their launch cwd. Enter it before exec when it differs. A returning
-    # execve (injected/test boundary) restores the launcher's cwd; the real
-    # one never returns.
-    original_cwd = os.getcwd()
-    record_cwd = record.get("cwd")
-    if (
-        isinstance(record_cwd, str)
-        and record_cwd
-        and record_cwd != original_cwd
-        and os.path.isdir(record_cwd)
-    ):
-        try:
-            os.chdir(record_cwd)
-        except OSError as exc:
-            raise LaunchError(
-                f"cannot enter the session's project directory "
-                f"{record_cwd}: {exc}"
-            ) from exc
+    # directory. The fd lease was validated before state commit and cannot be
+    # invalidated by a pathname rename. A returning injected exec boundary is
+    # restored to the caller's original CWD; a real successful exec never
+    # returns and O_CLOEXEC closes both lease fds.
     try:
+        cwd_lease.enter()
         outcome = execve(str(executable), argv, final_env)
-        os.chdir(original_cwd)
+        cwd_lease.restore()
+        cwd_lease.close()
+        lock.release()
         return outcome
     except OSError:
-        # The session never started; converge state per action kind, then
-        # re-raise. See the module docstring for the cleanup contract.
-        lock.acquire(blocking=True)
         try:
-            if action_kind == "resume":
-                # CAS-by-own-write (audit L2): restore only while the record
-                # is still exactly what THIS launch committed. A newer
-                # attempt that committed in between owns the record AND the
-                # scope — touch neither.
-                if store.read_record_bytes(session_id) == committed_bytes:
-                    store.restore_record_bytes(session_id, pre_existing)
-                    if scope_written:
-                        _resume_failure_scope(
-                            store, session_id, pre_existing, result, trusted
-                        )
-                    # The pointer rollback belongs to the same ownership
-                    # check: when a newer attempt owns the record, its
-                    # pointer update stands (final audit L2).
-                    store.restore_pointer_bytes(
-                        record["cwd"], session_id, prior_pointer
-                    )
-            else:
-                # Fresh UUIDs are unknowable, but compare anyway before
-                # deleting: a record this launch no longer owns is left alone.
-                if store.read_record_bytes(session_id) == committed_bytes:
-                    store.forget(session_id)
-                    store.clear_last(record["cwd"], session_id)
-                    if scope_written:
-                        scope.remove_scope(store.root, session_id)
+            try:
+                cwd_lease.restore()
+            except OSError:
+                # A CWD-restore failure must never mask the exec error or
+                # skip the state convergence below.
+                pass
         finally:
+            cwd_lease.close()
+        # The session never started; converge state per action kind while the
+        # launch still owns the lifecycle lock, then re-raise.
+        try:
+            try:
+                current = store.load(stable_id)
+            except sessions.SessionError:
+                current = None
+            owns_mutation = (
+                current is not None
+                and committed_token is not None
+                and current.get("mutation_token") == committed_token
+            )
+            if action_kind == "resume":
+                # The mutation token survives lifecycle-only hook updates but
+                # changes on every newer launch/transition attempt.
+                if owns_mutation:
+                    record_restored = False
+                    if store.read_record_bytes(stable_id) == committed_bytes:
+                        store.restore_record_bytes(stable_id, pre_existing)
+                        record_restored = True
+                    else:
+                        try:
+                            prior = strict_json.loads(pre_existing)
+                            if not isinstance(prior, dict):
+                                raise ValueError("prior record is not an object")
+                            prior = sessions._normalize_legacy_record(prior)
+                            restored = sessions.carry_lifecycle_state(prior, current)
+                            store.save(restored)
+                            record_restored = True
+                        except Exception:
+                            # Never replace the original exec error with a
+                            # cleanup parse failure; leave record authority for
+                            # doctor/converge rather than guessing.
+                            pass
+                    if record_restored:
+                        if scope_written:
+                            _resume_failure_scope(
+                                store, stable_id, pre_existing, result, trusted,
+                                environ,
+                            )
+                        store.restore_pointer_bytes(
+                            record["cwd"], stable_id, prior_pointer,
+                            session_type=record["session_type"],
+                        )
+            else:
+                if owns_mutation:
+                    store._forget_unlocked(stable_id)
+                    store.clear_last(
+                        record["cwd"], stable_id,
+                        session_type=record["session_type"],
+                        blocking=True,
+                    )
+                    if scope_written:
+                        scope.remove_scope(store.root, stable_id)
+        finally:
+            lock.release()
+        raise
+    except BaseException:
+        try:
+            cwd_lease.restore()
+        finally:
+            cwd_lease.close()
             lock.release()
         raise

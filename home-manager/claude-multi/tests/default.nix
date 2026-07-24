@@ -17,11 +17,15 @@
       { },
 }:
 
+let
+  package = pkgs.callPackage ../package.nix { };
+in
 pkgs.runCommand "claude-multi-tests"
   {
     nativeBuildInputs = [ pkgs.python3 ];
     env.PYTHONDONTWRITEBYTECODE = "1";
     tree = ./..;
+    inherit package;
   }
   ''
     export HOME="$TMPDIR/home"
@@ -29,5 +33,8 @@ pkgs.runCommand "claude-multi-tests"
     export PYTHONPATH="$tree/src:$tree/tests"
     cd "$TMPDIR"
     python3 -m unittest discover -s "$tree/tests" -p 'test_*.py'
+    "$package/bin/claude-multi" --version
+    "$package/bin/claude-gateway" --version
+    "$package/bin/claude-multi-proxy" --version
     touch $out
   ''

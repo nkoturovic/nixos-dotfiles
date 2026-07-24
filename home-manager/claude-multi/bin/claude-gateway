@@ -1,0 +1,13 @@
+#!/usr/bin/env python3
+"""Ordinary gateway-backed Claude Code entrypoint (no composition policy)."""
+
+from __future__ import annotations
+
+import sys
+
+from claude_multi.cli import main
+
+
+if __name__ == "__main__":
+    args = sys.argv[1:]
+    raise SystemExit(main(args if args == ["--version"] else ["direct", *args]))

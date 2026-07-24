@@ -15,7 +15,12 @@ from typing import TYPE_CHECKING, Any
 
 from . import catalog as catalog_mod
 from . import strict_json
-from .composition import LEAD_ID, ResolvedComposition
+from .composition import (
+    AUTO_COMPACT_PERCENT,
+    LEAD_ID,
+    ResolvedComposition,
+    auto_compact_trigger,
+)
 
 if TYPE_CHECKING:  # avoid the runtime cycle: scope.py imports this module
     from .scope import ScopePlan
@@ -85,18 +90,37 @@ FORK_UNVERIFIED_GUIDANCE = (
 
 @dataclass(frozen=True)
 class SessionAction:
-    """Session identity for one launch: fresh or resume."""
+    """Stable claude-multi identity plus the native UUID targeted by argv."""
 
     kind: str  # "fresh" | "resume"
-    session_id: str
+    managed_id: str
+    runtime_session_id: str
+
+    @property
+    def session_id(self) -> str:
+        """Compatibility alias for scope/prompt identity during migration."""
+
+        return self.managed_id
 
 
-def build_fresh(session_id: str) -> SessionAction:
-    return SessionAction(kind="fresh", session_id=session_id)
+def build_fresh(
+    managed_id: str, runtime_session_id: str | None = None
+) -> SessionAction:
+    return SessionAction(
+        kind="fresh",
+        managed_id=managed_id,
+        runtime_session_id=runtime_session_id or managed_id,
+    )
 
 
-def build_resume(session_id: str) -> SessionAction:
-    return SessionAction(kind="resume", session_id=session_id)
+def build_resume(
+    managed_id: str, runtime_session_id: str | None = None
+) -> SessionAction:
+    return SessionAction(
+        kind="resume",
+        managed_id=managed_id,
+        runtime_session_id=runtime_session_id or managed_id,
+    )
 
 
 def variant_description(
@@ -197,6 +221,47 @@ def generate_lead_appendix(
                 "label the review as same-family (reduced independence) instead of "
                 "blocking."
             )
+    lines.append("")
+    lines.append("## Context policy (generated)")
+    lines.append("")
+    bound_label = (
+        "validated provider bound"
+        if resolved.lead.provider_context_validated
+        else "user-attested configured provider bound"
+    )
+    lines.append(
+        f"- Lead context: {resolved.lead.client_context_tokens} client tokens; "
+        f"{bound_label} {resolved.lead.provider_context_tokens}; process "
+        f"compaction capacity {resolved.auto_compact_window_tokens}; deterministic "
+        f"reactive trigger {resolved.lead.auto_compact_tokens}. Proactive summary "
+        "preparation is runtime-controlled and may occur earlier."
+    )
+    if resolved.scalar_context_tokens is not None:
+        lines.append(
+            f"- Process scalar: CLAUDE_CODE_MAX_CONTEXT_TOKENS="
+            f"{resolved.scalar_context_tokens} is exported for this mixed "
+            "process; it bounds lower-context delegated variants, while the "
+            "lead thread keeps the capacity and trigger above."
+        )
+    if not resolved.lead.provider_context_validated:
+        lines.append(
+            "- Context qualification: this configured provider bound is not "
+            "near-limit benchmark-verified. It follows explicit route/operator "
+            "attestation; live acceptance must confirm it before it is described "
+            "as provider-safe."
+        )
+    if resolved.lead.client_context_tokens < 1_000_000 and (
+        resolved.native_agents["explore"] == "native"
+        or resolved.native_agents["plan"] == "native"
+        or resolved.native_agents["general_purpose"] == "on"
+    ):
+        lines.append(
+            "- Native agents inherit this lower-context lead and the process-wide "
+            "compaction capacity. Keep delegated prompts and loaded skills bounded; "
+            "an enabled 1M cm-* selector does not raise this process capacity. Use "
+            "a large-context lead/composition or a separate ordinary large-profile "
+            "session for broad context."
+        )
     lines.append("")
     lines.append("## Standing rules (generated)")
     lines.append("")
@@ -317,22 +382,21 @@ def compile_environment(
         env_set["CLAUDE_CODE_MAX_CONTEXT_TOKENS"] = str(resolved.scalar_context_tokens)
     # Trusted lead environment is applied only after the explicit unsets.
     env_set.update(resolved.lead.env)
-    if resolved.scalar_context_tokens is not None:
-        # Auto-compaction must fire BEFORE the composition's actual context
-        # cap — with headroom for the compaction request itself. A lead env
-        # value that exceeds 90% of the scalar (or is absent) would let the
-        # provider 400 win the race and wedge the session (observed live:
-        # sol-direct at 99%; kimi/qwen-sol's explicit values exceed the cap).
-        # Lower explicit values (earlier compaction) are respected.
-        headroom_window = int(resolved.scalar_context_tokens * 0.9)
-        explicit = resolved.lead.env.get("CLAUDE_CODE_AUTO_COMPACT_WINDOW")
-        if explicit is None or int(explicit) > headroom_window:
-            env_set["CLAUDE_CODE_AUTO_COMPACT_WINDOW"] = str(headroom_window)
+    # AUTO_COMPACT_WINDOW is a capacity, not the trigger itself. Claude Code
+    # caps it at each model's actual context, reserves up to 20K output tokens,
+    # prepares a summary at the earlier 20% buffer, then applies the percentage
+    # to the remaining prompt budget for reactive compaction. The provider bound
+    # narrows Qwen's capacity to 983,616 before those calculations.
+    env_set["CLAUDE_CODE_AUTO_COMPACT_WINDOW"] = str(
+        resolved.auto_compact_window_tokens
+    )
+    env_set["CLAUDE_AUTOCOMPACT_PCT_OVERRIDE"] = str(AUTO_COMPACT_PERCENT)
     env_unset = [
         "CLAUDE_CODE_SUBAGENT_MODEL",
         "CLAUDE_CODE_MAX_OUTPUT_TOKENS",
         "CLAUDE_CODE_ENABLE_GATEWAY_MODEL_DISCOVERY",
         "CLAUDE_CODE_AUTO_COMPACT_WINDOW",
+        "CLAUDE_AUTOCOMPACT_PCT_OVERRIDE",
         # G0' reservations: an inherited config-dir or nested-spawn control
         # must never leak into a managed legacy launch while the nested
         # decision chain is pending.
@@ -371,6 +435,7 @@ class CompileResult:
     scope_plan: ScopePlan | None = None
     scope_dir: Path | None = None
     passthrough_add_dirs: tuple[str, ...] = ()
+    write_lead_prompt: bool = True
 
 
 def lead_prompt_path(
@@ -419,6 +484,8 @@ def compile_launch(
     lead_prompt_path: Path,
     durable: bool = False,
     scope_dir: Path | None = None,
+    hook_command: str | None = None,
+    launch_epoch: int = 0,
 ) -> CompileResult:
     """Compile the pure launch plan. No effects; fail closed on conflicts.
 
@@ -436,6 +503,11 @@ def compile_launch(
     add_dirs = _extract_add_dirs(safe_args)
     if durable and scope_dir is None:
         raise CompilerError("durable mode requires a scope directory")
+    if durable and not hook_command:
+        # Never mask a missing lifecycle hook command with a PATH-relative
+        # fallback: durable scopes embed it verbatim, and a bare name only
+        # resolves by environment luck.
+        raise CompilerError("durable mode requires a lifecycle hook command")
 
     from .composition import snapshot as build_snapshot
 
@@ -459,11 +531,13 @@ def compile_launch(
         docs["gateway"], docs["providers"]["providers"], resolved
     )
     env_set.update(policy_env)
-    # M2 self-identification sentinel: the session's own agents and nested
-    # CLI invocations read this to detect "from inside this managed session"
-    # (TRANSITIONS section 3 step 4). Always overwritten per launch, so an
-    # inherited value from a parent session can never leak through.
-    env_set["CLAUDE_MULTI_SESSION_ID"] = session_action.session_id
+    # Stable self-identification sentinel: lifecycle hooks, transitions, and
+    # nested invocations key claude-multi state by managed_id even when Claude's
+    # authoritative runtime UUID differs. Keep the old name as a compatibility
+    # alias until migrated prompts/scopes have been replaced.
+    env_set["CLAUDE_MULTI_MANAGED_ID"] = session_action.managed_id
+    env_set["CLAUDE_MULTI_SESSION_ID"] = session_action.managed_id
+    env_set["CLAUDE_MULTI_LAUNCH_EPOCH"] = str(launch_epoch)
 
     scope_plan: ScopePlan | None = None
     if durable:
@@ -474,6 +548,9 @@ def compile_launch(
             docs["roles"]["roles"],
             prompt_bodies,
             scope_mod.catalog_meta_from_docs(docs),
+            managed_id=session_action.managed_id,
+            hook_command=hook_command,
+            launch_epoch=launch_epoch,
         )
         agents_json = ""
     else:
@@ -486,9 +563,9 @@ def compile_launch(
 
     argv: list[str] = []
     if session_action.kind == "fresh":
-        argv += ["--session-id", session_action.session_id]
+        argv += ["--session-id", session_action.runtime_session_id]
     elif session_action.kind == "resume":
-        argv += ["--resume", session_action.session_id]
+        argv += ["--resume", session_action.runtime_session_id]
     else:
         raise CompilerError(f"unknown session action {session_action.kind!r}")
     argv += ["--name", f"cm:{resolved.name}"]
@@ -534,4 +611,209 @@ def compile_launch(
         scope_plan=scope_plan,
         scope_dir=scope_dir,
         passthrough_add_dirs=add_dirs,
+    )
+
+
+def direct_context_profile(docs: dict[str, Any], model_id: str) -> str:
+    """Catalog-owned ordinary profile for one lead-capable model."""
+
+    model = docs["models"]["models"].get(model_id)
+    if model is None or "lead" not in model["capabilities"]:
+        raise CompilerError(
+            f"model {model_id!r} is not supported as an ordinary gateway lead"
+        )
+    profile = model["context"]["ordinary_profile"]
+    if profile is None:
+        raise CompilerError(
+            f"model {model_id!r} is not supported as an ordinary gateway lead"
+        )
+    return profile
+
+
+def direct_model_for_selector(
+    docs: dict[str, Any], selector: str
+) -> tuple[str, str] | None:
+    """Resolve a trusted ordinary selector to its catalog model and profile."""
+
+    for model_id, model in docs["models"]["models"].items():
+        if "lead" not in model["capabilities"]:
+            continue
+        try:
+            profile = direct_context_profile(docs, model_id)
+        except CompilerError:
+            continue
+        candidates = {model["wire_model"], model["client_selector"]}
+        candidates.update(lane["client_selector"] for lane in model["lanes"].values())
+        if model["context"]["client_tokens"] >= 1_000_000:
+            # Claude Code may report the canonical full model selector even when
+            # the picker entered through a gateway alias.
+            candidates.add(model["wire_model"] + "[1m]")
+        if selector in candidates:
+            return model_id, profile
+    return None
+
+
+def direct_profile_selectors(docs: dict[str, Any], profile: str) -> tuple[str, ...]:
+    """Trusted selectors safe under one process-wide compaction policy."""
+
+    selectors: set[str] = set()
+    for model_id, model in docs["models"]["models"].items():
+        if "lead" not in model["capabilities"]:
+            continue
+        try:
+            candidate = direct_context_profile(docs, model_id)
+        except CompilerError:
+            continue
+        if candidate != profile:
+            continue
+        selectors.add(model["client_selector"])
+        selectors.update(lane["client_selector"] for lane in model["lanes"].values())
+    if not selectors:
+        raise CompilerError(f"ordinary gateway profile {profile!r} has no models")
+    return tuple(sorted(selectors))
+
+
+def direct_profile_context(
+    docs: dict[str, Any], profile: str
+) -> tuple[int | None, int, int]:
+    """Process scalar, capacity, and deterministic reactive trigger."""
+
+    members = []
+    for model_id, model in docs["models"]["models"].items():
+        if "lead" not in model["capabilities"]:
+            continue
+        try:
+            candidate = direct_context_profile(docs, model_id)
+        except CompilerError:
+            # A lead-capable model with no ordinary profile never joins a
+            # profile's context math (matches direct_profile_selectors).
+            continue
+        if candidate == profile:
+            members.append(model)
+    if not members:
+        raise CompilerError(f"ordinary gateway profile {profile!r} has no models")
+    provider_window = min(model["context"]["provider_tokens"] for model in members)
+    client_windows = {model["context"]["client_tokens"] for model in members}
+    scalar_values = [
+        model["context"]["scalar_tokens"]
+        for model in members
+        if model["context"]["scalar_tokens"] is not None
+    ]
+    process_scalar = (
+        min(scalar_values)
+        if scalar_values and max(client_windows) < 1_000_000
+        else None
+    )
+    trigger = auto_compact_trigger(provider_window)
+    return process_scalar, provider_window, trigger
+
+
+def compile_direct_launch(
+    *,
+    docs: dict[str, Any],
+    session_action: SessionAction,
+    model_id: str,
+    passthrough: list[str],
+    scope_dir: Path,
+    hook_command: str,
+    state_root: Path,
+    pin_model: bool = True,
+    launch_epoch: int = 0,
+) -> CompileResult:
+    """Compile an ordinary gateway-backed Claude session with no composition."""
+
+    models = docs["models"]["models"]
+    model = models.get(model_id)
+    if model is None or "lead" not in model["capabilities"]:
+        raise CompilerError(f"model {model_id!r} is not available as a lead")
+    profile = direct_context_profile(docs, model_id)
+    selectors = direct_profile_selectors(docs, profile)
+    process_scalar, compact_window, _compact_trigger = direct_profile_context(
+        docs, profile
+    )
+    safe_args = validate_passthrough(passthrough)
+    add_dirs = _extract_add_dirs(safe_args)
+
+    providers = docs["providers"]["providers"]
+    anthropic_routes = [
+        route["name"] for route in providers["anthropic"]["passthrough_routes"]
+    ]
+    env_set: dict[str, str] = {
+        "ANTHROPIC_BASE_URL": docs["gateway"]["gateway"]["base_url"],
+        "ANTHROPIC_DEFAULT_FABLE_MODEL": _canonical_route(
+            anthropic_routes, "fable"
+        )
+        + "[1m]",
+        "ANTHROPIC_DEFAULT_OPUS_MODEL": _canonical_route(anthropic_routes, "opus")
+        + "[1m]",
+        "CLAUDE_MULTI_GATEWAY": "1",
+        "CLAUDE_MULTI_MANAGED_ID": session_action.managed_id,
+        "CLAUDE_MULTI_SESSION_ID": session_action.managed_id,
+        "CLAUDE_MULTI_LAUNCH_EPOCH": str(launch_epoch),
+        "DISABLE_AUTOUPDATER": "1",
+    }
+    if process_scalar is not None:
+        env_set["CLAUDE_CODE_MAX_CONTEXT_TOKENS"] = str(process_scalar)
+    env_set["CLAUDE_CODE_AUTO_COMPACT_WINDOW"] = str(compact_window)
+    env_set["CLAUDE_AUTOCOMPACT_PCT_OVERRIDE"] = str(AUTO_COMPACT_PERCENT)
+
+    env_unset = (
+        "CLAUDE_CODE_SUBAGENT_MODEL",
+        "CLAUDE_CODE_MAX_OUTPUT_TOKENS",
+        "CLAUDE_CODE_ENABLE_GATEWAY_MODEL_DISCOVERY",
+        "CLAUDE_CODE_AUTO_COMPACT_WINDOW",
+        "CLAUDE_AUTOCOMPACT_PCT_OVERRIDE",
+        "CLAUDE_CODE_MAX_CONTEXT_TOKENS",
+        "CLAUDE_CONFIG_DIR",
+        "CLAUDE_CODE_MAX_SUBAGENT_SPAWN_DEPTH",
+        "CLAUDE_CODE_MAX_CONCURRENT_SUBAGENTS",
+        "CLAUDE_CODE_DISABLE_EXPLORE_PLAN_AGENTS",
+        "CLAUDE_CODE_DISABLE_WORKFLOWS",
+    )
+    from . import scope as scope_mod
+
+    scope_plan = scope_mod.compile_ordinary_scope(
+        managed_id=session_action.managed_id,
+        hook_command=hook_command,
+        available_models=selectors,
+        default_model=model["client_selector"],
+        launch_epoch=launch_epoch,
+    )
+    argv: list[str] = []
+    if session_action.kind == "fresh":
+        argv += ["--session-id", session_action.runtime_session_id]
+    elif session_action.kind == "resume":
+        argv += ["--resume", session_action.runtime_session_id]
+    else:
+        raise CompilerError(f"unknown session action {session_action.kind!r}")
+    argv += [
+        "--name",
+        f"cg:{model_id}",
+        "--settings",
+        str(scope_dir / "settings.json"),
+    ]
+    if pin_model:
+        argv += [
+            "--model",
+            model["client_selector"],
+            "--effort",
+            model["lead"]["effort"],
+        ]
+    argv += safe_args
+    return CompileResult(
+        argv=argv,
+        env_set=env_set,
+        env_unset=env_unset,
+        policy_env={},
+        agents_json="",
+        lead_prompt="",
+        lead_prompt_path=state_root / f"ordinary-{session_action.managed_id}.unused",
+        session_action=session_action,
+        snapshot={"ordinary_model": model_id, "context_profile": profile},
+        composition_name="ordinary-gateway",
+        durable=True,
+        scope_plan=scope_plan,
+        scope_dir=scope_dir,
+        passthrough_add_dirs=add_dirs,
+        write_lead_prompt=False,
     )

@@ -319,7 +319,7 @@ def build_config_document(
                         "alias": alias,
                         "display-name": model["display"],
                         "owned-by": provider["independence_family"],
-                        "context-length": model["context"]["declared_tokens"],
+                        "context-length": model["context"]["provider_tokens"],
                         "force-mapping": True,
                     }
                 )
