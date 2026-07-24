@@ -93,7 +93,7 @@ removed the growth dead-end. **Verdict: proportionate** — the alternative
 
 ## Q7. Complexity budget
 
-Numbers: 17,195 source lines vs 19,294 test lines (>1.1 ratio, 1,166 tests).
+Numbers: 17,195 source lines vs 19,294 test lines (>1.1 ratio, 1,167 tests).
 `cli.py` is 4,458 lines — the entire product surface (commands, screens,
 doctor); split-per-screen would add indirection without changing the
 coupling; accepted, with per-screen test classes. `probe.py` (2,579) +
@@ -129,7 +129,7 @@ design errors, and are now regression-pinned.**
 
 ## Q10. Test strategy
 
-1,166 host tests (unit, golden, PTY end-to-end incl. no-ctty fallback),
+1,167 host tests (unit, golden, PTY end-to-end incl. no-ctty fallback),
 offline package build, Nix sandbox suite, loopback probe evidence for
 binary-behavior claims (compaction hooks, delegation). The one recurring
 flake class (PTY timeout under extreme load) is now self-diagnosing
