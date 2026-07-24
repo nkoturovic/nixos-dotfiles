@@ -22,12 +22,12 @@
   re-blessed and reviewed; render golden regenerated with the new route
   set). New-default print-launch verified (`--model claude-multi-opus-5[1m]`,
   effort ultracode, 1M window, scalar 372000).
-- **Named Opus 5 profiles added** (user compositions, all 7 profiles
-  verified resolving): `opus-sol` (opus5 lead, Sol preferred + Kimi
-  alternates — the default's shape as a named preset) and `opus-kimi`
-  (opus5 lead, Kimi K3 for every subagent role, opus5 reviewer alternate).
-  Preset family: default, opus-sol, opus-kimi, fable, kimi-sol, qwen-sol,
-  sol-direct.
+- **Named Opus 5 profiles** (user compositions): `opus-sol` (Opus 5 lead +
+  GPT 5.6 Sol subagents, mirroring kimi-sol's pair shape) and `opus-kimi`
+  (Opus 5 lead + Kimi K3 for every subagent role); the **default stays the
+  mixed flagship** (opus5 lead, Sol preferred, Kimi alternates, opus5
+  native reviewer alternate). Preset family: default, opus-sol, opus-kimi,
+  fable, kimi-sol, qwen-sol, sol-direct — all verified resolving.
 - catalog_version 3 → 4; launcher 2.4.1 → 2.5.0. Gateway re-render +
   serving of `claude-opus-5` verified post-activation.
 - **Live verification: PASSED.** One consent-gated call through the

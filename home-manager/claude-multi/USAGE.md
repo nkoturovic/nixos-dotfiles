@@ -28,7 +28,7 @@ claude-multi
 A card shows the composition (lead, team, policy, context). Then:
 
 - **Enter** — launch
-- **Tab / P** — cycle presets (`default` (Opus 5 + Sol), `opus-sol`, `opus-kimi`, `fable`, `kimi-sol`, `qwen-sol`, `sol-direct`)
+- **Tab / P** — cycle presets (`default` (Opus 5 + Sol + Kimi), `opus-sol` (Opus 5 + Sol), `opus-kimi` (Opus 5 + Kimi), `fable`, `kimi-sol`, `qwen-sol`, `sol-direct`)
 - **W** — toggle workflows on/off
 - **E** — edit the composition (form editor; `?` explains each field)
 - **S** — open the sessions picker
