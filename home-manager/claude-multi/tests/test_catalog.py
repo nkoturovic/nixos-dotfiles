@@ -124,8 +124,8 @@ class SeedLoadTests(unittest.TestCase):
 
     def test_version_json_matches_v2_2_schema_and_catalog_change(self) -> None:
         bundle = catalog.load_catalog(CATALOG_ROOT)
-        self.assertEqual(bundle.docs["version"]["launcher_version"], "2.3.0")
-        self.assertEqual(bundle.docs["version"]["catalog_version"], 2)
+        self.assertEqual(bundle.docs["version"]["launcher_version"], "2.4.0")
+        self.assertEqual(bundle.docs["version"]["catalog_version"], 3)
 
 
 class ReferenceViolationTests(unittest.TestCase):
@@ -699,7 +699,7 @@ class NativeContractTests(unittest.TestCase):
     def test_record_is_offline_and_unverified_where_required(self) -> None:
         bundle = catalog.load_catalog(CATALOG_ROOT)
         record = bundle.docs["native-contract"]
-        self.assertEqual(record["claude"]["validated_version"], "2.1.217")
+        self.assertEqual(record["claude"]["validated_version"], "2.1.218")
         inspection = record["claude"]["executable"]["inspection"]
         self.assertIn("--version", inspection)
         self.assertIn("--help", inspection)
@@ -721,13 +721,13 @@ class NativeContractTests(unittest.TestCase):
         self.assertEqual(executable["configured_path"], "/home/kotur/.local/bin/claude")
         self.assertEqual(
             executable["resolved_path"],
-            "/home/kotur/.local/share/claude/versions/2.1.217",
+            "/home/kotur/.local/share/claude/versions/2.1.218",
         )
         self.assertEqual(
             executable["sha256"],
-            "2630fc5dc6db61bc03f86b95daf47766e5ed5b61873f7bb7cfea764c5ac5a9ba",
+            "e12071751a9336b8af1012c103358ff04ac18f9aaff4a738cff7ba5cdfaf63f2",
         )
-        self.assertEqual(executable["inspected_at"], "2026-07-22")
+        self.assertEqual(executable["inspected_at"], "2026-07-24")
         self.assertEqual(bundle.docs["native-contract"]["recorded_at"], "2026-07-22")
         self.assertEqual(bundle.docs["native-contract"]["evidence_version"], 2)
 
@@ -738,7 +738,7 @@ class NativeContractTests(unittest.TestCase):
         # artifact version.
         bundle = catalog.load_catalog(CATALOG_ROOT)
         validated = bundle.docs["native-contract"]["claude"]["validated_version"]
-        self.assertEqual(validated, "2.1.217")
+        self.assertEqual(validated, "2.1.218")
         for model_id, model in bundle.models.items():
             with self.subTest(model=model_id):
                 self.assertEqual(model["minimum_tested"]["claude_code"], "2.1.216")
@@ -877,3 +877,56 @@ class NativeContractSchemaTests(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class ContractOverrideTests(unittest.TestCase):
+    """The layered trust anchor: operator contract override loading."""
+
+    def _override_file(self, case_root: Path, document: dict) -> Path:
+        from claude_multi import state as state_mod
+
+        target = case_root / "config" / "native-contract.json"
+        state_mod.ensure_private_dir(target.parent)
+        state_mod.atomic_write(
+            target, strict_json.canonical_file_bytes(document)
+        )
+        return target
+
+    def _override_doc(self, version: str) -> dict:
+        import copy as _copy
+
+        raw = _raw()
+        document = _copy.deepcopy(raw["docs"]["native-contract"])
+        document["claude"]["validated_version"] = version
+        document["claude"]["executable"]["resolved_path"] = (
+            f"/home/kotur/.local/share/claude/versions/{version}"
+        )
+        return document
+
+    def test_newer_override_replaces_the_effective_contract(self) -> None:
+        root = _copy_tree(self)
+        override = self._override_file(root, self._override_doc("2.1.300"))
+        bundle = catalog.load_catalog(root, contract_override=override)
+        self.assertEqual(
+            bundle.docs["native-contract"]["claude"]["validated_version"], "2.1.300"
+        )
+        self.assertEqual(bundle.contract_source, "override")
+        # The packaged bundle hash is unchanged by the override.
+        packaged = catalog.load_catalog(root)
+        self.assertEqual(bundle.bundle_sha256, packaged.bundle_sha256)
+        self.assertEqual(packaged.contract_source, "packaged")
+
+    def test_stale_override_is_ignored_not_applied(self) -> None:
+        root = _copy_tree(self)
+        override = self._override_file(root, self._override_doc("2.1.100"))
+        bundle = catalog.load_catalog(root, contract_override=override)
+        self.assertEqual(bundle.contract_source, "override-ignored-stale")
+        self.assertEqual(
+            bundle.docs["native-contract"]["claude"]["validated_version"], "2.1.218"
+        )
+
+    def test_invalid_override_fails_closed(self) -> None:
+        root = _copy_tree(self)
+        target = self._override_file(root, {"claude": {"bogus": True}})
+        with self.assertRaisesRegex(catalog.CatalogError, "invalid native contract"):
+            catalog.load_catalog(root, contract_override=target)

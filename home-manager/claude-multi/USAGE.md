@@ -101,6 +101,34 @@ claude-multi sessions forget <uuid>  # delete a session's record + generated fil
 `Attention` lines always name the exact fix command. `BLOCKED` means
 something is actually broken and says what.
 
+### Claude version updates (how pinning works)
+
+Claude Code **auto-updates itself** (the built-in updater downloads new
+versions and moves the `~/.local/bin/claude` symlink — this happens on its
+own, even while sessions run; running processes keep their start-time
+binary, and the shared supervisor adopts the new version for new and
+backgrounded sessions). That is upstream's channel and it stays **on** —
+plain `claude` tracks upstream, which is what you want.
+
+claude-multi deliberately does **not** auto-follow: it launches the
+hash-verified pinned binary so managed sessions are always correct. The
+loop is fully automatic except one command:
+
+1. `claude-multi doctor` shows an **Attention** line when a newer Claude is
+   installed than the pin.
+2. Run **`claude-multi update`**. It inspects the new binary offline, runs
+   the full offline test suite (including the real-binary probes) against
+   it, and writes an operator contract override — **effective immediately,
+   no rebuild, no restart, no Home Manager switch needed.**
+3. The source checkout is promoted in the same run, so the packaged
+   baseline lands at the next natural activation (or right away with
+   `claude-multi update --activate`, which runs `home-manager switch`).
+
+That's it: upstream updates itself, the doctor flags drift, one command
+re-pins with evidence. Managed sessions never break across upgrades, and
+the rollback point is the previous Home Manager generation plus your
+transcripts (always untouched).
+
 ## Supported use cases
 
 1. **Multi-model delegation** — a Kimi/Qwen/Fable lead with Sol/GPT analysts,

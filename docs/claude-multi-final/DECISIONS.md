@@ -223,6 +223,39 @@ Code's precedence (verified against current docs). Ordinary gateway scopes
 deliberately leave the user's setting alone (ordinary mode is the user's own
 Claude with a context-safe fence, D23/D24).
 
+**D29 — The native contract is layered, and re-pinning is one command
+(2.4.0).** Claude Code auto-updates itself (symlink moves, supervisor adopts
+new versions for new/backgrounded sessions); that upstream channel stays ON
+for plain `claude` (managed sessions additionally export
+`DISABLE_AUTOUPDATER=1` against in-process updater churn). claude-multi
+anchors to the pinned binary and must never auto-follow — but a re-pin must
+not be a manual scavenger hunt or a mandatory rebuild either. The doctor
+Attention line fires when the symlink is newer than the pin;
+`claude-multi update` then: detects the candidate, inspects it offline
+(`--version`/`--help`/SHA-256), promotes it into the source checkout, runs
+the full offline suite (real-binary probes included) against the candidate,
+and writes the **operator contract override** in the config root — effective
+immediately, no rebuild, no restart. The override wins only while strictly
+newer than the packaged contract (a stale override is ignored and reported,
+never silently followed); the packaged bundle hash never reflects it.
+`--activate` additionally runs `home-manager switch` (baseline refresh);
+otherwise the baseline lands at the next natural activation. Rejected:
+fully automatic re-pinning without the evidence gate (the pin exists
+precisely to prevent unreviewed drift); contract-in-package only (every
+Claude point release would force a rebuild+restart); deleting the upstream
+auto-updater (plain `claude` should track upstream).
+
+**D30 — Esc is the only exit key; screens share one margin (2.4.0).**
+Evidence: `Q` exited the card and the sessions screen but typed `q` into
+editor text fields — a "sometimes-exits" key is strictly worse than one
+universal rule. Every curses screen now exits/cancels on Esc only
+(keybars advertise it); `Q` is free to be text; line-mode flows keep the
+word commands `q`/`quit`/`cancel` (word modality, no conflict). All screens
+also share a uniform column-2 left margin (title, tables, forms, status,
+keybars) — the sessions and editor screens and the quick-confirm details
+block previously mixed col-0 and col-2 layouts. Recorded in UX.md §2.1 and
+pinned by the PTY/widget tests (which now drive Esc everywhere).
+
 ## User decision summary (what you're approving by accepting this design)
 
 1. Selected agents become **real files** in a per-session scope; the failure

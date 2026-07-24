@@ -1,70 +1,93 @@
 {
-  "version": 1,
-  "claude": {
-    "validated_version": "2.1.217",
-    "executable": {
-      "configured_path": "/home/kotur/.local/bin/claude",
-      "resolved_path": "/home/kotur/.local/share/claude/versions/2.1.217",
-      "sha256": "2630fc5dc6db61bc03f86b95daf47766e5ed5b61873f7bb7cfea764c5ac5a9ba",
-      "inspection": "Offline symlink/path resolution and SHA-256 file hashing; local execution of the pinned 2.1.217 binary limited to --version and --help (no prompt, no provider request, no daemon contact).",
-      "inspected_at": "2026-07-22"
+  "acceptance": {
+    "U1": {
+      "note": "Supervisor-takeover respawn re-supplying --add-dir is binary-consistent and documented for backgrounding; takeover itself is unverified headlessly and moves to user acceptance.",
+      "status": "unverified"
+    },
+    "U2": {
+      "note": "--append-system-prompt-file is stored in the binary session-config bag with agent/agents; takeover survival rests on the belt-and-braces prompt-file floor plus acceptance.",
+      "status": "unverified"
+    },
+    "U5": {
+      "note": "availableModels is compiled into scope settings as the per-invocation model fence; native acceptance of the fence is pending.",
+      "status": "unverified"
+    },
+    "U6": {
+      "note": "Nested spawning is documented on for 2.1.217 (depth 5 fixed) and prompts allow bounded delegation; spawn env keys stay unset pending acceptance.",
+      "status": "unverified"
     }
   },
-  "effort_vocabulary": {
-    "values": ["high", "xhigh", "max", "ultracode"],
-    "status": "provisionally-trusted",
-    "evidence": "Client-accepted in ordinary v1 operation against the pinned installation (launcher profiles and agent definitions). Native acceptance per pinned version remains to be confirmed by the Phase 2 native-contract probe."
-  },
-  "generic_agent_aliases": {
-    "values": ["claude"],
-    "status": "provisionally-trusted",
-    "evidence": "Static strings in the inspected 2.1.217 binary name the generic native agent alias 'claude'; recorded per inspected version for policy compilation (Agent(claude) deny). Static presence is not functional verification; deny acceptance remains Phase-1 G1/P2 probe scope."
-  },
   "capabilities": {
-    "root_agent_discovery": { "status": "pending" },
-    "persistent_denies": { "status": "pending" },
-    "onboarding_trust": { "status": "pending" },
-    "transcript_location_exact_resume": { "status": "pending" },
-    "selectors_effort_tools_worktree": { "status": "pending" },
-    "background_supervisor_lifecycle": { "status": "pending" },
-    "root_memory_reinjection": { "status": "pending" },
-    "project_agent_collision": { "status": "pending" }
+    "background_supervisor_lifecycle": {
+      "status": "pending"
+    },
+    "onboarding_trust": {
+      "status": "pending"
+    },
+    "persistent_denies": {
+      "status": "pending"
+    },
+    "project_agent_collision": {
+      "status": "pending"
+    },
+    "root_agent_discovery": {
+      "status": "pending"
+    },
+    "root_memory_reinjection": {
+      "status": "pending"
+    },
+    "selectors_effort_tools_worktree": {
+      "status": "pending"
+    },
+    "transcript_location_exact_resume": {
+      "status": "pending"
+    }
+  },
+  "claude": {
+    "executable": {
+      "configured_path": "/home/kotur/.local/bin/claude",
+      "inspected_at": "2026-07-24",
+      "inspection": "Offline symlink/path resolution and SHA-256 file hashing; local execution of the pinned 2.1.218 binary limited to --version and --help (no prompt, no provider request, no daemon contact).",
+      "resolved_path": "/home/kotur/.local/share/claude/versions/2.1.218",
+      "sha256": "e12071751a9336b8af1012c103358ff04ac18f9aaff4a738cff7ba5cdfaf63f2"
+    },
+    "validated_version": "2.1.218"
+  },
+  "effort_vocabulary": {
+    "evidence": "Client-accepted in ordinary v1 operation against the pinned installation (launcher profiles and agent definitions). Native acceptance per pinned version remains to be confirmed by the Phase 2 native-contract probe.",
+    "status": "provisionally-trusted",
+    "values": [
+      "high",
+      "xhigh",
+      "max",
+      "ultracode"
+    ]
+  },
+  "evidence_version": 2,
+  "generic_agent_aliases": {
+    "evidence": "Static strings in the inspected 2.1.217 binary name the generic native agent alias 'claude'; recorded per inspected version for policy compilation (Agent(claude) deny). Static presence is not functional verification; deny acceptance remains Phase-1 G1/P2 probe scope.",
+    "status": "provisionally-trusted",
+    "values": [
+      "claude"
+    ]
+  },
+  "lifecycle_evidence": {
+    "evidence_id": "deepwork-claude-multi-durable-session-config-phase0-2.1.218",
+    "inspected_version": "2.1.218"
   },
   "nested_subagents": {
+    "concurrency_key": {
+      "name": "CLAUDE_CODE_MAX_CONCURRENT_SUBAGENTS",
+      "status": "unverified"
+    },
     "decision": "pending",
     "depth_key": {
       "name": "CLAUDE_CODE_MAX_SUBAGENT_SPAWN_DEPTH",
       "status": "unverified"
     },
-    "concurrency_key": {
-      "name": "CLAUDE_CODE_MAX_CONCURRENT_SUBAGENTS",
-      "status": "unverified"
-    },
-    "probe": "g1-p-bg",
-    "evidence": "Static strings in the inspected 2.1.217 binary name both keys; static presence is not functional verification. 2.1.217 disables nested spawning by default. Decision chain: G1 positive/negative controls, then Phase 2C compiles verified keys or amends canonical prompts."
+    "evidence": "Static strings in the inspected 2.1.217 binary name both keys; static presence is not functional verification. 2.1.217 disables nested spawning by default. Decision chain: G1 positive/negative controls, then Phase 2C compiles verified keys or amends canonical prompts.",
+    "probe": "g1-p-bg"
   },
-  "acceptance": {
-    "U1": {
-      "status": "unverified",
-      "note": "Supervisor-takeover respawn re-supplying --add-dir is binary-consistent and documented for backgrounding; takeover itself is unverified headlessly and moves to user acceptance."
-    },
-    "U2": {
-      "status": "unverified",
-      "note": "--append-system-prompt-file is stored in the binary session-config bag with agent/agents; takeover survival rests on the belt-and-braces prompt-file floor plus acceptance."
-    },
-    "U5": {
-      "status": "unverified",
-      "note": "availableModels is compiled into scope settings as the per-invocation model fence; native acceptance of the fence is pending."
-    },
-    "U6": {
-      "status": "unverified",
-      "note": "Nested spawning is documented on for 2.1.217 (depth 5 fixed) and prompts allow bounded delegation; spawn env keys stay unset pending acceptance."
-    }
-  },
-  "lifecycle_evidence": {
-    "inspected_version": "2.1.217",
-    "evidence_id": "deepwork-claude-multi-durable-session-config-phase0-2.1.217"
-  },
-  "evidence_version": 2,
-  "recorded_at": "2026-07-22"
+  "recorded_at": "2026-07-22",
+  "version": 1
 }

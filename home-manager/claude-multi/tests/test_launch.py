@@ -193,6 +193,31 @@ class ResolveClaudeTests(LaunchTestCase):
         self.assertFalse(status.configured_matches)
         self.assertIn("unresolvable", status.advisory)
 
+    def _relink(self, name: str) -> None:
+        target = self.root / "install" / "versions" / name
+        target.write_bytes(b"#!/bin/fake-claude-other\n")
+        target.chmod(0o755)
+        link = self.root / "bin" / "claude"
+        link.unlink()
+        link.symlink_to(target)
+
+    def test_repin_suggestion_on_newer_version(self) -> None:
+        self._relink("2.1.218")
+        line = launch.repin_suggestion(self.native_contract)
+        self.assertIsNotNone(line)
+        self.assertIn("2.1.218", line)
+        self.assertIn("2.1.216", line)
+        self.assertIn("re-pin", line)
+
+    def test_repin_suggestion_none_when_matched(self) -> None:
+        self.assertIsNone(launch.repin_suggestion(self.native_contract))
+
+    def test_repin_suggestion_none_for_older_or_unparseable(self) -> None:
+        self._relink("2.1.200")
+        self.assertIsNone(launch.repin_suggestion(self.native_contract))
+        self._relink("claude-nightly")
+        self.assertIsNone(launch.repin_suggestion(self.native_contract))
+
     def test_missing_artifact_fails_closed(self) -> None:
         (self.root / "bin" / "claude").unlink()
         (self.root / "install" / "versions" / "2.1.216").unlink()

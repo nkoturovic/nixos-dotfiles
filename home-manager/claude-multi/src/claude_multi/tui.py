@@ -496,7 +496,7 @@ class Badge:
 
 
 class KeyBar:
-    """Footer hint bar: ``Enter launch · E edit · Q quit`` with accented keys."""
+    """Footer hint bar: ``Enter launch · E edit · Esc cancel`` with accented keys."""
 
     def __init__(self, bindings: Sequence[tuple[str, str]]):
         self.bindings = list(bindings)
@@ -504,9 +504,8 @@ class KeyBar:
     def text(self) -> str:
         return " · ".join(f"{key} {label}" for key, label in self.bindings)
 
-    def draw(self, win: Any, row: int, palette: Palette) -> None:
+    def draw(self, win: Any, row: int, palette: Palette, col: int = 2) -> None:
         _, width = win.getmaxyx()
-        col = 0
         for index, (key, label) in enumerate(self.bindings):
             if index:
                 safe_add(win, row, col, " · ", palette.attr("dim"))
@@ -1638,12 +1637,12 @@ class FormEditorScreen:
         marker = " · modified" if self.state.dirty else ""
         safe_add(
             win,
-            0,
-            0,
+            1,
+            2,
             f"claude-multi / Edit {self.state.name}{marker}",
             palette.attr("accent") | curses.A_BOLD,
         )
-        body_top = 2
+        body_top = 3
         body_bottom = height - 3  # status row: height - 3, keybar: height - 1
         visible = max(1, body_bottom - body_top)
         if self.focus < self.scroll:
@@ -1657,29 +1656,29 @@ class FormEditorScreen:
             y = body_top + index - self.scroll
             focused = index == self.focus
             if row.kind == "section":
-                safe_add(win, y, 0, row.label, palette.attr("accent") | curses.A_BOLD)
+                safe_add(win, y, 2, row.label, palette.attr("accent") | curses.A_BOLD)
                 continue
             prefix = "> " if focused else "  "
             attr = palette.attr("normal") | (curses.A_REVERSE if focused else 0)
-            safe_add(win, y, 0, prefix, attr)
+            safe_add(win, y, 2, prefix, attr)
             if row.kind == "text":
-                safe_add(win, y, 2, f"{row.label:<14}", attr)
+                safe_add(win, y, 4, f"{row.label:<14}", attr)
                 pos = row.payload.draw(
-                    win, y, 16, min(48, width - 18), palette, focused=focused
+                    win, y, 18, min(48, width - 20), palette, focused=focused
                 )
                 if focused:
                     cursor_pos = pos
             elif row.kind == "lead":
-                safe_add(win, y, 2, f"{row.label:<16}{row.note}", attr)
+                safe_add(win, y, 4, f"{row.label:<16}{row.note}", attr)
             elif row.kind == "avail":
-                safe_add(win, y, 2, f"{row.label:<28}{row.note}", attr)
+                safe_add(win, y, 4, f"{row.label:<28}{row.note}", attr)
             elif row.kind == "role":
-                safe_add(win, y, 2, f"{row.label:<28}{row.note}", attr)
+                safe_add(win, y, 4, f"{row.label:<28}{row.note}", attr)
             elif row.kind == "radio":
                 key, values = row.payload
                 current = self.state.document["native_agents"][key]
-                safe_add(win, y, 2, f"{row.label:<14}", attr)
-                col = 16
+                safe_add(win, y, 4, f"{row.label:<14}", attr)
+                col = 18
                 cursor = self.radio_cursor.get(
                     key, next((i for i, v in enumerate(values) if v == current), 0)
                 )
@@ -1701,19 +1700,19 @@ class FormEditorScreen:
                     else self.state.workflows == "native"
                 )
                 box = Checkbox(row.label, checked=checked)
-                box.draw(win, y, 2, palette, focused=focused)
-                safe_add(win, y, 2 + 4 + len(row.label) + 1, row.note, palette.attr("dim"))
+                box.draw(win, y, 4, palette, focused=focused)
+                safe_add(win, y, 4 + 4 + len(row.label) + 1, row.note, palette.attr("dim"))
             elif row.kind == "actions":
-                safe_add(win, y, 2, f"{row.label:<16}{row.note}", attr)
+                safe_add(win, y, 4, f"{row.label:<16}{row.note}", attr)
         errors = self._validation()
         status_row = height - 3
         if errors:
-            safe_add(win, status_row, 0, "Status: BLOCKED", palette.attr("error") | curses.A_BOLD)
-            safe_add(win, status_row, 17, errors[0], palette.attr("error"))
+            safe_add(win, status_row, 2, "Status: BLOCKED", palette.attr("error") | curses.A_BOLD)
+            safe_add(win, status_row, 19, errors[0], palette.attr("error"))
         else:
-            safe_add(win, status_row, 0, "Status: Ready", palette.attr("ok") | curses.A_BOLD)
+            safe_add(win, status_row, 2, "Status: Ready", palette.attr("ok") | curses.A_BOLD)
             if self.state.message:
-                safe_add(win, status_row, 17, self.state.message, palette.attr("warn"))
+                safe_add(win, status_row, 19, self.state.message, palette.attr("warn"))
         KeyBar(FORM_KEYBAR).draw(win, height - 1, palette)
         if cursor_pos is not None:
             try:

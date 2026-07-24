@@ -284,9 +284,12 @@ class Runtime:
         self.asset_root = Path(asset_root)
         self.environ = dict(os.environ if environ is None else environ)
         self.cwd = str(Path.cwd() if cwd is None else Path(cwd).resolve())
-        self.catalog = catalog.load_catalog(self.asset_root)
         config = sessions.config_root(self.environ)
         state_path = sessions.state_root(self.environ)
+        self.catalog = catalog.load_catalog(
+            self.asset_root,
+            contract_override=config / "native-contract.json",
+        )
         # Single hook-command authority: the stable shim under the state root.
         # Compiled scopes embed the shim's constant path (never a package or
         # store path), so scope bytes survive package rebuilds; the shim is
@@ -729,6 +732,16 @@ def build_parser() -> argparse.ArgumentParser:
     event_parser.add_argument("--launch-epoch", type=int, default=None)
 
     commands.add_parser("models", help="list trusted catalog models")
+    update_parser = commands.add_parser(
+        "update",
+        help="evidence-gated re-pin of the managed Claude binary (inspect, "
+        "offline evidence suite, promote, optionally activate)",
+    )
+    update_parser.add_argument(
+        "--activate",
+        action="store_true",
+        help="run `home-manager switch` after the evidence passes",
+    )
     show = commands.add_parser("show", help="show the effective composition summary")
     show.add_argument("show_composition", nargs="?")
     doctor_parser = commands.add_parser(
@@ -1466,7 +1479,7 @@ QUICK_HELP = (
     "S — sessions: managed + native picker (resume, switch comp, adopt).\n"
     "P (line mode) — cycle presets.\n"
     "? — this help, then the workflow guarantees below.\n"
-    "Q — cancel.\n"
+    "Esc — cancel (everywhere; in text fields Esc is also the way out).\n"
     "\n"
     "-- workflow guarantees --------------------------------------------"
 )
@@ -1477,7 +1490,7 @@ class _QuickConfirmScreen:
 
     Same flow semantics as the line loop: Enter launches a Ready plan (or
     opens the editor when BLOCKED), E edits, D toggles details, ? shows the
-    guarantee panel as a Modal, Q/Esc cancels.  Managed plans are
+    guarantee panel as a Modal, Esc cancels.  Managed plans are
     recorded-only (R1 P1): R/C/E and Enter-on-blocked show the recorded-only
     redirect Modal naming the transition command.  Returns ("perform",
     PreparedLaunch) or None; the actual launch happens after curses has been
@@ -1628,11 +1641,11 @@ class _QuickConfirmScreen:
                 if plan.resolved.scalar_context_tokens is None
                 else f"{plan.resolved.scalar_context_tokens:,}"
             )
-            tui.safe_add(win, row, 0, "scalar    ", palette.attr("dim"))
-            tui.safe_add(win, row, 10, f"bound {scalar}")
+            tui.safe_add(win, row, 2, "scalar    ", palette.attr("dim"))
+            tui.safe_add(win, row, 12, f"bound {scalar}")
             row += 1
-            tui.safe_add(win, row, 0, "providers ", palette.attr("dim"))
-            tui.safe_add(win, row, 10, _scope_summary(runtime, plan.document))
+            tui.safe_add(win, row, 2, "providers ", palette.attr("dim"))
+            tui.safe_add(win, row, 12, _scope_summary(runtime, plan.document))
             row += 1
         if plan.record is not None:
             catalog_state = (
@@ -1640,11 +1653,11 @@ class _QuickConfirmScreen:
                 if plan.record["catalog_hash"] != runtime.catalog.bundle_sha256
                 else "same"
             )
-            tui.safe_add(win, row, 0, "catalog   ", palette.attr("dim"))
+            tui.safe_add(win, row, 2, "catalog   ", palette.attr("dim"))
             tui.safe_add(
                 win,
                 row,
-                10,
+                12,
                 f"hash {catalog_state} · recorded {plan.record['catalog_hash'][:18]}… · "
                 f"current {runtime.catalog.bundle_sha256[:18]}…",
             )
@@ -1658,11 +1671,11 @@ class _QuickConfirmScreen:
             composition_state = (
                 "same" if current_hash == plan.record["composition_hash"] else "changed"
             )
-            tui.safe_add(win, row, 0, "recorded  ", palette.attr("dim"))
+            tui.safe_add(win, row, 2, "recorded  ", palette.attr("dim"))
             tui.safe_add(
                 win,
                 row,
-                10,
+                12,
                 f"composition hash {composition_state} · recorded "
                 f"{plan.record['composition_hash'][:18]}… · current {str(current_hash)[:18]}",
             )
@@ -1670,40 +1683,40 @@ class _QuickConfirmScreen:
             if composition_state == "changed":
                 # R1 P1: transitions own composition changes; say so where
                 # the old "C current" choice used to be advertised.
-                tui.safe_add(win, row, 0, "change    ", palette.attr("dim"))
+                tui.safe_add(win, row, 2, "change    ", palette.attr("dim"))
                 tui.safe_add(
                     win,
                     row,
-                    10,
+                    12,
                     RESUME_RECORDED_NOTE.format(uuid=sessions.managed_id(plan.record)),
                 )
                 row += 1
-            tui.safe_add(win, row, 0, "live      ", palette.attr("dim"))
+            tui.safe_add(win, row, 2, "live      ", palette.attr("dim"))
             tui.safe_add(
                 win,
                 row,
-                10,
+                12,
                 "native temporary changes are not inspected; the chosen composition is reasserted.",
             )
             row += 1
-            tui.safe_add(win, row, 0, "workers   ", palette.attr("dim"))
+            tui.safe_add(win, row, 2, "workers   ", palette.attr("dim"))
             tui.safe_add(
                 win,
                 row,
-                10,
+                12,
                 "existing workers, if any, keep their original model and tools; fork for strict separation.",
             )
             row += 1
             if plan.action == "resume" and plan.record["mode"] != "durable":
-                tui.safe_add(win, row, 0, "note      ", palette.attr("warn"))
-                tui.safe_add(win, row, 10, LEGACY_RESUME_NOTE, palette.attr("warn"))
+                tui.safe_add(win, row, 2, "note      ", palette.attr("warn"))
+                tui.safe_add(win, row, 12, LEGACY_RESUME_NOTE, palette.attr("warn"))
                 row += 1
-        tui.safe_add(win, row, 0, "drift     ", palette.attr("dim"))
+        tui.safe_add(win, row, 2, "drift     ", palette.attr("dim"))
         drift = "None" if not plan.drift else "; ".join(plan.drift)
-        tui.safe_add(win, row, 10, drift)
+        tui.safe_add(win, row, 12, drift)
         row += 1
         if plan.resolved is not None and row < height - 4:
-            tui.safe_add(win, row, 0, "availability", palette.attr("accent"))
+            tui.safe_add(win, row, 2, "availability", palette.attr("accent"))
             row += 1
             for model_id, model in sorted(runtime.catalog.models.items()):
                 if row >= height - 3:
@@ -1733,7 +1746,7 @@ class _QuickConfirmScreen:
             if len(self.runtime.compositions.names()) > 1:
                 bindings.append(("Tab", "preset"))
             bindings.append(("W", "wf on/off"))
-        bindings.extend((("D", "details"), ("S", "sessions"), ("?", "help"), ("Q", "cancel")))
+        bindings.extend((("D", "details"), ("S", "sessions"), ("?", "help"), ("Esc", "cancel")))
         return tui.KeyBar(bindings)
 
     # -- sessions picker ----------------------------------------------------
@@ -1819,10 +1832,10 @@ class _QuickConfirmScreen:
             if height < 12 or width < 48:
                 win.erase()
                 tui.safe_add(win, 0, 0, "Terminal too small.", self.palette.attr("error") | curses.A_BOLD)
-                tui.safe_add(win, 2, 0, "Resize, or press Q to cancel.")
+                tui.safe_add(win, 2, 0, "Resize, or press Esc to cancel.")
                 win.refresh()
                 key = tui.read_key(win)
-                if key.kind == "esc" or (key.kind == "char" and key.ch.lower() == "q"):
+                if key.kind == "esc":
                     return None
                 if key.kind == "ctrl" and key.ch == "c":
                     raise KeyboardInterrupt
@@ -1833,7 +1846,7 @@ class _QuickConfirmScreen:
                 continue
             if key.kind == "ctrl" and key.ch == "c":
                 raise KeyboardInterrupt
-            if key.kind == "esc" or (key.kind == "char" and key.ch.lower() == "q"):
+            if key.kind == "esc":
                 return None
             if key.kind == "char" and key.ch.lower() == "d":
                 self.details = not self.details
@@ -2189,7 +2202,7 @@ SESSIONS_KEYBAR = (
     ("L", "adopt"),
     ("C", "cwd filter"),
     ("?", "help"),
-    ("Q", "quit"),
+    ("Esc", "quit"),
 )
 
 SESSIONS_HELP = (
@@ -2369,7 +2382,7 @@ class _SessionsScreen:
                 selected=managed_selected,
                 min_widths=[27, 10, 11, 8, 19],
             )
-            table.draw(win, row, 0, width, palette, max_rows=managed_max)
+            table.draw(win, row, 2, width - 2, palette, max_rows=managed_max)
             row += managed_max + 2
         if self.native:
             tui.safe_add(
@@ -2395,8 +2408,8 @@ class _SessionsScreen:
             table.draw(
                 win,
                 row,
-                0,
-                width,
+                2,
+                width - 2,
                 palette,
                 # reserve: table header (+1), actions line, message, keybar
                 max_rows=native_max,
@@ -2503,7 +2516,7 @@ class _SessionsScreen:
                 continue
             if key.kind == "ctrl" and key.ch == "c":
                 raise KeyboardInterrupt
-            if key.kind == "esc" or (key.kind == "char" and key.ch.lower() == "q"):
+            if key.kind == "esc":
                 return None
             active = self._active()
             if key.kind == "char" and key.ch == "?":
@@ -2641,7 +2654,7 @@ class _TransitionScreen:
                     buttons=(("Close", True),),
                 ).run(win, self.palette, background=self._draw)
                 continue
-            if key.kind == "esc" or (key.kind == "char" and key.ch.lower() == "q"):
+            if key.kind == "esc":
                 return False
             if key.kind == "up" or (key.kind == "char" and key.ch == "k"):
                 self.scroll -= 1
@@ -3459,6 +3472,28 @@ def handle_command(
             )
             return 0
 
+    if args.command == "update":
+        from . import upgrade as upgrade_mod
+
+        environ_repo = runtime.environ.get("CLAUDE_MULTI_SOURCE_REPO")
+        source_repo = Path(
+            environ_repo
+            or (Path(runtime.environ.get("HOME", str(Path.home()))) / "personal" / "nixos-dotfiles")
+        )
+        try:
+            outcome = upgrade_mod.run_upgrade(
+                checkout_root=source_repo / "home-manager" / "claude-multi",
+                native_contract=runtime.catalog.docs["native-contract"],
+                override_path=sessions.config_root(runtime.environ) / "native-contract.json",
+                today=sessions._now()[:10],
+                activate=bool(args.activate),
+            )
+        except upgrade_mod.UpgradeError as exc:
+            raise CLIError(str(exc)) from exc
+        for line in outcome.messages:
+            output_stream.write(f"{tui.visible_text(line)}\n")
+        return 0
+
     if args.command == "models":
         for model_id, model in sorted(runtime.catalog.models.items()):
             provider = runtime.catalog.providers[model["provider"]]["display"]
@@ -3506,7 +3541,21 @@ def handle_command(
         )
         problems.extend(binary_problems)
         daemon = runtime.doctor_daemon_callback()
+        source_label = runtime.catalog.contract_source
+        contract_note = {
+            "packaged": None,
+            "override": "operator override (written by `claude-multi update`) is in effect",
+            "override-ignored-stale": "a stale operator override exists but is ignored (the packaged contract is newer or equal)",
+        }.get(source_label)
         info_lines = [*binary_info, f"Shared daemon: {daemon.summary}."]
+        if contract_note is not None:
+            info_lines.append(f"Contract: {contract_note}.")
+        stale_override_attention = (
+            "stale contract override ignored: the packaged native contract is "
+            "newer or equal; `claude-multi update` rebases or removes it"
+            if source_label == "override-ignored-stale"
+            else None
+        )
         if runtime.doctor_callback is not None:
             problems.extend(runtime.doctor_callback(runtime))
         else:
@@ -3518,6 +3567,12 @@ def handle_command(
         scope_info, scope_problems, scope_attention = _doctor_scope_report(runtime)
         info_lines.extend(scope_info)
         problems.extend(scope_problems)
+        if stale_override_attention is not None:
+            scope_attention.append(stale_override_attention)
+        # Standing drift early-warning: a newer Claude available than the pin.
+        repin = launch.repin_suggestion(runtime.catalog.docs["native-contract"])
+        if repin is not None:
+            scope_attention.append(repin)
         collision_info, collision_problems = _doctor_collision_report(runtime)
         info_lines.append(collision_info)
         problems.extend(collision_problems)
@@ -4109,6 +4164,7 @@ _STDOUT_REPORT_COMMANDS = frozenset(
         ("doctor", None),
         ("models", None),
         ("show", None),
+        ("update", None),
         ("session-event", None),
         ("compose", "list"),
         ("compose", "show"),

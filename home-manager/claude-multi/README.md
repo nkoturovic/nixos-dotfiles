@@ -114,7 +114,7 @@ transition for a different lead. Ordinary `/model` remains native within one
 safe context profile. The compiler sets the configured route compaction capacity
 and an explicit 90% override. Bounds backed by catalog validation are labeled
 validated; Kimi's 1M route remains explicitly user-attested and is not labeled
-provider-safe until near-limit live acceptance. Pinned Claude Code 2.1.217 reserves up to 20,000
+provider-safe until near-limit live acceptance. Pinned Claude Code 2.1.218 reserves up to 20,000
 output tokens before applying that percentage, so deterministic reactive
 thresholds are 316,800 for Sol, 882,000 for a managed 1M process, and 867,254
 for the Qwen-safe 983,616 ordinary large profile. Proactive summary preparation
@@ -178,7 +178,7 @@ continue pointers, CWD fail-closed behavior, deduplicated native
 discovery, ordinary gateway profiles, managed model fencing, per-lead compact
 windows, and observe-only daemon safety. On-disk agent discovery through
 `--add-dir` remains proven
-against the pinned 2.1.217 binary via the no-provider probe harness
+against the pinned 2.1.218 binary via the no-provider probe harness
 (fake provider, live-domain tripwire armed, delegation accepted and the
 subagent request carried the agent file's frontmatter model). Supervisor
 **takeover** carry-through of `--add-dir` is documented for backgrounded

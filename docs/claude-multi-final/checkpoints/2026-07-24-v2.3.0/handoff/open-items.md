@@ -6,18 +6,13 @@ apply to all of them.
 
 ## 1. Re-pin the managed binary to Claude 2.1.218 (bounded, next)
 
-The native contract still verifies 2.1.217; plain `claude` and the shared
-supervisor already run 2.1.218, so managed sessions mix versions whenever a
-session is backgrounded/taken over.
-
-- **Entry points:** `claude-multi-dev probe …` (offline fixture harness),
-  `catalog/native-contract.json`, the draft → check → review → promote
-  pipeline (`AGENTS.md` §5), VERIFICATION.md §2 (probe evidence list).
-- **Do:** probe-init the 2.1.218 artifact; re-run the offline probe suite
-  (compaction hooks, delegation, watcher) against it; promote the new
-  contract through the pipeline; bump versions; full suite + sandbox.
-- **Done when:** doctor verifies 2.1.218 as the trust anchor and the offline
-  probe evidence is re-recorded in STATUS.md.
+**DONE 2026-07-24** (lands at the 2.4.0 activation): the contract pins
+2.1.218 with the full offline evidence suite green (1,171 tests, real-binary
+compaction/delegation probes included). From 2.4.0 this whole class is a
+routine one-command flow: `claude-multi update` (detect → offline inspect →
+promote → evidence suite → operator override, instant effect; `--activate`
+for the baseline refresh). The doctor Attention line is the standing
+trigger.
 
 ## 2. U1 takeover proof — watch once (acceptance, no code)
 
@@ -39,9 +34,8 @@ live call → drop "· Preview" from the display.
 
 ## 4. Legacy record `9bc5fd42` (user choice)
 
-The last legacy (v1) record; it has a real transcript. `claude-multi -r
-9bc5fd42-d428-4545-97af-3eefcb05b9f2` once to upgrade it to durable, or
-`sessions forget` it. Its Attention line in doctor clears either way.
+**DONE 2026-07-24**: forgotten (record only; the transcript is untouched and
+stays natively resumable). Doctor is fully clean (Ready, no Attention lines).
 
 ## 5. Residual reservations (from [`../../../SANITY.md`](../../../SANITY.md))
 

@@ -92,7 +92,7 @@ def compute_scalar(selected_models: list[dict[str, Any]]) -> int | None:
 def auto_compact_trigger(window_tokens: int) -> int:
     """Pinned-client reactive compact threshold for one process capacity.
 
-    Claude Code 2.1.217 reserves up to 20K output tokens and applies the
+    Claude Code 2.1.218 reserves up to 20K output tokens and applies the
     percentage to the remaining prompt budget. Proactive preparation is not
     returned here because its experiment-controlled fraction can vary at
     runtime; the reactive override is deterministic.

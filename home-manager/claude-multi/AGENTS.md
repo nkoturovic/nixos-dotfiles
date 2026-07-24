@@ -51,7 +51,11 @@ Two modes:
 1. **Record = intent; catalog = trusted source; scope = pure function of
    (record, installed catalog).** Scopes are always re-derivable; repair
    recompiles from record + catalog and displays drift. Never treat scope
-   content as authority.
+   content as authority. The native contract is layered: the packaged
+   contract is the reviewed baseline, and a strictly-newer operator override
+   (`~/.config/claude-multi/native-contract.json`, written only by
+   `claude-multi update` after its evidence gate) wins while newer — the
+   packaged bundle hash never reflects the override.
 2. **Two UUIDs, not one.** `managed_id` keys claude-multi state (record file,
    scope, pointer, locks). `runtime_session_id` is the authoritative native
    `--resume` target, reconciled from SessionStart hook metadata
@@ -152,10 +156,19 @@ git diff --check
 - **Add a command:** report vs interactive classification goes in
   `_STDOUT_REPORT_COMMANDS`; interactive flows self-degrade via
   `streams_curses_capable`.
-- **Re-pin Claude (e.g. to 2.1.218):** probe-init the artifact, re-run the
-  offline probe suite (compaction hooks, delegation) against it, promote the
-  new `native-contract.json` through the dev pipeline. Until then the pinned
-  artifact is the launch target and symlink drift is advisory-only.
+- **Re-pin Claude (routine, e.g. 2.1.218 → next):** run `claude-multi
+  update`. One command: detects the newest installed artifact, inspects it
+  offline (`--version`/`--help`/SHA-256), promotes it into the source
+  checkout, runs the full offline suite (which includes the real-binary
+  compaction/delegation probes against the candidate), and writes the
+  **operator contract override** (`~/.config/claude-multi/native-contract.json`)
+  — effective immediately, no rebuild or restart. The override wins only
+  while strictly newer than the packaged contract; doctor shows which
+  contract is in effect and flags a stale override. `--activate` also runs
+  `home-manager switch` (baseline refresh); otherwise the packaged baseline
+  lands at the next natural activation. Never hand-edit the contract without
+  the evidence gate. The doctor **Attention** line fires when the symlink is
+  newer than the pin — that is the trigger to run it.
 
 ## 6. Rules of engagement (non-negotiable)
 

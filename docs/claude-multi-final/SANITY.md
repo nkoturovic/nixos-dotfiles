@@ -68,8 +68,12 @@ configured symlink is advisory-only (the 2.1.218 drift proved the value: the
 tool kept launching the verified 2.1.217 while `claude` moved on). Accepted
 boundary: path-based verification has a local-attacker TOCTOU window; an
 fd/memfd redesign was deliberately rejected (G0'). **Verdict: proportionate.**
-The re-pin to 2.1.218 is queued as a bounded evidence task (HANDOFF open
-items), not a design flaw.
+The 2.1.218 re-pin itself landed 2026-07-24 with the full offline evidence
+suite, and D29 (2.4.0) makes the whole class routine: the doctor Attention
+line detects drift, `claude-multi update` re-pins with evidence and takes
+effect instantly via the layered (packaged + operator-override) contract.
+The upstream auto-updater stays on for plain `claude`; the managed side
+anchors instead of chasing.
 
 ## Q5. Is the gateway layering sound?
 

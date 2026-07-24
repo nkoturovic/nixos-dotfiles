@@ -95,11 +95,13 @@ Token Plan `apps/anthropic`, bearer auth, key in
 
 Ordered in the checkpoint: [`checkpoints/2026-07-24-v2.3.0/handoff/open-items.md`](checkpoints/2026-07-24-v2.3.0/handoff/open-items.md).
 
-- **Re-pin to Claude 2.1.218** (bounded evidence task, next).
+- **Claude updates are now routine (2.4.0):** the doctor Attention line
+  fires on version drift; `claude-multi update` re-pins with evidence and
+  takes effect instantly (operator contract override). The 2.1.218 re-pin
+  itself lands at the 2.4.0 activation.
 - **U1 takeover watch**: the 2.1.218 supervisor has taken over backgrounded
   managed sessions; observe one post-takeover `cm-*` roster intact (L2).
 - **Qwen preview → production** when `qwen3.8-max` ships (DECISIONS D21).
-- **Legacy record `9bc5fd42`**: resume to upgrade, or forget (user choice).
 
 ## Where things live
 

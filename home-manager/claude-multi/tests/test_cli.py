@@ -2360,7 +2360,7 @@ class QuickConfirmTuiScreenTests(CLITestCase):
         return result, win
 
     def test_card_shows_badges_table_policy_and_project(self) -> None:
-        result, win = self._run(self._plan(), ["q"])
+        result, win = self._run(self._plan(), ["\x1b"])
         self.assertIsNone(result)
         text = win.text()
         self.assertIn("composition: default", text)
@@ -2371,7 +2371,7 @@ class QuickConfirmTuiScreenTests(CLITestCase):
         self.assertIn("none colliding", text)
         self.assertIn("★ preferred", text)
         self.assertIn("Status  Ready", text)
-        self.assertIn("Q cancel", text)
+        self.assertIn("Esc cancel", text)
 
     def test_enter_returns_perform_intent(self) -> None:
         result, _win = self._run(self._plan(), ["\n"])
@@ -2382,7 +2382,7 @@ class QuickConfirmTuiScreenTests(CLITestCase):
         self.assertEqual(self.launches, [])  # perform happens after teardown
 
     def test_details_toggle_shows_availability(self) -> None:
-        _result, win = self._run(self._plan(), ["d", "q"])
+        _result, win = self._run(self._plan(), ["d", "\x1b"])
         text = win.text()
         self.assertIn("availability", text)
         self.assertIn("scalar", text)
@@ -2390,7 +2390,7 @@ class QuickConfirmTuiScreenTests(CLITestCase):
         self.assertNotIn("availability", first_frame)
 
     def test_question_mark_opens_guarantee_modal(self) -> None:
-        result, win = self._run(self._plan(), ["?", "\n", "q"])
+        result, win = self._run(self._plan(), ["?", "\n", "\x1b"])
         self.assertIsNone(result)
         self.assertTrue(
             any("Native workflows (ultracode): ON" in frame for frame in win.frames)
@@ -2401,7 +2401,7 @@ class QuickConfirmTuiScreenTests(CLITestCase):
         # recorded-only redirect Modal and the source never switches.
         record = self.save_session()
         plan = cli.managed_plan(self.runtime, record)
-        result, win = self._run(plan, ["c", "\n", "r", "\n", "q"])
+        result, win = self._run(plan, ["c", "\n", "r", "\n", "\x1b"])
         self.assertIsNone(result)
         self.assertIn("Recorded snapshot", win.text())
         self.assertFalse(
@@ -2427,7 +2427,7 @@ class QuickConfirmTuiScreenTests(CLITestCase):
             "_edit",
             side_effect=AssertionError("editor must not open on managed plans"),
         ):
-            result, win = self._run(plan, ["e", "\n", "q"])
+            result, win = self._run(plan, ["e", "\n", "\x1b"])
         self.assertIsNone(result)
         self.assertNotIn("E edit", win.text())
         redirects = [
@@ -2444,7 +2444,7 @@ class QuickConfirmTuiScreenTests(CLITestCase):
             "_edit",
             side_effect=AssertionError("editor must not open on managed plans"),
         ):
-            result, win = self._run(blocked, ["\n", "\n", "q"])
+            result, win = self._run(blocked, ["\n", "\n", "\x1b"])
         self.assertIsNone(result)
         self.assertIn("Enter transition hint", win.text())
         redirects = [
@@ -2459,7 +2459,7 @@ class QuickConfirmTuiScreenTests(CLITestCase):
         self.runtime.compositions.save(document)
         plan = self._plan(self.runtime.compositions.load("blocked-tui"))
         self.assertFalse(plan.ready)
-        result, win = self._run(plan, ["\n", "\x1b", "q"])
+        result, win = self._run(plan, ["\n", "\x1b", "\x1b"])
         self.assertIsNone(result)
         self.assertTrue(any("Edit blocked-tui" in frame for frame in win.frames))
         self.assertEqual(self.launches, [])
@@ -2483,7 +2483,7 @@ class SessionsTuiScreenTests(CLITestCase):
     def test_table_renders_mode_column_and_actions(self) -> None:
         self.save_session(session_id=FIXED_ID, mode="durable", scope_generation=2)
         self.save_session(session_id=OTHER_ID)
-        result, win, _ = self._run(["q"])
+        result, win, _ = self._run(["\x1b"])
         self.assertIsNone(result)
         text = win.text()
         self.assertIn("durable(g2)", text)
@@ -2493,13 +2493,13 @@ class SessionsTuiScreenTests(CLITestCase):
         self.assertIn("[r]esume [t]ransition [f]orget", text)
 
     def test_empty_table(self) -> None:
-        result, win, _ = self._run(["q"])
+        result, win, _ = self._run(["\x1b"])
         self.assertIsNone(result)
         self.assertIn("(no recorded sessions)", win.text())
 
     def test_forget_modal_states_deletion_and_forgets(self) -> None:
         self.save_session(session_id=FIXED_ID, mode="durable", scope_generation=1)
-        result, win, _screen = self._run(["f", "\n", "q"])
+        result, win, _screen = self._run(["f", "\n", "\x1b"])
         self.assertIsNone(result)
         self.assertTrue(
             any("session record + generated scope" in frame for frame in win.frames)
@@ -2512,7 +2512,7 @@ class SessionsTuiScreenTests(CLITestCase):
 
     def test_forget_cancel_keeps_record(self) -> None:
         self.save_session(session_id=FIXED_ID, mode="durable", scope_generation=1)
-        self._run(["f", curses.KEY_RIGHT, "\n", "q"])
+        self._run(["f", curses.KEY_RIGHT, "\n", "\x1b"])
         self.assertTrue(self.runtime.session_store.exists(FIXED_ID))
 
     def test_resume_returns_intent(self) -> None:
@@ -2524,7 +2524,7 @@ class SessionsTuiScreenTests(CLITestCase):
 
     def test_resume_legacy_modal_states_upgrade(self) -> None:
         self.save_session(session_id=FIXED_ID)
-        result, win, _screen = self._run(["r", curses.KEY_RIGHT, "\n", "q"])
+        result, win, _screen = self._run(["r", curses.KEY_RIGHT, "\n", "\x1b"])
         self.assertIsNone(result)
         self.assertTrue(
             any("predates durable scopes" in frame for frame in win.frames)
@@ -2541,7 +2541,7 @@ class SessionsTuiScreenTests(CLITestCase):
 
     def test_transition_choice_cancelled(self) -> None:
         self.save_session(session_id=FIXED_ID, mode="durable", scope_generation=1)
-        result, _win, _screen = self._run(["t", "\x1b", "q"])
+        result, _win, _screen = self._run(["t", "\x1b", "\x1b"])
         self.assertIsNone(result)
 
 
@@ -2864,7 +2864,7 @@ class QuickConfirmAccessibilityTests(CLITestCase):
             screen = cli._QuickConfirmScreen(
                 self.runtime, plan, passthrough=[], palette=palette
             )
-            win = FakeWindow(["q"])
+            win = FakeWindow(["\x1b"])
             screen.run(win)
             texts.append(win.text())
             row, col = win.find("Status  Ready")[0]
@@ -3122,7 +3122,7 @@ class TerminalInjectionTests(CLITestCase):
         record["cwd"] = self.OSC_CWD
         self.runtime.session_store.save(record)
         screen = cli._SessionsScreen(self.runtime, palette=tui.MONO_PALETTE)
-        win = FakeWindow(["q"])
+        win = FakeWindow(["\x1b"])
         screen.run(win)
         text = win.text()
         self.assertNotIn("\x1b", text)
@@ -3845,7 +3845,7 @@ class CwdFilterToggleTests(CLITestCase):
             side_effect=(
                 cli.tui.Key("char", "C"),
                 cli.tui.Key("char", "C"),
-                cli.tui.Key("char", "Q"),
+                cli.tui.Key("esc"),
             ),
         ):
             self.assertIsNone(screen.run(object()))
@@ -4292,3 +4292,21 @@ class SessionEventAndDirectModeTests(CLITestCase):
         )
         self.assertTrue(prepared.model_relaunch)
         self.assertIn("--model", prepared.result.argv)
+
+class DoctorRepinAttentionTests(CLITestCase):
+    """The standing drift early-warning lands in the Attention tier."""
+
+    def test_doctor_shows_repin_attention(self) -> None:
+        original = cli.launch.repin_suggestion
+        cli.launch.repin_suggestion = lambda _contract: (
+            "Claude 9.9.9 is available at /x/claude while the pinned trust "
+            "anchor is 1.1.1; re-pin deliberately"
+        )
+        try:
+            code, output = self.run_cli(["doctor"])
+        finally:
+            cli.launch.repin_suggestion = original
+        self.assertEqual(code, 0, output)
+        self.assertIn("Attention", output)
+        self.assertIn("re-pin deliberately", output)
+        self.assertNotIn("BLOCKED", output)

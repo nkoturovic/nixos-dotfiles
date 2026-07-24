@@ -252,12 +252,12 @@ class LabelBadgeKeyBarTests(unittest.TestCase):
         self.assertEqual(win.attr_at(1, 2), tui.DARK_PALETTE.attr("ok"))
 
     def test_keybar_text_and_accented_keys(self):
-        bar = tui.KeyBar((("Enter", "launch"), ("Q", "cancel")))
-        self.assertEqual(bar.text(), "Enter launch · Q cancel")
+        bar = tui.KeyBar((("Enter", "launch"), ("Esc", "cancel")))
+        self.assertEqual(bar.text(), "Enter launch · Esc cancel")
         win = FakeWindow()
         bar.draw(win, 29, tui.DARK_PALETTE)
-        self.assertIn("Enter launch · Q cancel", win.line(29))
-        self.assertEqual(win.attr_at(29, 0), tui.DARK_PALETTE.attr("accent"))
+        self.assertIn("Enter launch · Esc cancel", win.line(29))
+        self.assertEqual(win.attr_at(29, 2), tui.DARK_PALETTE.attr("accent"))
 
     def test_keybar_clips_to_width(self):
         bar = tui.KeyBar(tuple((f"K{i}", f"action-{i}") for i in range(20)))

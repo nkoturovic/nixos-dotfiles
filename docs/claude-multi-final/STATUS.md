@@ -1,5 +1,35 @@
 # STATUS — live tracker
 
+## 2026-07-24 — v2.4.0: re-pin to 2.1.218 + layered contract + `claude-multi update` (working tree)
+
+- **Managed binary re-pinned to 2.1.218** (contract + version pins + docs):
+  offline inspection (`--version`/`--help`/SHA-256), then the full offline
+  suite against the candidate — **1,171 tests green**, with the real-binary
+  probes confirming auto+manual compaction hooks and delegation on 2.1.218;
+  takeover stays fail-closed by design (L2). catalog_version 2 → 3.
+- **Layered native contract (D29):** the packaged contract stays the
+  reviewed baseline; a strictly-newer **operator override**
+  (`~/.config/claude-multi/native-contract.json`, 0600, schema-validated,
+  secret-scanned) now wins while newer and is ignored+reported when stale.
+  The packaged bundle hash never reflects the override; doctor prints the
+  contract source. Effect: a re-pin no longer requires a rebuild or a
+  service restart.
+- **`claude-multi update` (new):** one command — detect candidate, offline
+  inspect, promote into the source checkout, run the full offline suite as
+  the evidence gate, write the override (instant effect), optionally
+  `--activate` (home-manager switch). Fails closed: evidence failure
+  restores the repo byte-identically and writes no override.
+- **Doctor re-pin alert:** an Attention line now fires when the configured
+  symlink is newer than the pinned contract, naming `claude-multi update` —
+  the permanent drift early-warning that closes the update loop.
+- **Hygiene:** the last legacy record (`9bc5fd42`) was forgotten (its
+  transcript is untouched and stays natively resumable); doctor is fully
+  clean (Ready, no Attention lines).
+- Evidence: **1,171 host tests green** (+4: repin alert unit tests, doctor
+  attention, upgrade flow, catalog override loader), package + sandbox
+  builds green. Activation pending user approval (2.3.0 profile still runs
+  the 2.1.217 contract; the override layer takes effect from 2.4.0).
+
 ## 2026-07-24 — Checkpoints, wikis, and the documentation map (self-discovery)
 
 - **Checkpoint system created** (`docs/claude-multi-final/checkpoints/`):

@@ -8,6 +8,7 @@ prompt identity, secret prohibition, and the deterministic bundle hash.
 
 from __future__ import annotations
 
+import os
 import re
 from dataclasses import dataclass
 from pathlib import Path
@@ -97,13 +98,21 @@ class CatalogError(ValueError):
 
 @dataclass(frozen=True)
 class Catalog:
-    """Immutable view of the validated trusted asset bundle."""
+    """Immutable view of the validated trusted asset bundle.
+
+    ``contract_source`` records which native contract is in effect:
+    ``"packaged"`` (the catalog file), ``"override"`` (a newer operator
+    contract from the config root, written by `claude-multi update`), or
+    ``"override-ignored-stale"`` (an override exists but is not newer than
+    the packaged contract and is ignored).
+    """
 
     root: Path
     docs: dict[str, Any]
     prompt_bodies: dict[str, bytes]
     bundle: dict[str, Any]
     bundle_sha256: str
+    contract_source: str = "packaged"
 
     @property
     def providers(self) -> dict[str, Any]:
@@ -223,7 +232,7 @@ def load_raw(root: Path | str) -> dict[str, Any]:
             )
         prompt_bodies[role_id] = prompt_path.read_bytes()
 
-    return {"root": root, "docs": docs, "prompt_bodies": prompt_bodies}
+    return {"root": root, "docs": docs, "prompt_bodies": prompt_bodies, "schemas": schemas}
 
 
 def _check_versions_settings(docs: dict[str, Any], errors: list[str]) -> None:
@@ -566,8 +575,64 @@ def validate_catalog(raw: dict[str, Any]) -> list[str]:
     return errors
 
 
-def load_catalog(root: Path | str) -> Catalog:
-    """Load, schema-validate, and semantically validate the trusted bundle."""
+def _version_key(name: Any) -> tuple[int, ...] | None:
+    if not isinstance(name, str):
+        return None
+    parts = name.split(".")
+    if not 2 <= len(parts) <= 3 or not all(p.isdigit() for p in parts):
+        return None
+    return tuple(int(p) for p in parts)
+
+
+def _load_contract_override(
+    path: Path, schema: dict[str, Any], packaged: dict[str, Any]
+) -> tuple[dict[str, Any] | None, str]:
+    """Load the operator contract override, strictly, failing closed.
+
+    Returns ``(document, source)`` — ``(None, "override-ignored-stale")``
+    when the override is not newer than the packaged contract, and raises
+    CatalogError when the override exists but is unreadable, invalid, or
+    malformed (an operator trust anchor must never degrade silently).
+    """
+
+    from . import state  # local import: state hardening for the config root
+
+    try:
+        raw = state.read_private(path)
+    except state.StateError as exc:
+        raise CatalogError(f"contract override {path}: {exc}") from exc
+    try:
+        document = strict_json.loads(raw)
+    except strict_json.StrictJSONError as exc:
+        raise CatalogError(f"contract override {path}: {exc}") from exc
+    problems = schema_validate.validate(document, schema, "$")
+    if problems:
+        raise CatalogError(
+            f"contract override {path}: invalid native contract: "
+            + "; ".join(problems)
+        )
+    secret_errors: list[str] = []
+    _secret_scan(document, "$", secret_errors)
+    if secret_errors:
+        raise CatalogError(
+            f"contract override {path}: " + "; ".join(secret_errors)
+        )
+    packaged_key = _version_key(packaged["claude"]["validated_version"])
+    override_key = _version_key(document["claude"]["validated_version"])
+    if override_key is None or packaged_key is None or override_key <= packaged_key:
+        return None, "override-ignored-stale"
+    return document, "override"
+
+
+def load_catalog(root: Path | str, *, contract_override: Path | None = None) -> Catalog:
+    """Load, schema-validate, and semantically validate the trusted bundle.
+
+    When ``contract_override`` names an operator contract file (written by
+    `claude-multi update` after its evidence gate), a strictly newer
+    validated version replaces the packaged native contract — the layered
+    trust anchor. The packaged bundle and its hash never change; only the
+    effective contract document does.
+    """
 
     raw = load_raw(root)
     problems = validate_catalog(raw)
@@ -590,10 +655,18 @@ def load_catalog(root: Path | str) -> Catalog:
         "prompts": prompt_hashes,
         "compositions/default": docs["compositions/default"],
     }
+    contract_source = "packaged"
+    if contract_override is not None and os.path.lexists(contract_override):
+        override_doc, contract_source = _load_contract_override(
+            Path(contract_override), raw["schemas"]["native-contract"], docs["native-contract"]
+        )
+        if override_doc is not None:
+            docs = {**docs, "native-contract": override_doc}
     return Catalog(
         root=raw["root"],
         docs=docs,
         prompt_bodies=raw["prompt_bodies"],
         bundle=bundle,
         bundle_sha256=strict_json.bundle_digest(bundle),
+        contract_source=contract_source,
     )

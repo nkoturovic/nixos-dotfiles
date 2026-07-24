@@ -203,6 +203,45 @@ def doctor_binary_report(
     return [], info
 
 
+def _version_tuple(value: str) -> tuple[int, ...] | None:
+    """Parse an ``X.Y[.Z]`` version name into a comparable tuple, else None."""
+
+    parts = value.split(".")
+    if not 2 <= len(parts) <= 3 or not all(part.isdigit() for part in parts):
+        return None
+    return tuple(int(part) for part in parts)
+
+
+def repin_suggestion(native_contract: dict[str, Any]) -> str | None:
+    """Attention-tier line when the configured symlink is NEWER than the pin.
+
+    The pinned artifact stays the trust anchor either way; this is the
+    standing early-warning that a deliberate re-pin (probe + contract
+    promotion) is due. Returns None when the binary cannot be verified (the
+    problem report carries that instead), when the symlink matches, or when
+    the target is not a parseable newer version.
+    """
+
+    try:
+        status = resolve_claude(native_contract)
+    except (LaunchError, KeyError, TypeError, AttributeError):
+        return None
+    target = status.configured_target
+    if target is None or status.configured_matches:
+        return None
+    pinned = _version_tuple(status.validated_version)
+    available = _version_tuple(target.name)
+    if pinned is None or available is None or available <= pinned:
+        return None
+    return (
+        f"Claude {target.name} is available at {status.configured_path} while "
+        f"the pinned trust anchor is {status.validated_version}; run "
+        "`claude-multi update` to re-pin with evidence (offline inspection + "
+        "the offline probe suite), effective immediately via the operator "
+        "contract override"
+    )
+
+
 @dataclass(frozen=True)
 class DaemonStatus:
     """Best-effort shared-daemon status: existence/pid inspection only."""

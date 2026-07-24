@@ -43,6 +43,18 @@ the raw composition JSON in `$EDITOR` (the only external-editor integration;
 validated on reload). `TERM=dumb`/no-curses prints the plan read-only plus
 the exact `$EDITOR` command — no second interactive implementation.
 
+## 2.1 Key and layout conventions (2.4.0)
+
+- **Esc is the universal exit/back key on every curses screen** — card,
+  sessions, editor, transition, modals, choosers. `Q` is never an exit key:
+  text inputs must be free to type it, so a "sometimes-exits" key is a trap
+  (the editor proved it). Line-mode flows accept the words `q`/`quit`/
+  `cancel` because line input is a word modality, not a key modality.
+- **Uniform left padding:** every screen's content starts at column 2
+  (title, tables, forms, status rows, keybars) — one visual margin.
+- Navigation: arrows everywhere; `k`/`j` only on the sessions screen (no
+  text inputs there); `?` opens help everywhere; `^C` interrupts.
+
 ## 3. Workflow guarantee panel (shown on `?`, in Doctor, and in README)
 
 ```
