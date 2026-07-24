@@ -86,13 +86,19 @@ regression coverage; **1,160 host tests green**.
   should-fix items (shim exec-bit repair, repair-all failure isolation);
   both were fixed with regression tests in ae228a1 along with the actionable
   nits. No real provider, transcript, or live supervisor was touched.
-- **Live state repaired:** `doctor --repair-all` converged all 27 durable
-  sessions on 2026-07-24 (backup at /tmp/cm-live-backup-20260724-110010);
-  doctor reports **Ready** with one Attention line for the 4 legacy records.
-  The profile launcher still shows BLOCKED until 2.3.0 is activated — its
-  older expectation predates the shim; do not run pre-2.3.0 repairs in
-  between (they would rewrite store-path hooks; 2.3.0 repair-all converges
-  again idempotently).
+- **Activated + hygiene done (2026-07-24):** Home Manager generation 97 is
+  current; all profile entrypoints report 2.3.0 and the gateway restarted
+  cleanly. Post-activation `doctor` is **Ready** (one Attention line for the
+  last legacy record, 9bc5fd42, which keeps its transcript). Full hygiene
+  executed with user approval: 15 records verified transcriptless (fresh
+  check) were forgotten, `doctor --prune` swept their lead prompts, and the
+  prune rule was extended to orphaned pre-2.2 digest-only lead prompts
+  (a9b2842; the two stragglers were swept from the repo checkout and the rule
+  lands in the next natural activation). Sessions screen now shows 16 real,
+  resumable sessions. Only remaining expiry: Home Manager generation 95 after
+  the running a24fc875 session exits (its start-time hooks reference the
+  gen-95 store path; SessionEnd is advisory, so an early expiry costs at most
+  one relink-runtime).
 
 ## 2026-07-23 — v2.2 lifecycle identity + ordinary gateway integration (working tree)
 
