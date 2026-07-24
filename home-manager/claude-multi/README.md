@@ -9,7 +9,9 @@ per-turn interception remains.
 
 **Using it?** Start with [`USAGE.md`](USAGE.md) (simple guide, use cases,
 FAQ). **Developing it?** Start with [`AGENTS.md`](AGENTS.md) (architecture,
-invariants, workflow, rules).
+invariants, workflow, rules). **Picking up the project cold?** Start at the
+latest [`docs/claude-multi-final/checkpoints/`](../../docs/claude-multi-final/checkpoints/README.md)
+handoff.
 
 **Why files, not argv:** CLI `--agents` JSON exists only for the launching
 session and is never saved to disk. When the shared Claude supervisor
