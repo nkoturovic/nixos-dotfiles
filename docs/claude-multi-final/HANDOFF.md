@@ -48,15 +48,18 @@ untouched; `claude-gateway` is the ordinary non-composition entrypoint.
 
 ## Installed state (2026-07-24)
 
-- claude-multi **2.4.1** active (HM generation 99; rollback: gen 98).
+- claude-multi **2.5.0** active (HM generation 101; rollback: gen 100/99).
+- **Opus 5 is the default lead** (default = opus5+sol+kimi; profiles
+  `opus-sol`, `opus-kimi`, `fable`, `kimi-sol`, `qwen-sol`, `sol-direct`
+  all live); gateway serves `claude-opus-5` and `claude-multi-opus-5`
+  (CLIProxy registry patched); binary pinned at 2.1.218 and symlink-matched.
 - `claude-multi doctor` → **Ready with zero Attention lines**; 15 sessions
-  (all durable, zero legacy); binary pinned at 2.1.218 and symlink-matched;
-  the card shows the health strip and update badge on drift.
+  (all durable, zero legacy).
 - Claude updates are routine: the card badge or doctor Attention appears →
   press **U** (or `claude-multi update`) → instant effect via the operator
   override (`--activate` for the baseline refresh).
 - Full evidence and census: the current checkpoint's
-  [`handoff/state-snapshot.md`](checkpoints/2026-07-24-v2.4.1/handoff/state-snapshot.md).
+  [`handoff/state-snapshot.md`](checkpoints/2026-07-24-v2.5.0/handoff/state-snapshot.md).
 
 ## Composition: qwen-sol
 
