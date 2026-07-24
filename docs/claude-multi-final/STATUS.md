@@ -30,6 +30,12 @@
   sol-direct.
 - catalog_version 3 → 4; launcher 2.4.1 → 2.5.0. Gateway re-render +
   serving of `claude-opus-5` verified post-activation.
+- **CLIProxy registry gap found and fixed:** the vendored model registry
+  predated the release, hiding the new aliases from `/v1/models` (routing
+  itself was unaffected). Third local patch
+  (`cli-proxy-api-opus-5-model.patch`) registers claude-opus-5; the rebuilt
+  gateway now serves both `claude-opus-5` and `claude-multi-opus-5`
+  (verified live).
 
 ## 2026-07-24 — v2.4.1 ACTIVATED (gen 99): TUI health/update surface + CLIProxy review + final hardening
 
