@@ -90,8 +90,8 @@ class AvailabilityTests(unittest.TestCase):
 
     def test_model_preview_lists_lead(self) -> None:
         state = make_state()
-        change = state.preview_availability("model", "fable", "off")
-        self.assertEqual(len(change.invalidated), 1)
+        change = state.preview_availability("model", "opus5", "off")
+        self.assertEqual(len(change.invalidated), 2)
         self.assertEqual(change.invalidated[0].kind, "lead")
         self.assertIn("Lead", change.invalidated[0].label)
 
@@ -171,8 +171,8 @@ class VariantTests(unittest.TestCase):
 
     def test_role_may_have_zero_variants(self) -> None:
         state = make_state()
-        state.toggle_variant("cm-reviewer", "sol", "xhigh", replacement_preferred=("opus", "xhigh"))
-        state.toggle_variant("cm-reviewer", "opus", "xhigh")
+        state.toggle_variant("cm-reviewer", "sol", "xhigh", replacement_preferred=("opus5", "xhigh"))
+        state.toggle_variant("cm-reviewer", "opus5", "xhigh")
         self.assertEqual(state.variants_for_role("cm-reviewer"), [])
 
     def test_preferred_must_be_selected(self) -> None:
@@ -338,7 +338,7 @@ class FormEditorFieldTests(unittest.TestCase):
     def test_lead_select_list_changes_model(self) -> None:
         state = make_state()
         keys = nav_keys(state_screen := _screen(state), lambda r: r.kind == "lead")
-        outcome, _win, _ = run_form(state, keys + [ENTER, DOWN, ENTER, ESC, ENTER])
+        outcome, _win, _ = run_form(state, keys + [ENTER, UP, UP, ENTER, ESC, ENTER])
         self.assertIsNone(outcome)
         self.assertEqual(state.lead_slot()["model"], "kimi-k3")
 

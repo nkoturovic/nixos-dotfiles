@@ -1,7 +1,7 @@
 ---
-name: cm-reviewer-opus-xhigh
-description: "Independent concrete change review with severity-ranked findings and an explicit verdict. Model: Opus 4.8 · 1M selector (lane xhigh). Use for the optional Claude-native independent verdict. Managed cm session: if a selected cm-* type is unavailable, stop; never substitute a generic agent. Review independence: a change authored by a anthropic-family variant must not receive its sole verdict from another anthropic-family variant while a cross-family reviewer is enabled."
-model: claude-multi-opus-4-8[1m]
+name: cm-reviewer-opus5-xhigh
+description: "Independent concrete change review with severity-ranked findings and an explicit verdict. Model: Opus 5 · 1M selector (lane xhigh). Use for the optional Claude-native independent verdict. Managed cm session: if a selected cm-* type is unavailable, stop; never substitute a generic agent. Review independence: a change authored by a anthropic-family variant must not receive its sole verdict from another anthropic-family variant while a cross-family reviewer is enabled."
+model: claude-multi-opus-5[1m]
 effort: xhigh
 ---
 

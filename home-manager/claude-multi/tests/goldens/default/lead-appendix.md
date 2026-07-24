@@ -5,7 +5,7 @@
 - `cm-implementer-sol-high` — cm-implementer · GPT-5.6 Sol · lane high · preferred. Use for bounded implementation in an isolated worktree.
 - `cm-implementer-kimi-k3-max` — cm-implementer · Kimi K3 · 1M selector · lane max. Use when implementation requires broad context across many files.
 - `cm-reviewer-sol-xhigh` — cm-reviewer · GPT-5.6 Sol · lane xhigh · preferred. Use for focused review of bounded small-to-medium changes; prefer xhigh for deeper review within bounded scope.
-- `cm-reviewer-opus-xhigh` — cm-reviewer · Opus 4.8 · 1M selector · lane xhigh. Use for the optional Claude-native independent verdict.
+- `cm-reviewer-opus5-xhigh` — cm-reviewer · Opus 5 · 1M selector · lane xhigh. Use for the optional Claude-native independent verdict.
 
 ## Native-agent policy (generated)
 
@@ -22,8 +22,9 @@ Enabled provider families: anthropic, moonshot, openai.
 
 ## Context policy (generated)
 
-- Lead context: 1000000 client tokens; validated provider bound 1000000; process compaction capacity 1000000; deterministic reactive trigger 882000. Proactive summary preparation is runtime-controlled and may occur earlier.
+- Lead context: 1000000 client tokens; user-attested configured provider bound 1000000; process compaction capacity 1000000; deterministic reactive trigger 882000. Proactive summary preparation is runtime-controlled and may occur earlier.
 - Process scalar: CLAUDE_CODE_MAX_CONTEXT_TOKENS=372000 is exported for this mixed process; it bounds lower-context delegated variants, while the lead thread keeps the capacity and trigger above.
+- Context qualification: this configured provider bound is not near-limit benchmark-verified. It follows explicit route/operator attestation; live acceptance must confirm it before it is described as provider-safe.
 
 ## Standing rules (generated)
 

@@ -1,5 +1,30 @@
 # STATUS — live tracker
 
+## 2026-07-24 — v2.5.0: Opus 5 as the default lead (D31)
+
+- **Opus 5 integrated** (Anthropic release 2026-07-24): new `opus5` model
+  entry (wire `claude-opus-5`, selector `claude-multi-opus-5[1m]`, xhigh
+  lane), anthropic fork-trusted routes extended (`claude-opus-5` before
+  `claude-opus-4-8`, so the canonical Opus default is Opus 5), and the
+  canonical fork-route set updated in code.
+- **Default composition is now `opus5` + GPT 5.6 Sol** (Sol variants
+  preferred, Kimi alternates, `opus5-xhigh` as the Claude-native reviewer
+  alternate — the 4.8 slot is replaced). Opus 4.8 stays a full catalog
+  entry for existing sessions and Anthropic's own safety fallback.
+- **Fable 5 stays a named profile** (`fable` user composition = the
+  previous default verbatim, one Tab away), no longer the default.
+- **Honesty labeling kept:** the Opus 5 1M bound is family-attested
+  (announcement states no bound) → qualification user-attested with a
+  conservative validated floor; the lead appendix shows the qualification
+  line, never "provider-safe".
+- Evidence: **1,194 host tests OK** (all composition/editor/transition/
+  render/scope/catalog expectations moved from fable to opus5; goldens
+  re-blessed and reviewed; render golden regenerated with the new route
+  set). New-default print-launch verified (`--model claude-multi-opus-5[1m]`,
+  effort ultracode, 1M window, scalar 372000).
+- catalog_version 3 → 4; launcher 2.4.1 → 2.5.0. Gateway re-render +
+  serving of `claude-opus-5` verified post-activation.
+
 ## 2026-07-24 — v2.4.1 ACTIVATED (gen 99): TUI health/update surface + CLIProxy review + final hardening
 
 - **Activated:** HM generation 99; `claude-multi`/`claude-gateway` report

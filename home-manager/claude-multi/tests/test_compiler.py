@@ -269,7 +269,7 @@ class AgentDefinitionTests(unittest.TestCase):
             "cm-implementer-sol-high",
             "cm-implementer-kimi-k3-max",
             "cm-reviewer-sol-xhigh",
-            "cm-reviewer-opus-xhigh",
+            "cm-reviewer-opus5-xhigh",
         ):
             self.assertIn(variant_id, prompt)
         self.assertIn("Explore: replaced", prompt)
@@ -383,7 +383,7 @@ class AgentDefinitionTests(unittest.TestCase):
             session_id=FIXED_SESSION,
             composition_name="default",
         )
-        self.assertNotIn("cm-reviewer-opus-xhigh", reduced)
+        self.assertNotIn("cm-reviewer-opus5-xhigh", reduced)
         self.assertIn("cm-analyst-sol-high", reduced)
 
     def test_compile_deterministic(self) -> None:
@@ -419,7 +419,7 @@ class EnvironmentTests(unittest.TestCase):
 
         bundle = catalog.load_catalog(CATALOG_ROOT)
         docs = copy.deepcopy(bundle.docs)
-        docs["models"]["models"]["fable"]["lead"]["env"][
+        docs["models"]["models"]["opus5"]["lead"]["env"][
             "CLAUDE_CODE_MAX_CONTEXT_TOKENS"
         ] = "1"
         resolved = composition.resolve(docs, bundle.default_composition)
@@ -488,7 +488,7 @@ class EnvironmentTests(unittest.TestCase):
             result.env_set["ANTHROPIC_DEFAULT_FABLE_MODEL"], "claude-fable-5[1m]"
         )
         self.assertEqual(
-            result.env_set["ANTHROPIC_DEFAULT_OPUS_MODEL"], "claude-opus-4-8[1m]"
+            result.env_set["ANTHROPIC_DEFAULT_OPUS_MODEL"], "claude-opus-5[1m]"
         )
         self.assertEqual(result.env_set["CLAUDE_MULTI_GATEWAY"], "1")
         self.assertEqual(result.env_set["CLAUDE_MULTI_SESSION_ID"], FIXED_SESSION)
@@ -523,7 +523,7 @@ class EnvironmentTests(unittest.TestCase):
         ):
             with self.subTest(key=key):
                 docs = copy.deepcopy(bundle.docs)
-                docs["models"]["models"]["fable"]["lead"]["env"][key] = "1"
+                docs["models"]["models"]["opus5"]["lead"]["env"][key] = "1"
                 resolved = composition.resolve(docs, bundle.default_composition)
                 with self.assertRaisesRegex(
                     compiler.CompilerError, "compiler-owned and reserved"
@@ -621,7 +621,7 @@ class CompactionPolicyTests(unittest.TestCase):
         bundle = catalog.load_catalog(CATALOG_ROOT)
         document = copy.deepcopy(bundle.default_composition)
         docs = copy.deepcopy(bundle.docs)
-        docs["models"]["models"]["fable"]["context"]["provider_tokens"] = 500000
+        docs["models"]["models"]["opus5"]["context"]["provider_tokens"] = 500000
         result = self._compile(document, docs=docs)
         self.assertEqual(
             result.env_set["CLAUDE_CODE_AUTO_COMPACT_WINDOW"], "500000"

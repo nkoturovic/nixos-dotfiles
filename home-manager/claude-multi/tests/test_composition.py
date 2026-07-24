@@ -26,8 +26,8 @@ class ResolutionTests(unittest.TestCase):
     def test_default_seed_resolution(self) -> None:
         _, resolved = _resolved()
         self.assertEqual(resolved.name, "default")
-        self.assertEqual(resolved.lead.model, "fable")
-        self.assertEqual(resolved.lead.client_selector, "claude-fable-5[1m]")
+        self.assertEqual(resolved.lead.model, "opus5")
+        self.assertEqual(resolved.lead.client_selector, "claude-multi-opus-5[1m]")
         self.assertEqual(resolved.lead.effort, "ultracode")
         self.assertEqual(resolved.lead.env, {})
         self.assertEqual(
@@ -38,7 +38,7 @@ class ResolutionTests(unittest.TestCase):
                 "cm-implementer-sol-high",
                 "cm-implementer-kimi-k3-max",
                 "cm-reviewer-sol-xhigh",
-                "cm-reviewer-opus-xhigh",
+                "cm-reviewer-opus5-xhigh",
             ],
         )
         preferred = [variant.id for variant in resolved.variants if variant.preferred]
@@ -52,7 +52,7 @@ class ResolutionTests(unittest.TestCase):
         by_id = {variant.id: variant for variant in resolved.variants}
         self.assertEqual(by_id["cm-analyst-sol-high"].lane, "high")
         self.assertEqual(by_id["cm-analyst-kimi-k3-max"].lane, "max")
-        self.assertEqual(by_id["cm-reviewer-opus-xhigh"].lane, "xhigh")
+        self.assertEqual(by_id["cm-reviewer-opus5-xhigh"].lane, "xhigh")
         self.assertEqual(by_id["cm-analyst-sol-high"].agent_effort, "high")
         self.assertEqual(by_id["cm-analyst-kimi-k3-max"].agent_effort, "max")
 
@@ -312,7 +312,7 @@ class SnapshotTests(unittest.TestCase):
     def test_snapshot_semantics(self) -> None:
         _, resolved = _resolved()
         snap = composition.snapshot(resolved)
-        self.assertEqual(snap["lead"]["model"], "fable")
+        self.assertEqual(snap["lead"]["model"], "opus5")
         self.assertEqual(len(snap["variants"]), 6)
         self.assertEqual(snap["scalar_context_tokens"], 372000)
         self.assertEqual(snap["auto_compact_window_tokens"], 1000000)

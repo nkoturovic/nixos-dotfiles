@@ -256,6 +256,22 @@ keybars) — the sessions and editor screens and the quick-confirm details
 block previously mixed col-0 and col-2 layouts. Recorded in UX.md §2.1 and
 pinned by the PTY/widget tests (which now drive Esc everywhere).
 
+**D31 — Opus 5 is the default lead; Opus 4.8 stays in the catalog, Fable 5
+stays a named profile (2.5.0).** The Anthropic release (2026-07-24) makes
+Opus 5 the near-Fable, half-price, same-price-as-4.8 model — strictly the
+better default at equal cost. The default composition now leads `opus5`
+(GPT 5.6 Sol variants preferred, Kimi alternates, `opus5-xhigh` as the
+Claude-native reviewer alternate, replacing the 4.8 slot); Opus 5 joins the
+anthropic fork-trusted routes **before** 4.8 so the canonical Opus default
+(`ANTHROPIC_DEFAULT_OPUS_MODEL`) is `claude-opus-5[1m]`. Opus 4.8's model
+entry stays fully usable (existing sessions and Anthropic's own safety
+fallback target it). Fable 5 becomes the named user composition `fable`
+(the previous default verbatim), one Tab away — no longer the default. The
+Opus 5 context bound (1M) is family-attested: the announcement states no
+bound, so qualification is user-attested with a conservative validated
+floor, matching the Kimi honesty rule — never called provider-safe until
+near-limit acceptance.
+
 ## User decision summary (what you're approving by accepting this design)
 
 1. Selected agents become **real files** in a per-session scope; the failure

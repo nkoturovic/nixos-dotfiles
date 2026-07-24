@@ -45,12 +45,20 @@ oauth-model-alias:
       alias: "claude-fable-5"
       force-mapping: true
       fork: true
+    - name: "claude-opus-5"
+      alias: "claude-opus-5"
+      force-mapping: true
+      fork: true
     - name: "claude-opus-4-8"
       alias: "claude-opus-4-8"
       force-mapping: true
       fork: true
     - name: "claude-opus-4-8"
       alias: "claude-multi-opus-4-8"
+      force-mapping: true
+      fork: true
+    - name: "claude-opus-5"
+      alias: "claude-multi-opus-5"
       force-mapping: true
       fork: true
   codex:

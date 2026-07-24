@@ -32,7 +32,7 @@ LEAD_ROLE = "cm-lead"
 
 # fork: true passthrough is trusted only on canonical first-party routes.
 CANONICAL_FORK_ROUTES = {
-    "anthropic": frozenset({"claude-fable-5", "claude-opus-4-8"}),
+    "anthropic": frozenset({"claude-fable-5", "claude-opus-5", "claude-opus-4-8"}),
 }
 
 # Compiler-owned environment keys: never settable from a model lead.env block.

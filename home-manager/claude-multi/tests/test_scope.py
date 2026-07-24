@@ -136,7 +136,7 @@ class CompileScopeAgentFileTests(unittest.TestCase):
             gpt55,
         )
         opus = _frontmatter(
-            plan.agent_files[".claude/agents/cm-reviewer-opus-xhigh.md"]
+            plan.agent_files[".claude/agents/cm-reviewer-opus5-xhigh.md"]
         )["description"]
         self.assertIn("anthropic-family variant", opus)
         analyst = _frontmatter(
@@ -255,8 +255,8 @@ class CompileScopeSettingsTests(unittest.TestCase):
 
     def test_available_models_fences_exact_managed_lead(self) -> None:
         _, _, plan = _plan()
-        self.assertEqual(plan.settings["availableModels"], ["claude-fable-5[1m]"])
-        self.assertEqual(plan.settings["model"], "claude-fable-5[1m]")
+        self.assertEqual(plan.settings["availableModels"], ["claude-multi-opus-5[1m]"])
+        self.assertEqual(plan.settings["model"], "claude-multi-opus-5[1m]")
 
     def test_lifecycle_hooks_are_scoped_and_metadata_only(self) -> None:
         bundle, resolved, _ = _plan()
@@ -571,12 +571,12 @@ class CollisionGateTests(unittest.TestCase):
         project = self.root / "repo"
         (project / ".git").mkdir(parents=True)
         agents = project / ".claude" / "agents"
-        self._agent_file(agents, "cm-reviewer-opus-xhigh")
+        self._agent_file(agents, "cm-reviewer-opus5-xhigh")
         self._agent_file(agents, "cm-analyst-sol-high")
         collisions = scope.find_cm_collisions(project, (), self.names)
         self.assertEqual(
             [name for _, name in collisions],
-            ["cm-analyst-sol-high", "cm-reviewer-opus-xhigh"],
+            ["cm-analyst-sol-high", "cm-reviewer-opus5-xhigh"],
         )
 
 

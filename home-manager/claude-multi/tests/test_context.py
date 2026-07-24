@@ -82,7 +82,7 @@ class ResolvedScalarTests(unittest.TestCase):
         document["availability"]["models"]["qwen38"] = "lead+agents"
         document["availability"]["providers"]["qwen"] = "lead+agents"
         resolved = composition.resolve(bundle.docs, document)
-        self.assertEqual(resolved.lead.model, "fable")
+        self.assertEqual(resolved.lead.model, "opus5")
         self.assertEqual(resolved.auto_compact_window_tokens, 983_616)
         self.assertEqual(resolved.lead.auto_compact_tokens, 867_254)
 
@@ -91,6 +91,7 @@ class ResolvedScalarTests(unittest.TestCase):
         expected = {
             "fable": (1_000_000, 1_000_000, 882_000),
             "opus": (1_000_000, 1_000_000, 882_000),
+            "opus5": (1_000_000, 1_000_000, 882_000),
             "kimi-k3": (1_000_000, 1_000_000, 882_000),
             "qwen38": (1_000_000, 983_616, 867_254),
             "sol": (372_000, 372_000, 316_800),

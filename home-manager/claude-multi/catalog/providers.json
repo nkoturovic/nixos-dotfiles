@@ -1,1 +1,87 @@
-{"providers":{"anthropic":{"adapter":"cliproxy-oauth-claude-v1","display":"Anthropic","independence_family":"anthropic","passthrough_routes":[{"fork":true,"name":"claude-fable-5"},{"fork":true,"name":"claude-opus-4-8"}],"payload_contracts":[],"support":"anthropic-supported","support_note":"First-party Anthropic models routed through the locally managed CLIProxyAPI OAuth gateway; this transport path is not officially supported by Anthropic.","transport":{"kind":"oauth-pool","pool":"claude"}},"kimi":{"adapter":"cliproxy-claude-compatible-v1","display":"Kimi","independence_family":"moonshot","passthrough_routes":[],"payload_contracts":["output-config-max","filter-thinking"],"support":"locally-validated-experimental","support_note":"Third-party Claude-compatible route through the local gateway; locally validated experimental transport, not officially supported by Anthropic.","transport":{"auth":{"header":"x-api-key","kind":"header","secret_ref":"env:KIMI_CLAUDE_API_KEY"},"base_url":"https://api.kimi.com/coding","kind":"direct"}},"openai":{"adapter":"cliproxy-oauth-codex-v1","display":"OpenAI","independence_family":"openai","passthrough_routes":[],"payload_contracts":["reasoning-effort-high","reasoning-effort-xhigh"],"support":"locally-validated-experimental","support_note":"Third-party Codex route through the local OAuth gateway; locally validated experimental transport, not officially supported by Anthropic or OpenAI.","transport":{"kind":"oauth-pool","pool":"codex"}},"qwen":{"adapter":"cliproxy-claude-compatible-v1","display":"Qwen","independence_family":"alibaba","passthrough_routes":[],"payload_contracts":["reasoning-effort-xhigh"],"support":"locally-validated-experimental","support_note":"Third-party Claude-compatible route through the local gateway; locally validated experimental transport, not officially supported by Anthropic or Alibaba.","transport":{"auth":{"kind":"bearer","secret_ref":"env:QWEN_CLAUDE_API_KEY"},"base_url":"https://token-plan.ap-southeast-1.maas.aliyuncs.com/apps/anthropic","kind":"direct"}}},"version":1}
+{
+  "providers": {
+    "anthropic": {
+      "adapter": "cliproxy-oauth-claude-v1",
+      "display": "Anthropic",
+      "independence_family": "anthropic",
+      "passthrough_routes": [
+        {
+          "fork": true,
+          "name": "claude-fable-5"
+        },
+        {
+          "fork": true,
+          "name": "claude-opus-5"
+        },
+        {
+          "fork": true,
+          "name": "claude-opus-4-8"
+        }
+      ],
+      "payload_contracts": [],
+      "support": "anthropic-supported",
+      "support_note": "First-party Anthropic models routed through the locally managed CLIProxyAPI OAuth gateway; this transport path is not officially supported by Anthropic.",
+      "transport": {
+        "kind": "oauth-pool",
+        "pool": "claude"
+      }
+    },
+    "kimi": {
+      "adapter": "cliproxy-claude-compatible-v1",
+      "display": "Kimi",
+      "independence_family": "moonshot",
+      "passthrough_routes": [],
+      "payload_contracts": [
+        "output-config-max",
+        "filter-thinking"
+      ],
+      "support": "locally-validated-experimental",
+      "support_note": "Third-party Claude-compatible route through the local gateway; locally validated experimental transport, not officially supported by Anthropic.",
+      "transport": {
+        "auth": {
+          "header": "x-api-key",
+          "kind": "header",
+          "secret_ref": "env:KIMI_CLAUDE_API_KEY"
+        },
+        "base_url": "https://api.kimi.com/coding",
+        "kind": "direct"
+      }
+    },
+    "openai": {
+      "adapter": "cliproxy-oauth-codex-v1",
+      "display": "OpenAI",
+      "independence_family": "openai",
+      "passthrough_routes": [],
+      "payload_contracts": [
+        "reasoning-effort-high",
+        "reasoning-effort-xhigh"
+      ],
+      "support": "locally-validated-experimental",
+      "support_note": "Third-party Codex route through the local OAuth gateway; locally validated experimental transport, not officially supported by Anthropic or OpenAI.",
+      "transport": {
+        "kind": "oauth-pool",
+        "pool": "codex"
+      }
+    },
+    "qwen": {
+      "adapter": "cliproxy-claude-compatible-v1",
+      "display": "Qwen",
+      "independence_family": "alibaba",
+      "passthrough_routes": [],
+      "payload_contracts": [
+        "reasoning-effort-xhigh"
+      ],
+      "support": "locally-validated-experimental",
+      "support_note": "Third-party Claude-compatible route through the local gateway; locally validated experimental transport, not officially supported by Anthropic or Alibaba.",
+      "transport": {
+        "auth": {
+          "kind": "bearer",
+          "secret_ref": "env:QWEN_CLAUDE_API_KEY"
+        },
+        "base_url": "https://token-plan.ap-southeast-1.maas.aliyuncs.com/apps/anthropic",
+        "kind": "direct"
+      }
+    }
+  },
+  "version": 1
+}

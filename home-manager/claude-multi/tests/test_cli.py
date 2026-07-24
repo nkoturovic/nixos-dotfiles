@@ -510,7 +510,7 @@ class RememberedAndResumeTests(CLITestCase):
             re.sub(r"\s+", " ", output),
         )
         self.assertEqual(len(self.launches), 1)
-        self.assertEqual(self.launches[0].resolved.lead.model, "fable")
+        self.assertEqual(self.launches[0].resolved.lead.model, "opus5")
         self.assertEqual(self.launches[0].result.session_action.kind, "resume")
         # The record itself was not rewritten by the saved drift.
         self.assertEqual(record["composition_name"], "default")
@@ -527,7 +527,7 @@ class RememberedAndResumeTests(CLITestCase):
         self.assertIn("fork natively", plan.cross_provider_warning)
         self.assertIn("sessions transition", plan.cross_provider_warning)
         self.assertTrue(plan.ready)
-        self.assertEqual(plan.resolved.lead.model, "fable")
+        self.assertEqual(plan.resolved.lead.model, "opus5")
 
     def test_c_and_r_keys_redirect_to_transition_without_switching(self) -> None:
         self.save_session()
@@ -543,7 +543,7 @@ class RememberedAndResumeTests(CLITestCase):
         # Every render stayed on the recorded snapshot; Enter resumed it.
         self.assertNotIn("Current saved composition", output)
         self.assertEqual(len(self.launches), 1)
-        self.assertEqual(self.launches[0].resolved.lead.model, "fable")
+        self.assertEqual(self.launches[0].resolved.lead.model, "opus5")
 
     def test_e_key_on_managed_plan_redirects_and_never_opens_editor(self) -> None:
         # R1 P1: the editor on a managed resume was the same override
@@ -640,7 +640,7 @@ class RememberedAndResumeTests(CLITestCase):
         code, output = self.run_cli(["-r", FIXED_ID], "\n")
         self.assertEqual(code, 0, output)
         self.assertEqual(len(self.launches), 1)
-        self.assertEqual(self.launches[0].resolved.lead.model, "fable")
+        self.assertEqual(self.launches[0].resolved.lead.model, "opus5")
 
     def test_unresolvable_recorded_intent_fails_closed_with_drift_named(self) -> None:
         # R1 P2: a role/model genuinely deleted from the catalog is the only
@@ -1676,7 +1676,7 @@ class TransitionCommandTests(CLITestCase):
             "n\n",
         )
         self.assertEqual(code, 0)
-        self.assertIn("lead model: fable -> sol", output)
+        self.assertIn("lead model: opus5 -> sol", output)
         self.assertIn("EXITED (not merely idle)", output)
         self.assertIn(
             f"claude-multi sessions transition {FIXED_ID} --composition shifted",
@@ -1696,7 +1696,7 @@ class TransitionCommandTests(CLITestCase):
             "y\n",
         )
         self.assertEqual(code, 0, output)
-        self.assertIn("lead model: fable -> sol", output)
+        self.assertIn("lead model: opus5 -> sol", output)
         self.assertEqual(len(self.launches), 1)
         launched = self.launches[0]
         self.assertTrue(launched.result.durable)
@@ -2548,7 +2548,7 @@ class SessionsTuiScreenTests(CLITestCase):
 class TransitionTuiScreenTests(unittest.TestCase):
     """TRANSITIONS §3 diff view + exited-confirmation Modal."""
 
-    DIFF = ["lead model: fable -> sol", "workflows: native -> native"]
+    DIFF = ["lead model: opus5 -> sol", "workflows: native -> native"]
 
     def _run(self, keys):
         from test_tui import FakeWindow
@@ -2561,7 +2561,7 @@ class TransitionTuiScreenTests(unittest.TestCase):
         confirmed, win = self._run(["\n", "\n"])
         self.assertTrue(confirmed)
         text = win.text()
-        self.assertIn("lead model: fable -> sol", text)
+        self.assertIn("lead model: opus5 -> sol", text)
         self.assertIn("EXITED (not merely idle)", text)
         self.assertIn("Has the target process exited?", text)
 
@@ -2775,7 +2775,7 @@ class SessionsListTuiDriverTests(CLITestCase):
                 no_color=False,
             )
         self.assertEqual(code, 0, output.getvalue())
-        self.assertIn("lead model: fable -> sol", output.getvalue())
+        self.assertIn("lead model: opus5 -> sol", output.getvalue())
         self.assertEqual(len(self.launches), 1)
         self.assertEqual(
             self.runtime.session_store.load(FIXED_ID)["composition_name"], "shifted"

@@ -28,7 +28,7 @@ claude-multi
 A card shows the composition (lead, team, policy, context). Then:
 
 - **Enter** — launch
-- **Tab / P** — cycle presets (`default`, `kimi-sol`, `qwen-sol`, `sol-direct`)
+- **Tab / P** — cycle presets (`default` (Opus 5 + Sol), `fable`, `kimi-sol`, `qwen-sol`, `sol-direct`)
 - **W** — toggle workflows on/off
 - **E** — edit the composition (form editor; `?` explains each field)
 - **S** — open the sessions picker
@@ -63,7 +63,7 @@ automatically.
 Managed sessions on top, plain-Claude (native) sessions below. Keys:
 
 - **R** resume · **T** switch composition · **F** forget · **L** adopt a
-  native session · **C** filter to this directory · **?** help · **Q** quit
+  native session · **C** filter to this directory · **?** help · **Esc** quit
 
 ### Change a session's composition (transition)
 
@@ -141,7 +141,7 @@ transcripts (always untouched).
 
 ## Supported use cases
 
-1. **Multi-model delegation** — a Kimi/Qwen/Fable lead with Sol/GPT analysts,
+1. **Multi-model delegation** — an Opus 5/Kimi/Qwen/Fable lead with Sol/GPT analysts,
    implementers, and independent reviewers (`kimi-sol`, `qwen-sol`, `default`
    presets). Cross-family review is enforced by the generated rules.
 2. **Durable agent teams** — agent definitions are per-session files, so they

@@ -196,8 +196,8 @@ class BuildDiffTests(TransitionTestCase):
         self.assertEqual(
             diff,
             [
-                "lead model: fable -> kimi-k3",
-                "lead client_selector: claude-fable-5[1m] -> claude-multi-kimi-k3[1m]",
+                "lead model: opus5 -> kimi-k3",
+                "lead client_selector: claude-multi-opus-5[1m] -> claude-multi-kimi-k3[1m]",
             ],
         )
 
@@ -262,7 +262,7 @@ class PrepareTests(TransitionTestCase):
         )
         self.assertEqual(plan.new_record["catalog_hash"], self.bundle.bundle_sha256)
         self.assertEqual(plan.new_record["workflows"], "native")
-        self.assertIn("lead model: fable -> kimi-k3", plan.diff)
+        self.assertIn("lead model: opus5 -> kimi-k3", plan.diff)
         self.assertEqual(
             plan.command_text,
             f"claude-multi sessions transition {FIXED_ID} --composition default",

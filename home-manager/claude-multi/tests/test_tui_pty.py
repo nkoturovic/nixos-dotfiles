@@ -671,7 +671,7 @@ raise SystemExit(main({argv!r}, runtime=runtime, input_stream=sys.stdin, output_
         )
         self.addCleanup(child.close)
         child.read_until(b"semantic diff")
-        child.read_until(b"lead model: fable -> sol")
+        child.read_until(b"lead model: opus5 -> sol")
         child.send(b"\n")
         child.read_until(b"EXITED (not merely idle)")
         child.send(b"\n")

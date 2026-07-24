@@ -18,8 +18,10 @@ CATALOG_ROOT = Path(__file__).resolve().parents[1]
 
 RETAINED_SELECTOR_BASES = {
     "claude-fable-5",
+    "claude-opus-5",
     "claude-opus-4-8",
     "claude-multi-kimi-k3",
+    "claude-multi-opus-5",
     "claude-multi-opus-4-8",
     "gpt-multi-sol-high",
     "gpt-multi-sol-xhigh",
@@ -63,7 +65,7 @@ class SeedLoadTests(unittest.TestCase):
             set(bundle.providers), {"anthropic", "kimi", "openai", "qwen"}
         )
         self.assertEqual(
-            set(bundle.models), {"fable", "opus", "kimi-k3", "sol", "gpt55", "qwen38"}
+            set(bundle.models), {"fable", "opus", "opus5", "kimi-k3", "sol", "gpt55", "qwen38"}
         )
         self.assertEqual(
             set(bundle.roles), {"cm-lead", "cm-analyst", "cm-reviewer", "cm-implementer"}
@@ -98,7 +100,7 @@ class SeedLoadTests(unittest.TestCase):
             for route in provider["passthrough_routes"]
             if route["fork"]
         ]
-        self.assertEqual(sorted(forked), ["claude-fable-5", "claude-opus-4-8"])
+        self.assertEqual(sorted(forked), ["claude-fable-5", "claude-opus-4-8", "claude-opus-5"])
 
     def test_context_evidence_separated(self) -> None:
         bundle = catalog.load_catalog(CATALOG_ROOT)
@@ -124,8 +126,8 @@ class SeedLoadTests(unittest.TestCase):
 
     def test_version_json_matches_v2_2_schema_and_catalog_change(self) -> None:
         bundle = catalog.load_catalog(CATALOG_ROOT)
-        self.assertEqual(bundle.docs["version"]["launcher_version"], "2.4.1")
-        self.assertEqual(bundle.docs["version"]["catalog_version"], 3)
+        self.assertEqual(bundle.docs["version"]["launcher_version"], "2.5.0")
+        self.assertEqual(bundle.docs["version"]["catalog_version"], 4)
 
 
 class ReferenceViolationTests(unittest.TestCase):
@@ -392,7 +394,7 @@ class CatalogMutationMatrixTests(unittest.TestCase):
             "missing canonical opus route",
             lambda raw: raw["docs"]["providers"]["providers"]["anthropic"][
                 "passthrough_routes"
-            ].pop(1),
+            ].pop(-1),
             "missing canonical passthrough route 'claude-opus-4-8'",
         )
         for name, mutator, needle in cases:
@@ -508,7 +510,8 @@ class CompositionViolationTests(unittest.TestCase):
 
     def test_lead_slot_with_lane_blocked(self) -> None:
         composition = self._composition()
-        composition["slots"][0]["lane"] = "max"
+        lead_model = _raw()["docs"]["models"]["models"][composition["slots"][0]["model"]]
+        composition["slots"][0]["lane"] = lead_model["default_lane"]
         errors = self._validate(composition)
         self.assertTrue(
             any("lane does not apply to the lead slot" in error for error in errors),
@@ -739,9 +742,13 @@ class NativeContractTests(unittest.TestCase):
         bundle = catalog.load_catalog(CATALOG_ROOT)
         validated = bundle.docs["native-contract"]["claude"]["validated_version"]
         self.assertEqual(validated, "2.1.218")
+        floors = {"opus5": "2.1.218"}
         for model_id, model in bundle.models.items():
             with self.subTest(model=model_id):
-                self.assertEqual(model["minimum_tested"]["claude_code"], "2.1.216")
+                self.assertEqual(
+                    model["minimum_tested"]["claude_code"],
+                    floors.get(model_id, "2.1.216"),
+                )
 
     def test_generic_agent_aliases_recorded_for_policy(self) -> None:
         bundle = catalog.load_catalog(CATALOG_ROOT)
