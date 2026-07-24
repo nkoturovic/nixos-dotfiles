@@ -46,23 +46,24 @@ non-composition multi-model entrypoint.
 
 The 2026-07-24 audit found the state root healthy (no corrupt records) but
 carrying rebuild drift: 20 scopes with stale hook paths, 21 records with
-legacy context snapshots. Scripted recovery, in order:
+legacy context snapshots. **Steps 3–4 below were already executed on
+2026-07-24 with the built 2.3.0 package** (backup at
+/tmp/cm-live-backup-20260724-110010): all 27 durable scopes now embed the
+stable hook shim and doctor reports Ready. Remaining:
 
 1. `home-manager switch --flake /home/kotur/personal/nixos-dotfiles#kotur`
-   (activation needs your approval; it also restarts the gateway).
-2. Exit the two stale process holders first: the background `d8712aca` fork
-   (bg pty, using 4b1b39e3's old scope) and the `a24fc875` session (pid
-   4191432, hooks on the generation-95 store path).
-3. `claude-multi doctor --repair-all` — every durable scope is rebuilt with
-   the stable hook shim; every record snapshot is refreshed in place.
-4. Optional hygiene: `sessions forget` the records you no longer need
+   (activation needs your approval; it also restarts the gateway). Until
+   activation the profile launcher (2.2.0) reports BLOCKED against the
+   shim-migrated scopes — expected; do not run 2.2.0 repairs in between.
+2. Optional hygiene: `sessions forget` the records you no longer need
    (transcriptless ones are safe: 9d52543a, 394f7123, f6e66f1e, e7b4a3d7,
    fb733666, b32536cd, 78ccb9a2, 620f73f3, 4b1b39e3, ba6a0f50, ff137da1,
    plus legacy 339425fb, 3fe4293d, 783f524f); `doctor --prune` afterwards.
    af2e51a2 resumes only from /home/kotur/projects/occams-agent-flow.
-5. Verify: `claude-multi doctor` shows Ready (possibly with Attention notes
+3. Verify: `claude-multi doctor` shows Ready (possibly with Attention notes
    for the legacy records you kept). Only then expire Home Manager
-   generation 95 — its store path is referenced by the oldest hooks.
+   generation 95 — its store path is referenced by the oldest live hooks
+   (the running a24fc875 session's start-time settings).
 
 ## Composition: qwen-sol
 

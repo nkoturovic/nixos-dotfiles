@@ -79,11 +79,20 @@ regression coverage; **1,160 host tests green**.
   `test_no_controlling_terminal_still_reaches_quick_confirm` timeout (two
   recorded occurrences, output byte-identical to a clean exit) now arms a
   20s `faulthandler` stack dump so the next occurrence is self-diagnosing.
-- **Evidence:** 1,160 host tests green (was 1,135; +17 regression tests, the
-  rest coverage churn), package builds offline; the flaky PTY test passed
-  every run. No real provider, transcript, or live supervisor was touched.
-  Live-state repair (repair-all + targeted forgets + quiescing two stale
-  process holders) is scripted in HANDOFF and runs at activation.
+- **Evidence:** 1,166 host tests green (was 1,135; +31 regression tests), the
+  offline package build and Nix sandbox suite are green, and
+  `git diff --check` is clean. Cross-family review (cm-reviewer-sol-xhigh,
+  read-only, at d65218d) returned REVISE with zero must-fix and two
+  should-fix items (shim exec-bit repair, repair-all failure isolation);
+  both were fixed with regression tests in ae228a1 along with the actionable
+  nits. No real provider, transcript, or live supervisor was touched.
+- **Live state repaired:** `doctor --repair-all` converged all 27 durable
+  sessions on 2026-07-24 (backup at /tmp/cm-live-backup-20260724-110010);
+  doctor reports **Ready** with one Attention line for the 4 legacy records.
+  The profile launcher still shows BLOCKED until 2.3.0 is activated — its
+  older expectation predates the shim; do not run pre-2.3.0 repairs in
+  between (they would rewrite store-path hooks; 2.3.0 repair-all converges
+  again idempotently).
 
 ## 2026-07-23 — v2.2 lifecycle identity + ordinary gateway integration (working tree)
 
