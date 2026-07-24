@@ -906,3 +906,26 @@ class NewEntryPolicyTests(OnboardingTestCase):
                 runner=lambda c, w: {"cmd": c, "returncode": 0},
                 candidate_parent=self.root / "cand-newoff",
             )
+
+class ProviderIdNewOffTests(OnboardingTestCase):
+    def _repo_with_zeta_provider_in_composition(self) -> Path:
+        import json as _json
+
+        target = self.root / "repo-provider-slotted"
+        shutil.copytree(self.repo, target)
+        composition_path = target / dev.V2_ROOT / "catalog" / "compositions" / "default.json"
+        document = _json.loads(composition_path.read_text(encoding="utf-8"))
+        document["availability"]["providers"]["zeta"] = "agents"
+        composition_path.write_text(
+            _json.dumps(document, indent=2, sort_keys=True) + "\n", encoding="utf-8"
+        )
+        return target
+
+    def test_provider_id_must_not_appear_in_compositions(self) -> None:
+        repo = self._repo_with_zeta_provider_in_composition()
+        with self.assertRaisesRegex(DevError, "New · Off"):
+            dev.check_draft(
+                _provider_draft(), repo=repo,
+                runner=lambda c, w: {"cmd": c, "returncode": 0},
+                candidate_parent=self.root / "cand-pnewoff",
+            )

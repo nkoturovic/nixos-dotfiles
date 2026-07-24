@@ -257,8 +257,10 @@ def _check_new_entry_policy(docs: dict[str, Any], draft: dict[str, Any]) -> None
     composition = docs["compositions/default"]
     if draft["kind"] == "model":
         keys = [_entry_id(draft["entry"], "model")]
+        provider_ids: list[str] = []
     else:
         keys = [_entry_id(draft["entry"]["model"], "model")]
+        provider_ids = [_entry_id(draft["entry"]["provider"], "provider")]
     availability = composition["availability"]["models"]
     for key in keys:
         if key in availability:
@@ -268,6 +270,13 @@ def _check_new_entry_policy(docs: dict[str, Any], draft: dict[str, Any]) -> None
         for slot in composition["slots"]:
             if slot["model"] == key:
                 raise DevError(f"new model {key!r} must not be slotted or preferred")
+    providers_availability = composition["availability"]["providers"]
+    for provider_id in provider_ids:
+        if provider_id in providers_availability:
+            raise DevError(
+                f"new provider {provider_id!r} must not appear in any composition; "
+                "it is New · Off"
+            )
 
 
 # ------------------------------------------------------------ repo verify

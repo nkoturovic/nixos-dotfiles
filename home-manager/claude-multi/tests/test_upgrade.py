@@ -80,6 +80,11 @@ class UpgradeTestCase(unittest.TestCase):
         )
         return product
 
+    def _runner(self, returncode: int, out: str = "Ran 42 tests"):
+        def run(*args, **kwargs):
+            return subprocess.CompletedProcess(args[0], returncode, out, "")
+        return run
+
 
 class InspectCandidateTests(UpgradeTestCase):
     def test_inspects_a_valid_artifact(self) -> None:
@@ -143,10 +148,6 @@ class RenderContractTests(UpgradeTestCase):
 
 
 class RunUpgradeTests(UpgradeTestCase):
-    def _runner(self, returncode: int, out: str = "Ran 42 tests"):
-        def run(*args, **kwargs):
-            return subprocess.CompletedProcess(args[0], returncode, out, "")
-        return run
 
     def test_override_written_and_repo_promoted(self) -> None:
         product = self._product_tree()
@@ -216,3 +217,42 @@ class RunUpgradeTests(UpgradeTestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+class CurrentCleanupTests(UpgradeTestCase):
+    def test_current_run_removes_a_redundant_override(self) -> None:
+        self.new.unlink()  # nothing newer than the pin
+        product = self._product_tree()
+        override_path = self.root / "config" / "native-contract.json"
+        state.ensure_private_dir(override_path.parent)
+        state.atomic_write(override_path, b"{}\n")
+        outcome = upgrade.run_upgrade(
+            checkout_root=product,
+            native_contract=self.contract,
+            override_path=override_path,
+            today="2026-07-24",
+            runner=self._runner(0),
+        )
+        self.assertEqual(outcome.kind, "current")
+        self.assertFalse(override_path.exists())
+        self.assertTrue(any("removed redundant" in m for m in outcome.messages))
+
+    def test_activate_uses_the_repo_root_as_flake_target(self) -> None:
+        product = self._product_tree()
+        calls: list[list[str]] = []
+
+        def recording_runner(args, **kwargs):
+            calls.append(list(args))
+            return subprocess.CompletedProcess(args, 0, "Ran 42 tests", "")
+
+        outcome = upgrade.run_upgrade(
+            checkout_root=product,
+            native_contract=self.contract,
+            override_path=self.root / "config" / "native-contract.json",
+            today="2026-07-24",
+            runner=recording_runner,
+            activate=True,
+        )
+        self.assertEqual(outcome.kind, "activated")
+        hm = calls[-1]
+        self.assertEqual(hm[:3], ["home-manager", "switch", "--flake"])
+        self.assertEqual(hm[3], str(self.root / "repo") + "#kotur")

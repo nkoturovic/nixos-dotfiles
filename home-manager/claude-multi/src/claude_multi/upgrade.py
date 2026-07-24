@@ -200,13 +200,20 @@ def run_upgrade(
 
     candidate = find_candidate(native_contract)
     if candidate is None:
+        messages = [
+            f"pinned Claude {native_contract['claude']['validated_version']} "
+            "is the newest installed artifact; nothing to re-pin."
+        ]
+        if os.path.lexists(override_path):
+            # The packaged baseline caught up: the override is redundant now.
+            # Remove it rather than leaving a stale attention line forever.
+            state.remove_private(override_path)
+            messages.append(
+                f"removed redundant contract override {override_path} "
+                "(the packaged contract is current)"
+            )
         return UpgradeOutcome(
-            kind="current",
-            inspection=None,
-            messages=(
-                f"pinned Claude {native_contract['claude']['validated_version']} "
-                "is the newest installed artifact; nothing to re-pin.",
-            ),
+            kind="current", inspection=None, messages=tuple(messages)
         )
     inspection = inspect_candidate(candidate)
     product_root = Path(checkout_root)
@@ -288,7 +295,7 @@ def run_upgrade(
             kind="prepared", inspection=inspection, messages=tuple(messages)
         )
     switch = runner(
-        ["home-manager", "switch", "--flake", flake_target or str(checkout_root.parents[2]) + "#kotur"],
+        ["home-manager", "switch", "--flake", flake_target or str(checkout_root.parents[1]) + "#kotur"],
         capture_output=True,
         text=True,
         timeout=1800,
