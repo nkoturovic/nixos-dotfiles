@@ -2108,6 +2108,39 @@ class DoctorVisibilityTests(CLITestCase):
         self.assertIn("FAILED", output)
         self.assertIn("unreadable", output)
 
+    def test_repair_all_continues_past_a_broken_record(self) -> None:
+        # One record whose composition no longer resolves against the
+        # installed catalog must not abort the pass: it is reported as a
+        # failure (exit 1) while every other session is still repaired.
+        record = self.save_session(mode="durable", scope_generation=1)
+        self._write_scope(FIXED_ID)
+        poisoned = self.runtime.session_store.load(FIXED_ID)
+        poisoned["snapshot"]["lead"] = {
+            **poisoned["snapshot"]["lead"],
+            "model": "no-such-model",
+        }
+        poisoned["snapshot"]["variants"] = []
+        self.runtime.session_store.save(poisoned)
+        healthy = sessions.make_ordinary_record(
+            managed_id=OTHER_ID,
+            runtime_session_id=OTHER_ID,
+            cwd=self.runtime.cwd,
+            model="qwen38",
+            context_profile="large",
+            catalog_version=self.runtime.catalog_version,
+            catalog_hash=self.runtime.catalog.bundle_sha256,
+            launcher_version=self.runtime.launcher_version,
+        )
+        self.runtime.session_store.save(healthy)
+        code, output = self.run_cli(["doctor", "--repair-all"])
+        self.assertEqual(code, 1)
+        self.assertIn("FAILED", output)
+        self.assertIn(FIXED_ID, output)
+        # The healthy ordinary session was still converged.
+        live = scope_mod.scope_dir(self.runtime.session_store.root, OTHER_ID)
+        self.assertTrue(live.is_dir())
+        self.assertIn("1 durable session(s) converged", output)
+
     def test_repair_all_handles_ordinary_records(self) -> None:
         record = sessions.make_ordinary_record(
             managed_id=FIXED_ID,

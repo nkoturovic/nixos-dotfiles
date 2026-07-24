@@ -3362,7 +3362,16 @@ def handle_command(
                 cwd=repaired_cwd,
             )
             if updated.get("mode") == "durable":
-                _doctor_repair(runtime, stable_id, io.StringIO())
+                try:
+                    _doctor_repair(runtime, stable_id, io.StringIO())
+                except CLIError as exc:
+                    output_stream.write(
+                        f"Reconciled managed {stable_id} to runtime "
+                        f"{updated['runtime_session_id']}, but scope reconverge "
+                        f"failed: {tui.visible_message(exc)}; run "
+                        f"`claude-multi doctor --repair {stable_id}`\n"
+                    )
+                    return 1
             output_stream.write(
                 f"Reconciled managed {stable_id} to runtime "
                 f"{updated['runtime_session_id']} at CWD {updated['cwd']}.\n"
@@ -3740,7 +3749,7 @@ def _doctor_scope_report(runtime: Runtime) -> tuple[list[str], list[str], list[s
             ]
             if "auto_compact_window_tokens" not in snapshot:
                 missing_context.append("auto_compact_window_tokens")
-            if missing_context:
+            if missing_context and record["mode"] == "durable":
                 attention.append(
                     f"session {sessions.managed_id(record)} has a legacy context "
                     f"snapshot missing {', '.join(missing_context)}; "
@@ -3946,7 +3955,13 @@ def _doctor_repair_all(runtime: Runtime, output_stream: TextIO) -> int:
                 stable_id,
                 runtime.catalog,
             )
-        except (transition.TransitionError, sessions.SessionError) as exc:
+        except (
+            transition.TransitionError,
+            sessions.SessionError,
+            composition.CompositionError,
+            scope_mod.ScopeError,
+            state.StateError,
+        ) as exc:
             failures.append(f"{stable_id}: {exc}")
             continue
         repaired += 1
@@ -4087,6 +4102,11 @@ _STDOUT_REPORT_COMMANDS = frozenset(
         ("session-event", None),
         ("compose", "list"),
         ("compose", "show"),
+        ("compose", "delete"),
+        ("compose", "duplicate"),
+        ("compose", "rename"),
+        ("compose", "restore-default"),
+        ("compose", "use-as-template"),
         ("sessions", "list"),
         ("sessions", "show"),
         ("sessions", "forget"),
@@ -4099,6 +4119,9 @@ _STDOUT_REPORT_COMMANDS = frozenset(
 def _report_output_stream(args: argparse.Namespace, tty_stream: TextIO, std_stream: TextIO) -> TextIO:
     """stdout for report commands; the tty stream for interactive ones."""
 
+    if args.command == "direct" and getattr(args, "print_launch", False):
+        # --print-launch is a pure report even on the interactive direct path.
+        return std_stream
     sub = getattr(args, "compose_command", None) or getattr(
         args, "sessions_command", None
     )
@@ -4182,7 +4205,7 @@ def main(
                     return 0
                 except (curses.error, OSError):
                     pass
-            _print_sessions_listing(runtime, tty_output)
+            _print_sessions_listing(runtime, output_stream or output)
             return 0
 
         if args.resume:
@@ -4236,7 +4259,7 @@ def main(
                 session_id=sessions.managed_id(plan.record) if plan.record else None,
                 legacy_requested=plan.legacy_requested,
             )
-            _print_launch_plan(prepared, tty_output)
+            _print_launch_plan(prepared, output_stream or output)
             return 0
 
         if not interactive:

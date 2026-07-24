@@ -553,10 +553,10 @@ def perform_launch(
     # concurrent launcher operating on the same UUID (finisher finding). The
     # existence guards and the pre-launch byte captures run INSIDE the lock
     # (audit L1): authority sampled before the lock is stale the moment a
-    # concurrent attempt commits. The lock is released BEFORE execve so the
-    # lock fd never leaks into the Claude process; the OSError cleanup
-    # re-acquires it and restores via compare-and-swap on the exact record
-    # bytes this launch wrote, so a newer launch always wins.
+    # concurrent attempt commits. The lock fd is O_CLOEXEC, so a successful
+    # execve closes it inside the Claude process; the OSError cleanup still
+    # holds it and restores via compare-and-swap on the exact record bytes
+    # this launch wrote, so a newer launch always wins.
     scope_written = False
     committed_bytes: bytes | None = None
     committed_token: str | None = None
@@ -753,7 +753,10 @@ def perform_launch(
                 elif current_bytes != pre_existing:
                     # Unknown authority: do not guess at rollback ownership.
                     raise
-                if durable:
+                if durable and scope_written:
+                    # Only converge the scope when this attempt actually
+                    # rewrote it (mirrors the execve-failure path); a failure
+                    # before the scope write leaves the valid scope untouched.
                     _resume_failure_scope(
                         store, stable_id, pre_existing, result, trusted, environ
                     )

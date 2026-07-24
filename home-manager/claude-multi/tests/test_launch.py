@@ -1324,6 +1324,68 @@ class LifecycleCleanupTests(LaunchTestCase):
         self.assertEqual(self.store.read_pointer_bytes(str(self.project)), pointer_bytes)
         self.assertEqual(self.store.last(str(self.project)), FIXED_ID)
 
+    def _precommitted_prior(self, epoch: int, token: str) -> dict:
+        record = self._durable_prior()
+        updated = {
+            **self.store.load(FIXED_ID),
+            "launch_epoch": epoch,
+            "mutation_token": token,
+        }
+        self.store.save(updated)
+        return updated
+
+    def test_precommitted_epoch_guard_accepts_transition_committed_record(self) -> None:
+        # The transition relaunch path (precommitted=True): the record was
+        # already advanced by the transition engine, so the prepared record's
+        # epoch must equal the on-disk epoch — not epoch+1.
+        token = "33333333-3333-4333-8333-333333333333"
+        prior = self._precommitted_prior(epoch=2, token=token)
+        result = self._compile_durable_resume(
+            self.resolved, self.snapshot, launch_epoch=2
+        )
+        prepared_record = {**prior, "mutation_token": sessions.new_mutation_token()}
+        outcome = self._perform(
+            result,
+            prepared_record,
+            lambda *_args: "EXECUTED",
+            expected_launch_epoch=2,
+            expected_mutation_token=token,
+            precommitted=True,
+        )
+        self.assertEqual(outcome, "EXECUTED")
+
+    def test_precommitted_epoch_guard_aborts_when_hook_advanced_record(self) -> None:
+        # A lifecycle observation landing between the transition commit and
+        # the relaunch must abort the launch without touching state.
+        token = "33333333-3333-4333-8333-333333333333"
+        prior = self._precommitted_prior(epoch=2, token=token)
+        result = self._compile_durable_resume(
+            self.resolved, self.snapshot, launch_epoch=2
+        )
+        prepared_record = {**prior, "mutation_token": sessions.new_mutation_token()}
+        self.store.reconcile_runtime(
+            FIXED_ID,
+            observed_runtime_id=OTHER_ID,
+            source="compact",
+            cwd=str(self.project),
+            launch_epoch=3,
+            now="2026-07-22T00:00:00Z",
+        )
+        newer_bytes = self.store.read_record_bytes(FIXED_ID)
+        with self.assertRaisesRegex(
+            launch.LaunchError, "authority changed after preparation"
+        ):
+            self._perform(
+                result,
+                prepared_record,
+                lambda *_args: "EXECUTED",
+                expected_launch_epoch=2,
+                expected_mutation_token=token,
+                precommitted=True,
+            )
+        self.assertEqual(self.store.read_record_bytes(FIXED_ID), newer_bytes)
+        self.assertFalse(self._scope_dir().exists())
+
     def test_benign_lifecycle_update_is_carried_into_launch_commit(self) -> None:
         prepared_record = self._durable_prior()
         result = self._compile_durable_resume(self.resolved, self.snapshot)

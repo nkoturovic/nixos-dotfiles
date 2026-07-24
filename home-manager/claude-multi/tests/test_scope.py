@@ -692,6 +692,14 @@ class HookShimTests(unittest.TestCase):
         shim_body = scope.hook_shim_path(self.root).read_text()
         self.assertIn("/nix/store/gen96/bin/claude-multi", shim_body)
 
+    def test_shim_repairs_a_lost_exec_bit(self) -> None:
+        # Crash-window: atomic_write leaves 0600 before chmod; the next
+        # ensure must restore 0700 even when the content is unchanged.
+        path = scope.ensure_hook_shim(self.root, "/nix/store/a/bin/claude-multi")
+        os.chmod(path, 0o600)
+        scope.ensure_hook_shim(self.root, "/nix/store/a/bin/claude-multi")
+        self.assertEqual(stat.S_IMODE(os.lstat(path).st_mode), 0o700)
+
 
 class ManagedCompactionPinTests(unittest.TestCase):
     def test_managed_scope_pins_auto_compact_on(self) -> None:

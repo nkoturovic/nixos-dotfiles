@@ -917,9 +917,15 @@ def converge(
             # (context fields, selectors) into the record. The composition
             # itself can never change here — refresh_record_snapshot fails
             # closed on any slot/lead difference (that is a transition).
-            resolved = composition.resolve(
-                trusted.docs, _document_from_record(record)
-            )
+            try:
+                resolved = composition.resolve(
+                    trusted.docs, _document_from_record(record)
+                )
+            except composition.CompositionError as exc:
+                raise TransitionError(
+                    f"record composition no longer resolves against the "
+                    f"installed catalog: {exc}"
+                ) from exc
             fresh_snapshot = composition.snapshot(resolved)
             if fresh_snapshot != record["snapshot"]:
                 version_doc = trusted.docs["version"]

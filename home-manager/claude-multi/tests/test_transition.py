@@ -1164,3 +1164,40 @@ class SessionSentinelEnvTests(TransitionTestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class OrdinaryTransitionRefusalTests(TransitionTestCase):
+    """Ordinary gateway sessions have no composition to transition."""
+
+    def _ordinary_record(self) -> dict:
+        record = sessions.make_ordinary_record(
+            managed_id=FIXED_ID,
+            runtime_session_id=FIXED_ID,
+            cwd=str(self.project),
+            model="qwen38",
+            context_profile="large",
+            catalog_version=self.bundle.docs["version"]["catalog_version"],
+            catalog_hash=self.bundle.bundle_sha256,
+            launcher_version=self.bundle.docs["version"]["launcher_version"],
+        )
+        self.store.save(record)
+        return record
+
+    def test_prepare_refuses_ordinary_records(self) -> None:
+        self._ordinary_record()
+        with self.assertRaisesRegex(
+            transition.TransitionError, "no composition to transition"
+        ):
+            transition.prepare(
+                self.store, FIXED_ID, self.bundle.default_composition, self.bundle
+            )
+
+    def test_converge_repairs_ordinary_scope(self) -> None:
+        self._ordinary_record()
+        report = transition.converge(self.store.root, self.store, FIXED_ID, self.bundle)
+        self.assertTrue(any("authoritative" in line for line in report))
+        live = scope.scope_dir(self.store.root, FIXED_ID)
+        settings = strict_json.load(live / "settings.json")
+        self.assertIn("availableModels", settings)
+        self.assertNotIn("permissions", settings)
+        self.assertEqual(settings["env"]["CLAUDE_MULTI_MANAGED_ID"], FIXED_ID)

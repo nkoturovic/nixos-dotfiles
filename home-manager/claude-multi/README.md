@@ -25,8 +25,11 @@ documented carry-through set for backgrounded/respawned sessions.
   contain only a context-compatible model picker and lifecycle hooks. A
   synchronous metadata-only `SessionStart` hook reconciles Claude's actual
   runtime UUID after startup/resume/clear/compact; `SessionEnd` is advisory.
-  Atomic sibling staging keeps every scope re-derivable from its record and
-  the installed catalog.
+  Hook commands never embed a package path: scopes invoke the stable
+  `<state>/bin/claude-multi-hook` shim (refreshed by every launcher run;
+  prefers the resolved launcher, falls back to PATH), so scope bytes survive
+  package rebuilds and garbage collection. Atomic sibling staging keeps every
+  scope re-derivable from its record and the installed catalog.
 - **Session identity** (`sessions.py`): schema-v3 records separate stable
   `managed_id` (record/scope/pointer key) from authoritative
   `runtime_session_id` (the UUID passed to native `--resume`). Historical
@@ -91,7 +94,10 @@ claude-multi sessions relink-runtime MANAGED_ID RUNTIME_ID [--cwd PATH]
 claude-multi sessions transition UUID --composition NAME
                                       diff + exited-confirm + exact-resume relaunch
 claude-multi doctor                   binary/gateway/scope/collision checks
+                                      (BLOCKED = real damage; Attention = lazy upgrades)
 claude-multi doctor --repair UUID     reconverge a session scope to record authority
+claude-multi doctor --repair-all      converge every durable session + refresh
+                                      record snapshots against the installed catalog
 claude-multi doctor --prune           remove stale scope generations/staging
 claude-multi-dev check|review|promote developer onboarding (no provider calls)
 claude-multi-proxy init|status|run    gateway control (loopback only)

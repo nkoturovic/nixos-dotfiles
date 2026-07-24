@@ -157,6 +157,10 @@ def ensure_hook_shim(state_root: Path | str, resolved_command: str) -> Path:
         current = None
     if current != content:
         state.atomic_write(path, content)
+    # Repair the mode unconditionally: a crash between the atomic write and
+    # the chmod must never leave a permanently non-executable shim (content
+    # matches, so the write above would be skipped and hooks would EACCES).
+    if stat.S_IMODE(os.lstat(path).st_mode) != 0o700:
         os.chmod(path, 0o700)
     return path
 
