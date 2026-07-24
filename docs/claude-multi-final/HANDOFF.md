@@ -45,14 +45,14 @@ untouched; `claude-gateway` is the ordinary non-composition entrypoint.
 
 ## Installed state (2026-07-24)
 
-- claude-multi **2.3.0** active (HM generation 97; rollback: gen 96).
-- `claude-multi doctor` → **Ready**; 16 resumable sessions (15 durable + 1
-  legacy `9bc5fd42` — resume it to upgrade, or forget it).
-- The 2026-07-24 repair + hygiene are complete (backup at
-  `/tmp/cm-live-backup-20260724-110010`); HM gen-95's link was removed
-  (pure disk hygiene; its store path remains until routine GC).
+- claude-multi **2.4.0** active (HM generation 98; rollback: gen 97).
+- `claude-multi doctor` → **Ready with zero Attention lines**; 15 sessions
+  (all durable, zero legacy); binary pinned at 2.1.218 and symlink-matched.
+- Claude updates are routine: doctor Attention on drift →
+  `claude-multi update` (instant effect via the operator override;
+  `--activate` for the baseline refresh).
 - Full evidence and census: the current checkpoint's
-  [`handoff/state-snapshot.md`](checkpoints/2026-07-24-v2.3.0/handoff/state-snapshot.md).
+  [`handoff/state-snapshot.md`](checkpoints/2026-07-24-v2.4.0/handoff/state-snapshot.md).
 
 ## Composition: qwen-sol
 

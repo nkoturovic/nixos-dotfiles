@@ -1,5 +1,25 @@
 # STATUS — live tracker
 
+## 2026-07-24 — v2.4.0 ACTIVATED: fully clean baseline (gen 98)
+
+- **Activated:** HM generation 98; profile package
+  `/nix/store/01m7jfsk17cgil2iklk01jbwjna05i5i-claude-multi-2.4.0`;
+  entrypoints report 2.4.0; gateway restarted cleanly (healthz 200).
+- **Doctor is fully clean:** Ready with **zero** Attention lines —
+  `Managed Claude 2.1.218 verified`, symlink resolves to the inspected
+  artifact, **15 sessions · 15 durable · 0 legacy**, no override present.
+- **Final review fixes landed pre-activation:** `update` removes redundant
+  overrides, `update --activate` targets the correct flake root, New · Off
+  covers the provider id; **1,189 host tests green**, package + sandbox
+  green.
+- **TUI conventions live:** Esc-only exits and the uniform column-2 margin
+  verified via PTY on the card, sessions screen, and editor.
+- **Second checkpoint created:** `checkpoints/2026-07-24-v2.4.0/` (entry
+  point, state snapshot, open items); the v2.3.0 checkpoint is superseded.
+- The update loop is now routine: doctor Attention on drift →
+  `claude-multi update` (inspect → promote → full suite → override,
+  instant effect; `--activate` for baseline refresh).
+
 ## 2026-07-24 — v2.4.0: re-pin to 2.1.218 + layered contract + `claude-multi update` (working tree)
 
 - **Managed binary re-pinned to 2.1.218** (contract + version pins + docs):
