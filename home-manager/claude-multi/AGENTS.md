@@ -107,7 +107,8 @@ Two modes:
 | `launch.py` | verify→readiness→state→execve | full-hash binary check every launch; CAS cleanup; `precommitted` epoch rule for transition relaunches |
 | `transition.py` | diff, generation swap, converge | record loaded inside the lock; `converge()` = doctor repair (managed+ordinary, refresh+recompile); convert resolve failures to `TransitionError` |
 | `cli.py` | commands, TUI screens, Runtime, doctor | Runtime init refreshes the hook shim; report commands write to stdout (`_STDOUT_REPORT_COMMANDS`), interactive flows to the tty |
-| `tui.py` | curses widget layer | every external string through `visible_text`; `read_key` does not re-merge Alt+chords (ncurses splits them by design) |
+| `upgrade.py` | evidence-gated re-pin (`update`) | detect → offline inspect → promote → suite → override; byte-exact restore on any failure |
+| `tui.py` | curses widget layer | every external string through `visible_text`; `read_key` does not re-merge Alt+chords (ncurses splits them by design); Esc is the only exit key; uniform col-2 margin |
 | `catalog.py` | trusted JSON load + validate | closed schemas; `version.json` single source of version |
 | `render.py` | gateway YAML | secrets resolve only at runtime into mode-0600 artifacts |
 | `proxy.py` | gateway process control | loopback only; token file 0600 |
