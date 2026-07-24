@@ -229,4 +229,6 @@ git diff --check
   misalign tables (cosmetic; escape injection is sanitized separately).
 - **`--legacy`** is a compatibility hatch, not a durability answer; legacy
   (v1) records upgrade on resume. Do not extend it.
-- **2.1.218 re-pin** and **Qwen preview→production**: see §5.
+- **Qwen preview→production**: when `qwen3.8-max` ships, follow DECISIONS
+  D21 (wire_model → context re-verify → effort tiers → one live call →
+  drop "· Preview").

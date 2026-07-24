@@ -256,8 +256,11 @@ def _check_new_entry_policy(docs: dict[str, Any], draft: dict[str, Any]) -> None
 
     composition = docs["compositions/default"]
     if draft["kind"] == "model":
-        key = _entry_id(draft["entry"], "model")
-        availability = composition["availability"]["models"]
+        keys = [_entry_id(draft["entry"], "model")]
+    else:
+        keys = [_entry_id(draft["entry"]["model"], "model")]
+    availability = composition["availability"]["models"]
+    for key in keys:
         if key in availability:
             raise DevError(
                 f"new model {key!r} must not appear in any composition; it is New · Off"
