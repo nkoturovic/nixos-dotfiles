@@ -1,7 +1,10 @@
 # STATUS — live tracker
 
-## 2026-07-24 — v2.4.1: TUI health/update surface + CLIProxy review + final hardening
+## 2026-07-24 — v2.4.1 ACTIVATED (gen 99): TUI health/update surface + CLIProxy review + final hardening
 
+- **Activated:** HM generation 99; `claude-multi`/`claude-gateway` report
+  2.4.1; gateway restarted cleanly (healthz 200); hook shim targets the
+  activated package; doctor Ready with zero Attention lines.
 - **TUI health/update surface (the notification answer):** the quick-confirm
   card now shows a **health strip** (gateway status from one loopback check
   per open, plus pin state incl. operator-override marker) and, when a newer
