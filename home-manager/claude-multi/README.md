@@ -1,4 +1,4 @@
-# claude-multi v2.2
+# claude-multi v2.3
 
 First-class multi-model integration for Claude Code. Managed composition
 sessions compile durable `cm-*` agents and policy; ordinary gateway sessions
@@ -6,6 +6,10 @@ use the same local model transport without inheriting a composition. Both use
 per-session settings under `~/.local/state/claude-multi/scopes/<managed-id>/`
 and then `execve` ordinary Claude Code. No scheduler, wrapper daemon, or
 per-turn interception remains.
+
+**Using it?** Start with [`USAGE.md`](USAGE.md) (simple guide, use cases,
+FAQ). **Developing it?** Start with [`AGENTS.md`](AGENTS.md) (architecture,
+invariants, workflow, rules).
 
 **Why files, not argv:** CLI `--agents` JSON exists only for the launching
 session and is never saved to disk. When the shared Claude supervisor

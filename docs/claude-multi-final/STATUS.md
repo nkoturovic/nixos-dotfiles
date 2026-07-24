@@ -1,5 +1,31 @@
 # STATUS — live tracker
 
+## 2026-07-24 — Documentation package + design sanity assessment
+
+- **AGENTS.md** (product root): full agent-facing development guide —
+  architecture, the 10 doctrine invariants, module contract map, workflow
+  (test/bless/build/sandbox), how-to-change recipes, rules of engagement,
+  debugging tools, known limitations.
+- **USAGE.md** (product root): the simple human guide — the three
+  entrypoints, daily flows (launch/resume/picker/transition/adopt/forget),
+  doctor tiers, six supported use cases, FAQ/troubleshooting.
+- **SANITY.md** (design package): the full design assessment — Q1–Q13 with
+  evidence. Verdict: sound design, correctly implemented after 2.3.0;
+  reservations named (cli.py/probe.py concentration, honor-based exited gate,
+  hook-delivery invisibility, wide-char TUI math). Includes the 2026-07-24
+  live-transition case study (honor gate violated; state converged correctly
+  by construction).
+- **HM generation 95 resolved:** the generation link was removed
+  (`home-manager remove-generations 95`); gen-96 (2.2.0 rollback) and gen-97
+  (2.3.0) remain. The 7qisrz store path stays on disk until the user's next
+  routine GC, so the running a24fc875 session's start-time hooks keep working
+  until it exits; even past GC the cost is one advisory SessionEnd miss.
+  Nothing else depended on gen-95.
+- Also in this pass: prune rule extended to orphaned pre-2.2 digest-only lead
+  prompts (a9b2842), and my own session was observed mid-flight being
+  transitioned from another terminal — the record/scope converged correctly
+  with zero repair (documented as the SANITY case study).
+
 ## 2026-07-24 — v2.3.0 lifecycle hardening: stable hook shim, repair-all, session UX (working tree)
 
 Independent audit (12 parallel lanes over the uncommitted v2.2 tree plus the

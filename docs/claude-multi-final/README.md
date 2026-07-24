@@ -43,6 +43,13 @@ else is a displayed residual, never a silent guarantee.**
 | [MIGRATION-ROLLBACK.md](MIGRATION-ROLLBACK.md) | Legacy sessions, working-tree reconciliation, HM generations, transcript safety |
 | [DECISIONS.md](DECISIONS.md) | Every decision with evidence and alternatives rejected; user decision summary |
 | [STATUS.md](STATUS.md) | Live milestone/evidence tracker |
+| [SANITY.md](SANITY.md) | Design assessment (Q1–Q13): is the design sound? Verdict + named reservations + case studies |
+
+For daily use and development, the product docs are now canonical:
+[`home-manager/claude-multi/USAGE.md`](../../home-manager/claude-multi/USAGE.md)
+(simple guide) and
+[`home-manager/claude-multi/AGENTS.md`](../../home-manager/claude-multi/AGENTS.md)
+(development guide).
 
 ## Hard rules inherited from the handoff (unchanged)
 

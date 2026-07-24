@@ -1,0 +1,154 @@
+# claude-multi — user guide
+
+**What it is:** a small launcher that starts Claude Code sessions with a
+chosen **composition** — one lead model plus a team of generated helper
+agents (`cm-*`) that can use *other* models — and keeps that setup **durable**:
+your agent team survives restarts, upgrades, and background takeovers because
+it lives in per-session files instead of a one-time command line.
+
+**What it is not:** it never changes plain `claude`. Your normal Claude Code
+install, settings, and transcripts stay exactly as they were.
+
+## The three tools
+
+| Command | What it does |
+| --- | --- |
+| `claude-multi` | Start/resume a **managed composition** session (lead + `cm-*` team) |
+| `claude-gateway` | Start/resume an **ordinary** session through the local model gateway — normal Claude Code, native `/model`, no agent team |
+| `claude-multi direct` | Same as `claude-gateway`, explicit form |
+
+## Daily use
+
+### Start a session
+
+```bash
+claude-multi
+```
+
+A card shows the composition (lead, team, policy, context). Then:
+
+- **Enter** — launch
+- **Tab / P** — cycle presets (`default`, `kimi-sol`, `qwen-sol`, `sol-direct`)
+- **W** — toggle workflows on/off
+- **E** — edit the composition (form editor; `?` explains each field)
+- **S** — open the sessions picker
+- **Q** — cancel
+
+Non-interactive (scripts): `claude-multi --composition kimi-sol`.
+
+### Resume
+
+```bash
+claude-multi -c                 # continue the last session in this directory
+claude-multi -r <uuid>          # resume an exact session
+claude-multi -r cm:kimi-sol     # resume by composition name (if unique)
+claude-multi -r                 # open the picker (managed + native sessions)
+```
+
+Resume re-opens the **same transcript** with the **same composition** — the
+recorded intent is re-compiled fresh, so repairs and catalog updates apply
+automatically.
+
+### The sessions screen (`claude-multi -r` or **S**)
+
+Managed sessions on top, plain-Claude (native) sessions below. Keys:
+
+- **R** resume · **T** switch composition · **F** forget · **L** adopt a
+  native session · **C** filter to this directory · **?** help · **Q** quit
+
+### Change a session's composition (transition)
+
+```bash
+claude-multi sessions transition <uuid> --composition qwen-sol
+```
+
+Shows a semantic diff (what changes), asks you to confirm the session has
+**exited**, then relaunches with the exact same transcript under the new
+composition. Model/agent/effort/workflow changes all go through this — the
+managed `/model` menu is fenced to the lead on purpose.
+
+### Ordinary gateway sessions
+
+```bash
+claude-gateway                       # ordinary session, default model (sol)
+claude-gateway --model qwen38        # pick a model
+claude-gateway -c                    # continue
+claude-gateway -r <uuid>             # resume
+claude-gateway -r <uuid> --model sol # explicit cross-profile relaunch
+```
+
+Native `/model` works inside one safe context profile; switching profiles is
+an explicit relaunch (a note reminds you the old process must have exited).
+
+### Adopt an existing plain-Claude session
+
+```bash
+claude-multi sessions link <uuid> --composition kimi-sol
+# or press L on it in the sessions screen
+```
+
+The session becomes managed (new stable ID; transcript untouched).
+
+### Housekeeping
+
+```bash
+claude-multi doctor              # health: Ready, Attention (lazy upgrades), or BLOCKED (real damage)
+claude-multi doctor --repair-all # converge every session's files to its record (the older-session answer)
+claude-multi doctor --prune      # sweep stale generated files (never transcripts)
+claude-multi sessions forget <uuid>  # delete a session's record + generated files (never the transcript)
+```
+
+`Attention` lines always name the exact fix command. `BLOCKED` means
+something is actually broken and says what.
+
+## Supported use cases
+
+1. **Multi-model delegation** — a Kimi/Qwen/Fable lead with Sol/GPT analysts,
+   implementers, and independent reviewers (`kimi-sol`, `qwen-sol`, `default`
+   presets). Cross-family review is enforced by the generated rules.
+2. **Durable agent teams** — agent definitions are per-session files, so they
+   survive Claude restarts, version upgrades, and supervisor takeovers (the
+   original failure this project exists to fix).
+3. **Safe single-model sessions** — `claude-gateway` gives ordinary Claude
+   Code a gateway transport and a context-safe `/model` profile without any
+   composition machinery.
+4. **Mid-session composition changes** — transition keeps the transcript,
+   swaps the team (diff first, exited-confirm, exact resume).
+5. **Bringing existing sessions under management** — adopt native sessions
+   from the picker; repair identity drift with `sessions relink-runtime`.
+6. **Session hygiene at scale** — `doctor` shows every session's state;
+   `--repair-all` converges all of them in one pass; `--prune` and `forget`
+   clean up (never transcripts).
+
+## FAQ / troubleshooting
+
+- **`doctor` says BLOCKED** — read the lines: each names the session and the
+  fix (usually `claude-multi doctor --repair-all`). `Attention` is not damage.
+- **Resume says "session doesn't exist"** — Claude finds transcripts by their
+  original directory; resume from the session's recorded cwd (the launcher
+  does this for you; adopted sessions record it at link time).
+- **"observed an unsafe model/profile change"** — the session ran under a
+  different model than recorded (e.g. a `/model` change). Relaunch explicitly:
+  `claude-gateway -r <uuid> --model <recorded>` or transition for managed.
+- **Where are my transcripts?** — untouched in `~/.claude/projects/…`, always
+  resumable with plain `claude --resume <runtime-uuid>` (`sessions show`
+  prints the runtime UUID). Rollback never deletes them.
+- **Compaction** — managed sessions pin auto-compaction on with documented
+  per-model thresholds (Sol 316,800 · 1M process 882,000 · Qwen 867,254;
+  proactive preparation may occur earlier).
+- **What's running where** — managed/ordinary sessions route through the
+  loopback gateway (`127.0.0.1:8317`, systemd user service `cli-proxy-api`);
+  plain `claude` uses your normal Anthropic auth, untouched.
+- **Rollback** — switch to the previous Home Manager generation; old launchers
+  fail closed on schema-v3 records, and transcripts always stay recoverable.
+
+## Files you might look at
+
+```text
+~/.local/state/claude-multi/      sessions, scopes (generated), pointers, locks
+~/.config/claude-multi/           your compositions, gateway config (secrets — keep private)
+~/.claude/projects/…              transcripts (Claude's own; never touched by the launcher)
+```
+
+Developer documentation (architecture, invariants, how to change things):
+[`AGENTS.md`](AGENTS.md) and [`../../docs/claude-multi-final/`](../../docs/claude-multi-final/README.md).
