@@ -1,0 +1,33 @@
+diff --git a/internal/registry/models/models.json b/internal/registry/models/models.json
+index 1934f8d0..741adc1e 100644
+--- a/internal/registry/models/models.json
++++ b/internal/registry/models/models.json
+@@ -1,5 +1,28 @@
+ {
+   "claude": [
++    {
++      "id": "claude-opus-5",
++      "object": "model",
++      "created": 1784851200,
++      "owned_by": "anthropic",
++      "type": "claude",
++      "display_name": "Claude Opus 5",
++      "description": "Anthropic's strongest cost-efficient Opus-tier model for coding, knowledge work, and long-running agents",
++      "context_length": 1000000,
++      "max_completion_tokens": 128000,
++      "thinking": {
++        "min": 1024,
++        "max": 128000,
++        "zero_allowed": true,
++        "levels": [
++          "low",
++          "medium",
++          "high",
++          "xhigh",
++          "max"
++        ]
++      }
++    },
+     {
+       "id": "claude-haiku-4-5-20251001",
+       "object": "model",

@@ -10,6 +10,7 @@ let
         patches = (oldAttrs.patches or [ ]) ++ [
           ../cli-proxy-api-loopback-oauth.patch
           ../cli-proxy-api-kimi-claude-compat.patch
+          ../cli-proxy-api-opus-5-model.patch
         ];
       });
 
