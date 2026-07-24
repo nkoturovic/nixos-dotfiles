@@ -1,5 +1,31 @@
 # STATUS — live tracker
 
+## 2026-07-24 — Checkpoints, wikis, and the documentation map (self-discovery)
+
+- **Checkpoint system created** (`docs/claude-multi-final/checkpoints/`):
+  convention README + first checkpoint `2026-07-24-v2.3.0/handoff/`
+  (entry point, state snapshot, open items). A fresh agent now starts at the
+  latest checkpoint and needs zero verbal briefing.
+- **Every landing spot wired:** repo root README (projects section), product
+  `AGENTS.md`/`USAGE.md`/`README.md`, design-package README ("Documentation
+  map" — one canonical home per topic + update triggers), `~/.claude/AGENTS.md`
+  (placeholders filled), `~/.agents/wiki/projects/claude.md` (refreshed from
+  stale 2.1.0/gen-91 to 2.3.0/gen-97), `~/.claude/.agents/wiki/` (index/
+  overview/log as routing layers). Product `.agents/` created as a scratch
+  workspace (verified NOT nix-packaged).
+- **Replicability codified:** the maintenance rules are standing rules now —
+  STATUS at milestones, checkpoint at meaningful boundaries, pointers never
+  copies, one canonical home per topic (design README "Documentation map" +
+  AGENTS.md rule 7).
+- **Coherence pass:** HANDOFF.md retitled to daily-ops (dated qwen-sol
+  framing and completed repair steps replaced with current state + pointers);
+  DECISIONS gains D26 (hook shim), D27 (doctor severity + repair-all), D28
+  (managed compaction pin); milestone ledger updated; every Markdown link in
+  the doc set machine-verified resolvable.
+- Evidence: host suite 1,167 green before this docs-only round; sandbox
+  `/nix/store/kqyr9f8ixvgyk6xx8g48rbni61gmcrxd-claude-multi-tests` green
+  with the product `.agents/` present.
+
 ## 2026-07-24 — Documentation package + design sanity assessment
 
 - **AGENTS.md** (product root): full agent-facing development guide —
@@ -470,3 +496,6 @@ workflow `model` override (gpt-multi-sol-xhigh) since cm-* types are gone.
 | M4 | integrated verification | **done** | 978 host + 978 sandbox green; package 2.1.0 builds |
 | M5 | boundary: commit/activation/acceptance | **committed+activated** | gen 77; doctor Ready; acceptance pending user |
 | + | Qwen Cloud integration | **done** | 1006 tests OK; pipeline promote; live call PASSED |
+| + | v2.2 lifecycle identity + ordinary gateway | **done** | schema-v3 two-UUID identity; hooks; gateway mode |
+| + | v2.3.0 hardening + activation | **done** | 1,167 tests OK; gen 97; doctor Ready; review resolved |
+| + | docs + checkpoints + hygiene | **done** | AGENTS/USAGE/SANITY; first checkpoint; 16 sessions |

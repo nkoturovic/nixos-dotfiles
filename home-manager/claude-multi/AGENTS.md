@@ -175,6 +175,14 @@ git diff --check
 6. **Doctor is the truth surface:** real damage must BLOCK; by-design lazy
    state is Attention with the exact fix command. Never demote damage to
    attention, never let lazy state block.
+7. **Keep the map current (replicability rule):** update `STATUS.md` at
+   every milestone before claiming "done"; update `AGENTS.md`/`USAGE.md`
+   with any behavior change; create the next checkpoint
+   (`../../docs/claude-multi-final/checkpoints/`) at every meaningful
+   boundary (activation, architecture change, major integration); keep one
+   canonical home per topic — pointers elsewhere, never copies. The full
+   organizing doctrine is the "Documentation map" in
+   `../../docs/claude-multi-final/README.md`.
 
 ## 7. Debugging tools
 

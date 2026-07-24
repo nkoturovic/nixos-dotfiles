@@ -187,6 +187,42 @@ narrows the shared capacity, so Qwen lowers a 1M process to 983616. Qwen's
 classification only; its provider bound stays 983616 and renderer tests prove
 suffix stripping to the exact wire model.
 
+**D26 — Lifecycle hooks resolve through a stable state-root shim, never a
+package path (2.3.0).** Evidence: the hook command had been computed four
+ways (wrapper path vs inner-script path vs PATH fallback), so two scopes of
+one generation diverged by spelling, every Home Manager rebuild invalidated
+all durable scopes (20 live mismatches), and the inner-script spelling died
+without the wrapper's PYTHONPATH. Compiled scopes therefore embed only
+`<state>/bin/claude-multi-hook`, a shim refreshed by every launcher run
+(prefer-resolved, PATH-fallback, exec-bit repaired unconditionally);
+`scope.resolve_hook_command` is the single authority, and the durable
+compiler fails closed without a hook command. Rejected: canonicalizing to
+`~/.nix-profile` (couples scope bytes to install method; dev checkouts
+diverge), normalizing the path out of the hash (hides genuinely dead hooks),
+PATH-only commands (environment roulette).
+
+**D27 — Doctor separates damage from lazy state, and bulk repair is the
+older-session answer (2.3.0).** BLOCKED = real damage (unreadable records,
+identity repair, missing/mismatched scopes); Attention = by-design lazy
+state (legacy records, legacy context snapshots) with the exact fix command
+and exit 0. `doctor --repair-all` converges every durable record
+(managed+ordinary) under its lifecycle lock, refreshes managed snapshots
+against the installed catalog (`refresh_record_snapshot` fails closed on any
+composition change — that remains a transition), skips legacy records, and
+is failure-isolating per record. Rejected: one severity bucket (the
+2026-07-24 BLOCKED-by-laziness state), requiring 21 interactive resumes
+(unnecessary — refresh is shape-preserving catalog-drift absorption, D3's
+doctrine extended to record metadata).
+
+**D28 — Managed sessions own their compaction switch (2.3.0).** Compiled
+managed settings pin `autoCompactEnabled: true`. Evidence: the user-level
+`autoCompactEnabled: false` silently defeated the documented capacity/trigger
+model (D25) for every managed session — the exact wedge class observed live
+in sol-direct before b07d2d4. `--settings` outranks user settings in Claude
+Code's precedence (verified against current docs). Ordinary gateway scopes
+deliberately leave the user's setting alone (ordinary mode is the user's own
+Claude with a context-safe fence, D23/D24).
+
 ## User decision summary (what you're approving by accepting this design)
 
 1. Selected agents become **real files** in a per-session scope; the failure

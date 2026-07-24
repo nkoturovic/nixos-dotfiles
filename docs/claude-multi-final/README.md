@@ -1,11 +1,37 @@
 # claude-multi — final architecture (active)
 
-Status: **design checkpoint pending** → then implementation.
+Status: **2.3.0 activated** (2026-07-24, HM gen 97; doctor Ready).
 Owner: cm-lead (integration). Started: 2026-07-22.
 
 This folder is the **active** design/implementation package for the claude-multi
 rethink. It replaces the frozen C\* effort
 (`docs/claude-multi-durable-session-config*.md`, historical evidence only).
+
+## Documentation map (where to look for what — and what to update when)
+
+**One canonical home per topic; everything else is a pointer, never a copy.**
+A fresh agent should never need to be told where something is — follow this
+map from any landing spot (repo root README, product `AGENTS.md`/`USAGE.md`,
+`~/.claude/AGENTS.md`, `~/.agents/wiki/projects/claude.md`,
+`~/.claude/.agents/wiki/index.md` — they all route here).
+
+| Topic | Canonical home | Update trigger (standing rule) |
+| --- | --- | --- |
+| **Current state + next work** | [`checkpoints/`](checkpoints/README.md) → latest `handoff/` | New checkpoint at every meaningful boundary: activation, architecture change, major integration, or a state another agent must trust |
+| **Live ledger (what happened when)** | [STATUS.md](STATUS.md) | Append at every milestone — before claiming "done" |
+| **Development guide** | [`../../home-manager/claude-multi/AGENTS.md`](../../home-manager/claude-multi/AGENTS.md) | Any invariant, module contract, workflow, or rule change |
+| **User guide** | [`../../home-manager/claude-multi/USAGE.md`](../../home-manager/claude-multi/USAGE.md) | Any user-visible behavior/command change |
+| **Design assessment** | [SANITY.md](SANITY.md) | Revisit at each checkpoint; record new reservations as found |
+| **Decisions + alternatives** | [DECISIONS.md](DECISIONS.md) | Any D-number added/revised — with evidence, never silently |
+| **Daily operations** | [HANDOFF.md](HANDOFF.md) + USAGE.md | Any operational flow change |
+| **Design specs** | BLUEPRINT, SPEC, TRANSITIONS, UX, VERIFICATION, MIGRATION-ROLLBACK | Rarely; only on architecture-level change |
+| **Wikis** (`~/.agents/wiki/projects/claude.md`, `~/.claude/.agents/wiki/`) | pointers only | Refresh pointers at each checkpoint; never paste canonical content |
+
+Tidiness rules: link by repo-relative path (+commit in checkpoints); delete
+or promote scratch notes (product `.agents/` workspace stays empty);
+keep terminology uniform — *managed composition* vs *ordinary gateway*,
+*BLOCKED* (real damage) vs *Attention* (lazy upgrades), *managed_id* vs
+*runtime_session_id*.
 
 ## The problem in one paragraph
 
@@ -44,6 +70,7 @@ else is a displayed residual, never a silent guarantee.**
 | [DECISIONS.md](DECISIONS.md) | Every decision with evidence and alternatives rejected; user decision summary |
 | [STATUS.md](STATUS.md) | Live milestone/evidence tracker |
 | [SANITY.md](SANITY.md) | Design assessment (Q1–Q13): is the design sound? Verdict + named reservations + case studies |
+| [checkpoints/](checkpoints/README.md) | Point-in-time states with agent handoffs — **the entry point for any fresh agent** |
 
 For daily use and development, the product docs are now canonical:
 [`home-manager/claude-multi/USAGE.md`](../../home-manager/claude-multi/USAGE.md)

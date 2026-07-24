@@ -160,6 +160,17 @@ Be sure that you set correct version of nixpkgs in flake registry (user).
 Global one can't be overrider, it comes from: https://github.com/NixOS/flake-registry
 You can either override system, or user.. This determines which version of nixpkgs is default for flakes
 
+## Projects in this repo
+
+- **claude-multi** — durable multi-model launcher for Claude Code
+  (`home-manager/claude-multi/`). Docs:
+  [`home-manager/claude-multi/AGENTS.md`](home-manager/claude-multi/AGENTS.md)
+  (develop) · [`home-manager/claude-multi/USAGE.md`](home-manager/claude-multi/USAGE.md)
+  (use) · design package + checkpoints in
+  [`docs/claude-multi-final/`](docs/claude-multi-final/README.md).
+  Working on it? Start at the latest checkpoint:
+  [`docs/claude-multi-final/checkpoints/`](docs/claude-multi-final/checkpoints/README.md).
+
 ### Nvidia FAN control software
 
 https://github.com/ZanMax/nvidia-fan-control
