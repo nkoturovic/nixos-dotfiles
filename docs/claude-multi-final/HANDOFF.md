@@ -22,7 +22,10 @@ untouched; `claude-gateway` is the ordinary non-composition entrypoint.
 - `claude-multi` → composition card → **Enter** to launch.
   **Tab/P** cycles presets (`default`, `kimi-sol`, `qwen-sol`, `sol-direct`),
   **W** toggles workflows native/off, **S** opens the sessions picker,
-  **?** explains workflow guarantees, **E** edits the composition.
+  **?** explains workflow guarantees, **E** edits the composition,
+  **H** runs doctor in place, **U** appears when a Claude update is
+  available and re-pins in place. The card's health strip always shows
+  gateway status and the pinned version; **Esc** cancels everywhere.
 - `claude-multi -c` resumes the last managed composition in this directory;
   `-r <managed-id|runtime-id|name>` resolves exactly; bare `-r` opens the
   unified picker (managed + native; **L** adopts, **C** filters by cwd).
@@ -45,14 +48,15 @@ untouched; `claude-gateway` is the ordinary non-composition entrypoint.
 
 ## Installed state (2026-07-24)
 
-- claude-multi **2.4.0** active (HM generation 98; rollback: gen 97).
+- claude-multi **2.4.1** active (HM generation 99; rollback: gen 98).
 - `claude-multi doctor` → **Ready with zero Attention lines**; 15 sessions
-  (all durable, zero legacy); binary pinned at 2.1.218 and symlink-matched.
-- Claude updates are routine: doctor Attention on drift →
-  `claude-multi update` (instant effect via the operator override;
-  `--activate` for the baseline refresh).
+  (all durable, zero legacy); binary pinned at 2.1.218 and symlink-matched;
+  the card shows the health strip and update badge on drift.
+- Claude updates are routine: the card badge or doctor Attention appears →
+  press **U** (or `claude-multi update`) → instant effect via the operator
+  override (`--activate` for the baseline refresh).
 - Full evidence and census: the current checkpoint's
-  [`handoff/state-snapshot.md`](checkpoints/2026-07-24-v2.4.0/handoff/state-snapshot.md).
+  [`handoff/state-snapshot.md`](checkpoints/2026-07-24-v2.4.1/handoff/state-snapshot.md).
 
 ## Composition: qwen-sol
 
@@ -95,10 +99,10 @@ Token Plan `apps/anthropic`, bearer auth, key in
 
 Ordered in the checkpoint: [`checkpoints/2026-07-24-v2.3.0/handoff/open-items.md`](checkpoints/2026-07-24-v2.3.0/handoff/open-items.md).
 
-- **Claude updates are now routine (2.4.0):** the doctor Attention line
-  fires on version drift; `claude-multi update` re-pins with evidence and
-  takes effect instantly (operator contract override). The 2.1.218 re-pin
-  itself lands at the 2.4.0 activation.
+- **Claude updates are now routine (2.4.1):** the card's update badge (or a
+  doctor Attention line) fires on version drift; press **U** or run
+  `claude-multi update` to re-pin with evidence — instant effect via the
+  operator override; `--activate` for the baseline refresh.
 - **U1 takeover watch**: the 2.1.218 supervisor has taken over backgrounded
   managed sessions; observe one post-takeover `cm-*` roster intact (L2).
 - **Qwen preview → production** when `qwen3.8-max` ships (DECISIONS D21).

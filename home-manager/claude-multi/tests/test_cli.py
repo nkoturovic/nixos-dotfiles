@@ -4310,3 +4310,81 @@ class DoctorRepinAttentionTests(CLITestCase):
         self.assertIn("Attention", output)
         self.assertIn("re-pin deliberately", output)
         self.assertNotIn("BLOCKED", output)
+
+class QuickConfirmHealthUpdateTests(CLITestCase):
+    """The card's update badge, health strip, and U/H actions."""
+
+    def _plan(self):
+        return cli.build_quick_plan(
+            self.runtime,
+            self.runtime.compositions.load("default"),
+            action="fresh",
+            source="Trusted default",
+        )
+
+    def _screen(self, keys, **kwargs):
+        from test_tui import FakeWindow
+
+        import io as _io
+
+        screen = cli._QuickConfirmScreen(
+            self.runtime,
+            self._plan(),
+            passthrough=[],
+            palette=cli.tui.MONO_PALETTE,
+            tty_in=_io.StringIO(kwargs.pop("tty_text", "n\n\n")),
+            tty_out=_io.StringIO(),
+            **kwargs,
+        )
+        win = FakeWindow(keys)
+        return screen, win
+
+    def test_update_badge_and_health_row_shown(self) -> None:
+        screen, win = self._screen(
+            ["\x1b"],
+            update_hint=("2.1.218", "2.1.219"),
+            gateway_problem=None,
+            gateway_checked=True,
+        )
+        self.assertIsNone(screen.run(win))
+        text = win.text()
+        self.assertIn("Claude 2.1.219 available · pinned 2.1.218 · press U to update", text)
+        self.assertIn("gateway ok · pin 2.1.218", text)
+        self.assertIn("U update", text)
+        self.assertIn("H health", text)
+
+    def test_gateway_problem_row_is_an_error(self) -> None:
+        screen, win = self._screen(
+            ["\x1b"], gateway_problem="connection refused", gateway_checked=True
+        )
+        self.assertIsNone(screen.run(win))
+        self.assertIn("gateway unreachable", win.text())
+
+    def test_no_health_lines_when_unchecked(self) -> None:
+        screen, win = self._screen(["\x1b"])
+        self.assertIsNone(screen.run(win))
+        text = win.text()
+        self.assertNotIn("gateway ok", text)
+        self.assertNotIn("gateway unreachable", text)
+        self.assertNotIn("available · pinned", text)
+        self.assertNotIn("U update", text)
+
+    def test_u_action_runs_update_and_refreshes(self) -> None:
+        calls = []
+        screen, win = self._screen(
+            ["u", "\x1b"],
+            update_hint=("2.1.218", "2.1.219"),
+            gateway_check=lambda: None,
+            upgrade_runner=lambda: calls.append(1) or ["active now: override pins 2.1.219"],
+            tty_text="\n",
+        )
+        self.assertIsNone(screen.run(win))
+        self.assertEqual(calls, [1])
+        # hint refreshed from the reloaded catalog (no override on disk -> hint clears)
+        self.assertIsNone(screen.update_hint)
+        self.assertTrue(screen.gateway_checked)
+
+    def test_h_action_prints_doctor_and_offers_repair(self) -> None:
+        screen, win = self._screen(["h", "\x1b"], gateway_check=lambda: None, tty_text="n\n\n")
+        self.assertIsNone(screen.run(win))
+        self.assertTrue(screen.gateway_checked)

@@ -321,6 +321,20 @@ class Runtime:
     def launcher_version(self) -> str:
         return self.catalog.docs["version"]["launcher_version"]
 
+    def reload_catalog(self) -> None:
+        """Re-load the catalog after an operator contract override changed.
+
+        `claude-multi update` writes the override and promotes the checkout;
+        without this the running process keeps the stale packaged contract
+        (launch would verify against the old pin). Cheap: the catalog is
+        small and fully re-validated on load.
+        """
+
+        self.catalog = catalog.load_catalog(
+            self.asset_root,
+            contract_override=sessions.config_root(self.environ) / "native-contract.json",
+        )
+
     @property
     def catalog_version(self) -> int:
         return self.catalog.docs["version"]["catalog_version"]
@@ -1092,12 +1106,18 @@ def render_quick_confirm(
     *,
     details: bool = False,
     width: int = 100,
+    update_hint: tuple[str, str] | None = None,
 ) -> str:
     lines = ["claude-multi", ""]
     action = plan.action.title()
     if plan.record is not None:
         action += f" · {sessions.managed_id(plan.record)}"
     lines.append(f"Action         {action}")
+    if update_hint is not None:
+        pinned, available = update_hint
+        lines.append(
+            f"Update         Claude {available} available · pinned {pinned} · U to update"
+        )
     lines.append(
         f"Composition    {tui.visible_text(plan.document.get('name', '<invalid>'))} · {plan.source}"
     )
@@ -1294,7 +1314,7 @@ def _stream_width(stream: TextIO) -> int:
         return 100
 
 
-def quick_footer(plan: QuickPlan) -> tuple[str, ...]:
+def quick_footer(plan: QuickPlan, *, update_hint: tuple[str, str] | None = None) -> tuple[str, ...]:
     """Exact quick-confirm actions for Ready and BLOCKED plans.
 
     R1 P1: managed plans offer no editing and no recorded/current
@@ -1302,11 +1322,12 @@ def quick_footer(plan: QuickPlan) -> tuple[str, ...]:
     composition changes (Enter on BLOCKED shows the transition path).
     """
 
+    update = " · U update" if update_hint is not None else ""
     if plan.record is not None:
         primary = "Enter launch" if plan.ready else "Enter transition hint"
-        return (f"{primary} · D details · S sessions · ? workflows · Q cancel",)
+        return (f"{primary} · D details · S sessions · ? workflows{update} · Q cancel",)
     primary = "Enter launch" if plan.ready else "Enter edit"
-    return (f"{primary} · E edit · D details · S sessions · ? workflows · P preset · W wf on/off · Q cancel",)
+    return (f"{primary} · E edit · D details · S sessions · ? workflows · P preset · W wf on/off{update} · Q cancel",)
 
 
 def validate_quick_passthrough(
@@ -1504,12 +1525,49 @@ class _QuickConfirmScreen:
         *,
         passthrough: list[str],
         palette: tui.Palette,
+        update_hint: tuple[str, str] | None = None,
+        gateway_problem: str | None = None,
+        gateway_checked: bool = False,
+        gateway_check: Any | None = None,
+        upgrade_runner: Any | None = None,
+        tty_in: Any | None = None,
+        tty_out: Any | None = None,
     ):
         self.runtime = runtime
         self.plan = plan
         self.passthrough = passthrough
         self.palette = palette
         self.details = False
+        self.update_hint = update_hint
+        self.gateway_problem = gateway_problem
+        self.gateway_checked = gateway_checked
+        self.gateway_check = gateway_check
+        self.upgrade_runner = upgrade_runner
+        self.tty_in = tty_in if tty_in is not None else sys.stdin
+        self.tty_out = tty_out if tty_out is not None else sys.stdout
+
+    def _gateway_status(self) -> str | None:
+        """Loopback gateway problem line, or None when healthy."""
+
+        if self.gateway_check is not None:
+            return self.gateway_check()
+        try:
+            launch.check_readiness(self.runtime.catalog.docs["gateway"])
+        except launch.LaunchError as exc:
+            return str(exc)
+        except Exception as exc:  # never let a health hint break the card
+            return f"gateway check failed: {exc}"
+        return None
+
+    def _refresh_health(self) -> None:
+        """Recompute pin/gateway state (after an in-TUI update)."""
+
+        self.runtime.reload_catalog()
+        self.update_hint = launch.repin_hint(
+            self.runtime.catalog.docs["native-contract"]
+        )
+        self.gateway_problem = self._gateway_status()
+        self.gateway_checked = True
 
     # -- drawing -----------------------------------------------------------
 
@@ -1598,6 +1656,33 @@ class _QuickConfirmScreen:
         if plan.cross_provider_warning:
             tui.safe_add(win, row, 2, "warning   ", palette.attr("warn"))
             tui.safe_add(win, row, 12, plan.cross_provider_warning, palette.attr("warn"))
+            row += 1
+        if self.gateway_problem is not None:
+            tui.safe_add(win, row, 2, "health    ", palette.attr("dim"))
+            tui.safe_add(
+                win, row, 12,
+                f"gateway unreachable — launches will fail: {self.gateway_problem}",
+                palette.attr("error"),
+            )
+            row += 1
+        elif self.gateway_checked:
+            pin = runtime.catalog.docs["native-contract"]["claude"]["validated_version"]
+            note = (
+                " (operator override)"
+                if runtime.catalog.contract_source == "override"
+                else ""
+            )
+            tui.safe_add(win, row, 2, "health    ", palette.attr("dim"))
+            tui.safe_add(win, row, 12, f"gateway ok · pin {pin}{note}", palette.attr("dim"))
+            row += 1
+        if self.update_hint is not None:
+            pinned, available = self.update_hint
+            tui.safe_add(win, row, 2, "update    ", palette.attr("warn"))
+            tui.safe_add(
+                win, row, 12,
+                f"Claude {available} available · pinned {pinned} · press U to update",
+                palette.attr("warn"),
+            )
             row += 1
         if self.details:
             row += self._draw_details(win, row, height, width)
@@ -1746,8 +1831,89 @@ class _QuickConfirmScreen:
             if len(self.runtime.compositions.names()) > 1:
                 bindings.append(("Tab", "preset"))
             bindings.append(("W", "wf on/off"))
-        bindings.extend((("D", "details"), ("S", "sessions"), ("?", "help"), ("Esc", "cancel")))
+        if self.update_hint is not None:
+            bindings.append(("U", "update"))
+        bindings.extend((("D", "details"), ("S", "sessions"), ("?", "help"), ("H", "health"), ("Esc", "cancel")))
         return tui.KeyBar(bindings)
+
+    # -- health / update actions ----------------------------------------------
+
+    def _pause_for_lines(self, win: Any, header: str) -> None:
+        with tui.suspended_curses(win):
+            self.tty_out.write(header + "\n")
+
+    def _resume_note(self, win: Any) -> None:
+        with tui.suspended_curses(win):
+            self.tty_out.write("\nPress Enter to return to claude-multi.")
+            self.tty_out.flush()
+            try:
+                self.tty_in.readline()
+            except KeyboardInterrupt:
+                pass
+
+    def _run_update(self, win: Any) -> None:
+        from . import upgrade as upgrade_mod
+
+        runner = self.upgrade_runner
+        environ_repo = self.runtime.environ.get("CLAUDE_MULTI_SOURCE_REPO")
+        source_repo = Path(
+            environ_repo
+            or (Path(self.runtime.environ.get("HOME", str(Path.home()))) / "personal" / "nixos-dotfiles")
+        )
+        self._pause_for_lines(win, "claude-multi update — evidence-gated re-pin:")
+        failed = False
+        try:
+            if runner is not None:
+                outcome = runner()
+                messages = list(outcome)
+            else:
+                outcome = upgrade_mod.run_upgrade(
+                    checkout_root=source_repo / "home-manager" / "claude-multi",
+                    native_contract=self.runtime.catalog.docs["native-contract"],
+                    override_path=sessions.config_root(self.runtime.environ) / "native-contract.json",
+                    today=sessions._now()[:10],
+                )
+                messages = list(outcome.messages)
+        except Exception as exc:
+            failed = True
+            messages = [f"update failed: {exc}"]
+        with tui.suspended_curses(win):
+            for line in messages:
+                self.tty_out.write(f"  {tui.visible_text(line)}\n")
+            if failed:
+                self.tty_out.write("Nothing was promoted; the pin is unchanged.\n")
+        if not failed:
+            self._refresh_health()
+        self._resume_note(win)
+
+    def _run_health(self, win: Any) -> None:
+        self._pause_for_lines(win, "claude-multi doctor:")
+        problems, info_lines, attention = _collect_doctor_reports(self.runtime)
+        with tui.suspended_curses(win):
+            if problems:
+                self.tty_out.write("BLOCKED\n")
+                for line in problems:
+                    self.tty_out.write(f"  - {tui.visible_text(line)}\n")
+            else:
+                self.tty_out.write("Ready\n")
+            if attention:
+                self.tty_out.write("Attention\n")
+                for line in attention:
+                    self.tty_out.write(f"  - {tui.visible_text(line)}\n")
+            for line in info_lines:
+                self.tty_out.write(f"{tui.visible_text(line)}\n")
+            if problems:
+                self.tty_out.write("\nRun `doctor --repair-all` now? [y/N] ")
+                self.tty_out.flush()
+                try:
+                    answer = self.tty_in.readline().strip().lower()
+                except KeyboardInterrupt:
+                    answer = ""
+                if answer in ("y", "yes"):
+                    code = _doctor_repair_all(self.runtime, self.tty_out)
+                    self.tty_out.write(f"(repair-all exit {code})\n")
+        self._refresh_health()
+        self._resume_note(win)
 
     # -- sessions picker ----------------------------------------------------
 
@@ -1863,6 +2029,12 @@ class _QuickConfirmScreen:
             if key.kind == "char" and key.ch.lower() == "w":
                 self.plan = _toggle_workflows(self.runtime, self.plan)
                 continue
+            if key.kind == "char" and key.ch.lower() == "u" and self.update_hint is not None:
+                self._run_update(win)
+                continue
+            if key.kind == "char" and key.ch.lower() == "h":
+                self._run_health(win)
+                continue
             if key.kind == "char" and key.ch == "?":
                 mode = (
                     self.plan.resolved.workflows
@@ -1917,11 +2089,22 @@ def _curses_quick_confirm(
     output_stream: TextIO,
     passthrough: list[str],
     no_color: bool,
+    update_hint: tuple[str, str] | None = None,
+    gateway_problem: str | None = None,
+    gateway_checked: bool = False,
 ) -> Any:
     palette = tui.detect_palette(
         no_color=no_color, tty_in=input_stream, tty_out=output_stream
     )
-    screen = _QuickConfirmScreen(runtime, plan, passthrough=passthrough, palette=palette)
+    screen = _QuickConfirmScreen(
+        runtime,
+        plan,
+        passthrough=passthrough,
+        palette=palette,
+        update_hint=update_hint,
+        gateway_problem=gateway_problem,
+        gateway_checked=gateway_checked,
+    )
     result = tui.run_curses_on_streams(
         screen.run, input_stream, output_stream, palette=palette
     )
@@ -1955,6 +2138,9 @@ def quick_confirm(
     passthrough: list[str],
     force_line: bool,
     no_color: bool = False,
+    update_hint: tuple[str, str] | None = None,
+    gateway_problem: str | None = None,
+    gateway_checked: bool = False,
 ) -> Any:
     if not force_line and tui.streams_curses_capable(input_stream, output_stream):
         try:
@@ -1965,6 +2151,9 @@ def quick_confirm(
                 output_stream=output_stream,
                 passthrough=passthrough,
                 no_color=no_color,
+                update_hint=update_hint,
+                gateway_problem=gateway_problem,
+                gateway_checked=gateway_checked,
             )
         except KeyboardInterrupt:
             return 0
@@ -1977,6 +2166,7 @@ def quick_confirm(
         output_stream=output_stream,
         passthrough=passthrough,
         no_color=no_color,
+        update_hint=update_hint,
     )
 
 
@@ -1988,6 +2178,7 @@ def _line_quick_confirm(
     output_stream: TextIO,
     passthrough: list[str],
     no_color: bool = False,
+    update_hint: tuple[str, str] | None = None,
 ) -> Any:
     details = False
     while True:
@@ -1998,15 +2189,38 @@ def _line_quick_confirm(
                 plan,
                 details=details,
                 width=_stream_width(output_stream),
+                update_hint=update_hint,
             )
         )
-        for footer_line in quick_footer(plan):
+        for footer_line in quick_footer(plan, update_hint=update_hint):
             output_stream.write(footer_line + "\n")
         output_stream.write("> ")
         output_stream.flush()
         key = _read_key(input_stream)
         if key is None or key in ("q", "quit", "cancel"):
             return 0
+        if key == "u" and update_hint is not None:
+            from . import upgrade as upgrade_mod
+
+            environ_repo = runtime.environ.get("CLAUDE_MULTI_SOURCE_REPO")
+            source_repo = Path(
+                environ_repo
+                or (Path(runtime.environ.get("HOME", str(Path.home()))) / "personal" / "nixos-dotfiles")
+            )
+            try:
+                outcome = upgrade_mod.run_upgrade(
+                    checkout_root=source_repo / "home-manager" / "claude-multi",
+                    native_contract=runtime.catalog.docs["native-contract"],
+                    override_path=sessions.config_root(runtime.environ) / "native-contract.json",
+                    today=sessions._now()[:10],
+                )
+                for line in outcome.messages:
+                    output_stream.write(f"{tui.visible_text(line)}\n")
+                runtime.reload_catalog()
+                update_hint = launch.repin_hint(runtime.catalog.docs["native-contract"])
+            except upgrade_mod.UpgradeError as exc:
+                output_stream.write(f"update failed: {tui.visible_message(exc)}\n")
+            continue
         if key == "d":
             details = not details
             continue
@@ -3206,6 +3420,72 @@ def _handle_session_event(
     return 0
 
 
+def _collect_doctor_reports(
+    runtime: Runtime,
+) -> tuple[list[str], list[str], list[str]]:
+    """(problems, info, attention) for doctor — shared by CLI and the TUI.
+
+    Same checks, same lines: composition validation and secrets, binary
+    verification, daemon, contract source, gateway readiness, scope/session
+    integrity, collisions, the re-pin early-warning.
+    """
+
+    problems: list[str] = []
+    for name in runtime.compositions.names():
+        try:
+            resolved = runtime.resolve_document(runtime.compositions.load(name))
+        except (CLIError, ValueError) as exc:
+            problems.append(f"composition {name}: {exc}")
+        else:
+            for issue in proxy_mod.selected_secret_problems(
+                resolved,
+                runtime.catalog.docs["models"]["models"],
+                runtime.catalog.docs["providers"]["providers"],
+                environ=runtime.environ,
+            ):
+                problems.append(f"composition {name}: {issue}")
+    binary_problems, binary_info = runtime.doctor_binary_callback(
+        runtime.catalog.docs["native-contract"]
+    )
+    problems.extend(binary_problems)
+    daemon = runtime.doctor_daemon_callback()
+    source_label = runtime.catalog.contract_source
+    contract_note = {
+        "packaged": None,
+        "override": "operator override (written by `claude-multi update`) is in effect",
+        "override-ignored-stale": "a stale operator override exists but is ignored (the packaged contract is newer or equal)",
+    }.get(source_label)
+    info_lines = [*binary_info, f"Shared daemon: {daemon.summary}."]
+    if contract_note is not None:
+        info_lines.append(f"Contract: {contract_note}.")
+    stale_override_attention = (
+        "stale contract override ignored: the packaged native contract is "
+        "newer or equal; `claude-multi update` rebases or removes it"
+        if source_label == "override-ignored-stale"
+        else None
+    )
+    if runtime.doctor_callback is not None:
+        problems.extend(runtime.doctor_callback(runtime))
+    else:
+        try:
+            launch.check_readiness(runtime.catalog.docs["gateway"])
+        except launch.LaunchError as exc:
+            problems.append(f"local gateway: {exc}")
+    scope_info, scope_problems, scope_attention = _doctor_scope_report(runtime)
+    info_lines.extend(scope_info)
+    problems.extend(scope_problems)
+    if stale_override_attention is not None:
+        scope_attention.append(stale_override_attention)
+    repin = launch.repin_suggestion(runtime.catalog.docs["native-contract"])
+    if repin is not None:
+        scope_attention.append(repin)
+    collision_info, collision_problems = _doctor_collision_report(runtime)
+    info_lines.append(collision_info)
+    problems.extend(collision_problems)
+    info_lines.append(f"Evidence: {EVIDENCE_ADD_DIR_CARRY}")
+    return problems, info_lines, scope_attention
+
+
 def handle_command(
     runtime: Runtime,
     args: argparse.Namespace,
@@ -3520,63 +3800,7 @@ def handle_command(
             return _doctor_repair_all(runtime, output_stream)
         if args.doctor_prune:
             return _doctor_prune(runtime, output_stream)
-        problems: list[str] = []
-        for name in runtime.compositions.names():
-            try:
-                resolved = runtime.resolve_document(runtime.compositions.load(name))
-            except (CLIError, ValueError) as exc:
-                problems.append(f"composition {name}: {exc}")
-            else:
-                for issue in proxy_mod.selected_secret_problems(
-                    resolved,
-                    runtime.catalog.docs["models"]["models"],
-                    runtime.catalog.docs["providers"]["providers"],
-                    environ=runtime.environ,
-                ):
-                    problems.append(f"composition {name}: {issue}")
-        # G0': the same resolver as launch; Doctor can never report Ready when
-        # binary verification would fail. Daemon status is informational only.
-        binary_problems, binary_info = runtime.doctor_binary_callback(
-            runtime.catalog.docs["native-contract"]
-        )
-        problems.extend(binary_problems)
-        daemon = runtime.doctor_daemon_callback()
-        source_label = runtime.catalog.contract_source
-        contract_note = {
-            "packaged": None,
-            "override": "operator override (written by `claude-multi update`) is in effect",
-            "override-ignored-stale": "a stale operator override exists but is ignored (the packaged contract is newer or equal)",
-        }.get(source_label)
-        info_lines = [*binary_info, f"Shared daemon: {daemon.summary}."]
-        if contract_note is not None:
-            info_lines.append(f"Contract: {contract_note}.")
-        stale_override_attention = (
-            "stale contract override ignored: the packaged native contract is "
-            "newer or equal; `claude-multi update` rebases or removes it"
-            if source_label == "override-ignored-stale"
-            else None
-        )
-        if runtime.doctor_callback is not None:
-            problems.extend(runtime.doctor_callback(runtime))
-        else:
-            try:
-                launch.check_readiness(runtime.catalog.docs["gateway"])
-            except launch.LaunchError as exc:
-                problems.append(f"local gateway: {exc}")
-        # SPEC §7 additions: session/scope integrity, collisions, evidence.
-        scope_info, scope_problems, scope_attention = _doctor_scope_report(runtime)
-        info_lines.extend(scope_info)
-        problems.extend(scope_problems)
-        if stale_override_attention is not None:
-            scope_attention.append(stale_override_attention)
-        # Standing drift early-warning: a newer Claude available than the pin.
-        repin = launch.repin_suggestion(runtime.catalog.docs["native-contract"])
-        if repin is not None:
-            scope_attention.append(repin)
-        collision_info, collision_problems = _doctor_collision_report(runtime)
-        info_lines.append(collision_info)
-        problems.extend(collision_problems)
-        info_lines.append(f"Evidence: {EVIDENCE_ADD_DIR_CARRY}")
+        problems, info_lines, scope_attention = _collect_doctor_reports(runtime)
         # Badge styling only when color is active (a tty, not NO_COLOR, not
         # --no-color); the line contract itself never changes (UX §5/§8).
         palette = _output_palette(input_stream, output_stream, no_color)
@@ -4340,6 +4564,17 @@ def main(
             )
             return runtime.perform(prepared)
 
+        update_hint = launch.repin_hint(runtime.catalog.docs["native-contract"])
+        gateway_problem: str | None = None
+        gateway_checked = False
+        if interactive:
+            # One loopback health check per card open (never per redraw).
+            try:
+                launch.check_readiness(runtime.catalog.docs["gateway"])
+                gateway_checked = True
+            except launch.LaunchError as exc:
+                gateway_problem = str(exc)
+                gateway_checked = True
         return quick_confirm(
             runtime,
             plan,
@@ -4348,6 +4583,9 @@ def main(
             passthrough=passthrough,
             force_line=args.line,
             no_color=args.no_color,
+            update_hint=update_hint,
+            gateway_problem=gateway_problem,
+            gateway_checked=gateway_checked,
         )
     except (CLIError, sessions.SessionError, state.StateError, catalog.CatalogError, compiler.CompilerError, composition.CompositionError, launch.LaunchError) as exc:
         output.write(f"claude-multi: {tui.visible_message(exc)}\n")

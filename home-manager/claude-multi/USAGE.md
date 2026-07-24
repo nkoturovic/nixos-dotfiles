@@ -32,7 +32,16 @@ A card shows the composition (lead, team, policy, context). Then:
 - **W** — toggle workflows on/off
 - **E** — edit the composition (form editor; `?` explains each field)
 - **S** — open the sessions picker
-- **Q** — cancel
+- **H** — health: doctor in place (with an optional repair-all prompt)
+- **U** — shown only when a Claude update is available; runs the whole
+  evidence-gated update in place (see "Claude version updates" below)
+- **Esc** — cancel (the universal exit, everywhere)
+
+The card also shows a **health strip**: gateway status and the pinned Claude
+version (marked when an operator override is in effect), and — when a newer
+Claude is installed than the pin — an **update badge** naming the version
+and the U key. That badge is the update notification: you will see it the
+next time you open the launcher after an upstream Claude update.
 
 Non-interactive (scripts): `claude-multi --composition kimi-sol`.
 
@@ -112,19 +121,20 @@ plain `claude` tracks upstream, which is what you want.
 
 claude-multi deliberately does **not** auto-follow: it launches the
 hash-verified pinned binary so managed sessions are always correct. The
-loop is fully automatic except one command:
+loop is fully automatic except one command (or one key):
 
-1. `claude-multi doctor` shows an **Attention** line when a newer Claude is
-   installed than the pin.
-2. Run **`claude-multi update`**. It inspects the new binary offline, runs
-   the full offline test suite (including the real-binary probes) against
-   it, and writes an operator contract override — **effective immediately,
-   no rebuild, no restart, no Home Manager switch needed.**
+1. The launcher card shows the **update badge**, and `claude-multi doctor`
+   shows an **Attention** line, when a newer Claude is installed than the pin.
+2. Press **U** on the card (or run **`claude-multi update`**). It inspects
+   the new binary offline, runs the full offline test suite (including the
+   real-binary probes) against it, and writes an operator contract
+   override — **effective immediately, no rebuild, no restart, no Home
+   Manager switch needed.**
 3. The source checkout is promoted in the same run, so the packaged
    baseline lands at the next natural activation (or right away with
    `claude-multi update --activate`, which runs `home-manager switch`).
 
-That's it: upstream updates itself, the doctor flags drift, one command
+That's it: upstream updates itself, the card flags it, one keypress
 re-pins with evidence. Managed sessions never break across upgrades, and
 the rollback point is the previous Home Manager generation plus your
 transcripts (always untouched).

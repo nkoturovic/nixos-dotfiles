@@ -1,5 +1,32 @@
 # STATUS — live tracker
 
+## 2026-07-24 — v2.4.1: TUI health/update surface + CLIProxy review + final hardening
+
+- **TUI health/update surface (the notification answer):** the quick-confirm
+  card now shows a **health strip** (gateway status from one loopback check
+  per open, plus pin state incl. operator-override marker) and, when a newer
+  Claude is installed, an **update badge** (`Claude X available · pinned Y ·
+  press U to update`). **U** runs the whole evidence-gated update in place
+  (suspend → inspect/promote/suite/override → resume with the catalog
+  reloaded); **H** runs doctor in place with an optional repair-all prompt.
+  Line mode shows the same update line + `u` command. KeyBar wraps upward
+  instead of clipping keys.
+- **CLIProxy integration verified end-to-end:** the live gateway config is
+  byte-identical to a fresh render from the trusted catalog; every catalog
+  selector's base alias is served (`/v1/models`); `[1m]` is confirmed
+  client-side-only (stripped before the wire — proven by live 1M sessions).
+- **Final review fixes:** proxy `run`/`login` now print unavailable-provider
+  warnings (no silent gateway start with a missing secret); the gateway
+  token+config write is serialized (no token/config split under concurrent
+  init); `claude-multi-dev` main no longer escapes TypeError/KeyError/
+  UnicodeDecodeError as tracebacks.
+- **Workflow smoke (offline, all green):** fresh/resume/continue per
+  composition (default, kimi-sol, qwen-sol, sol-direct), ordinary fresh,
+  managed-vs-ordinary correct refusal, transition print-only from inside,
+  session-event hook round-trip, doctor Ready, update idempotent.
+- Evidence: **1,194 host tests OK** (1 skip); card health/update widget
+  tests; keybar wrap; proxy warnings.
+
 ## 2026-07-24 — v2.4.0 ACTIVATED: fully clean baseline (gen 98)
 
 - **Activated:** HM generation 98; profile package
@@ -14,7 +41,7 @@
   green.
 - **TUI conventions live:** Esc-only exits and the uniform column-2 margin
   verified via PTY on the card, sessions screen, and editor.
-- **Second checkpoint created:** `checkpoints/2026-07-24-v2.4.0/` (entry
+- **Second checkpoint created:** `checkpoints/2026-07-24-v2.4.1/` (entry
   point, state snapshot, open items); the v2.3.0 checkpoint is superseded.
 - The update loop is now routine: doctor Attention on drift →
   `claude-multi update` (inspect → promote → full suite → override,

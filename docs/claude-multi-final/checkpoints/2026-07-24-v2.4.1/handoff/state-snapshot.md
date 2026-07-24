@@ -1,27 +1,20 @@
-# State snapshot — checkpoint 2026-07-24 · v2.4.0
+# State snapshot — checkpoint 2026-07-24 · v2.4.1
 
 Point-in-time evidence for [`README.md`](README.md). Captured 2026-07-24
-after the 2.4.0 activation; this file is a record, not a living doc.
+after the 2.4.1 activation; this file is a record, not a living doc.
 
 ## Commits (feature/term-only, nothing pushed)
 
-```
-c3c21d3 Final review fixes: override lifecycle, activate flake path, New · Off
-c109b44 Enforce New · Off for provider drafts; refresh AGENTS.md open items
-da895cf Add upgrade.py to the AGENTS.md module map
-a95452d claude-multi 2.4.0: layered contract, `update` command, TUI conventions
-1e87ba3 Point product README at the checkpoint handoff
-a2afc47 Record final commit in checkpoint handoff and wiki
-da1f9e6 Add checkpoint system, wire wikis, codify the documentation map
-08a3335 Correct test counts in SANITY.md
-```
+The 2.4.x series on `feature/term-only` from `d65218d` (2.3.0 bundle) through
+the 2.4.1 final-hardening commits (update flow, layered contract, TUI
+conventions + health/update surface, proxy/dev hardening, checkpoint system).
+See `git log --oneline d65218d..HEAD`.
 
 ## Activation
 
-- Home Manager generation **98** (current); gen 97 (2.3.0) retained as
-  rollback.
-- Profile package: `/nix/store/01m7jfsk17cgil2iklk01jbwjna05i5i-claude-multi-2.4.0`.
-- `claude-multi` and `claude-gateway` report `2.4.0`.
+- Home Manager generation **99** (current); gen 98 (2.4.0) and gen 97 (2.3.0)
+  retained as rollback.
+- `claude-multi` and `claude-gateway` report `2.4.1`.
 - Gateway: `cli-proxy-api.service` active after the activation restart;
   `GET http://127.0.0.1:8317/healthz` → 200.
 - Hook shim targets the activated package with PATH fallback.
@@ -42,12 +35,15 @@ idempotent (`claude-multi update` → "nothing to re-pin").
 
 ## Evidence
 
-- Host suite: **1,189 tests OK, 1 intentional skip** (93s) — includes the
+- Host suite: **1,194 tests OK, 1 intentional skip** (93s) — includes the
   real-binary probes against 2.1.218 (auto+manual compaction hooks,
   delegation accepted, takeover fail-closed by design).
-- Offline package build: 2.4.0.
+- CLIProxy: live gateway config byte-identical to a fresh catalog render;
+  every catalog selector's base alias served; `[1m]` proven client-side-only.
+- TUI: health strip + update badge + U/H actions verified; KeyBar wraps.
+- Offline package build: 2.4.1.
 - Sandbox suite: green (`claude-multi-tests` derivation).
-- `git diff --check` clean; tree clean at `c3c21d3`.
+- `git diff --check` clean.
 - TUI: PTY-verified Esc-only exits and the uniform column-2 margin on the
   card, sessions screen, and editor.
 

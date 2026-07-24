@@ -52,6 +52,15 @@ the exact `$EDITOR` command — no second interactive implementation.
   `cancel` because line input is a word modality, not a key modality.
 - **Uniform left padding:** every screen's content starts at column 2
   (title, tables, forms, status rows, keybars) — one visual margin.
+- **Keybars wrap upward** (to the row above) instead of clipping keys —
+  the exit binding is always fully visible.
+- **Health surface on the card (2.4.1):** one loopback gateway check per
+  card open (never per redraw) drives the `health` strip (gateway status +
+  pin state, with an operator-override marker); when a newer Claude is
+  installed than the pin, an `update` badge appears with the **U** action
+  (the whole evidence-gated re-pin in place), and **H** runs doctor in
+  place with an optional repair-all prompt. Line mode shows the update
+  line and a `u` command.
 - Navigation: arrows everywhere; `k`/`j` only on the sessions screen (no
   text inputs there); `?` opens help everywhere; `^C` interrupts.
 

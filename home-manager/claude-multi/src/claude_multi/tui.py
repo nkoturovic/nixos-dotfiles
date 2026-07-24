@@ -496,7 +496,12 @@ class Badge:
 
 
 class KeyBar:
-    """Footer hint bar: ``Enter launch · E edit · Esc cancel`` with accented keys."""
+    """Footer hint bar: ``Enter launch · E edit · Esc cancel`` with accented keys.
+
+    Draws at ``col 2``; when the bindings do not fit one row the bar wraps
+    upward (using the row above the given one) instead of clipping keys —
+    the exit binding is always fully visible.
+    """
 
     def __init__(self, bindings: Sequence[tuple[str, str]]):
         self.bindings = list(bindings)
@@ -504,17 +509,36 @@ class KeyBar:
     def text(self) -> str:
         return " · ".join(f"{key} {label}" for key, label in self.bindings)
 
-    def draw(self, win: Any, row: int, palette: Palette, col: int = 2) -> None:
-        _, width = win.getmaxyx()
+    def _rows_needed(self, width: int) -> int:
+        col = 2
+        rows = 1
         for index, (key, label) in enumerate(self.bindings):
-            if index:
-                safe_add(win, row, col, " · ", palette.attr("dim"))
+            entry = len(key) + 1 + len(label) + (3 if index else 0)
+            if col + entry > width - 2 and index:
+                rows += 1
+                col = 2 + len(key) + 1 + len(label)
+                continue
+            col += entry
+        return rows
+
+    def draw(self, win: Any, row: int, palette: Palette, col: int = 2) -> None:
+        height, width = win.getmaxyx()
+        used = min(self._rows_needed(width), 2)
+        origin = max(0, row - (used - 1))
+        current = origin
+        for index, (key, label) in enumerate(self.bindings):
+            entry = len(key) + 1 + len(label) + (3 if index else 0)
+            if index and col + entry > width - 2 and current < origin + used - 1:
+                current += 1
+                col = 2
+            elif index:
+                safe_add(win, current, col, " · ", palette.attr("dim"))
                 col += 3
-            safe_add(win, row, col, key, palette.attr("accent"))
+            safe_add(win, current, col, key, palette.attr("accent"))
             col += len(key)
-            safe_add(win, row, col, f" {label}", palette.attr("normal"))
+            safe_add(win, current, col, f" {label}", palette.attr("normal"))
             col += 1 + len(label)
-            if col >= width - 2:
+            if col >= width - 2 and current >= row:
                 break
 
 
@@ -1065,10 +1089,19 @@ def run_curses_on_streams(
 
 @contextlib.contextmanager
 def suspended_curses(win: Any) -> Iterator[None]:
-    """Suspend curses around an external program ($EDITOR) and restore."""
+    """Suspend curses around an external program ($EDITOR) and restore.
 
-    curses.def_prog_mode()
-    curses.endwin()
+    Degrades to a plain output region when curses is not active (tests,
+    line mode): the terminal state is managed only when there is a curses
+    session to manage.
+    """
+
+    try:
+        curses.def_prog_mode()
+        curses.endwin()
+    except curses.error:
+        yield
+        return
     try:
         yield
     finally:

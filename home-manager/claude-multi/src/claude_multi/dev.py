@@ -987,6 +987,9 @@ def main(argv: list[str]) -> int:
         strict_json.StrictJSONError,
         state.StateError,
         catalog_mod.CatalogError,
+        TypeError,
+        KeyError,
+        UnicodeDecodeError,
     ) as exc:
         print(f"claude-multi-dev: {exc}", file=os.sys.stderr)
         return 2

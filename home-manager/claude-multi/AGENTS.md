@@ -106,9 +106,9 @@ Two modes:
 | `scope.py` | scope plan/write/gate, hook shim | `resolve_hook_command`/`ensure_hook_shim`/`hook_shim_path`; shim chmod repaired unconditionally; exact `cm-*` collision gate |
 | `launch.py` | verify→readiness→state→execve | full-hash binary check every launch; CAS cleanup; `precommitted` epoch rule for transition relaunches |
 | `transition.py` | diff, generation swap, converge | record loaded inside the lock; `converge()` = doctor repair (managed+ordinary, refresh+recompile); convert resolve failures to `TransitionError` |
-| `cli.py` | commands, TUI screens, Runtime, doctor | Runtime init refreshes the hook shim; report commands write to stdout (`_STDOUT_REPORT_COMMANDS`), interactive flows to the tty |
-| `upgrade.py` | evidence-gated re-pin (`update`) | detect → offline inspect → promote → suite → override; byte-exact restore on any failure |
-| `tui.py` | curses widget layer | every external string through `visible_text`; `read_key` does not re-merge Alt+chords (ncurses splits them by design); Esc is the only exit key; uniform col-2 margin |
+| `cli.py` | commands, TUI screens, Runtime, doctor | Runtime init refreshes the hook shim; report commands write to stdout (`_STDOUT_REPORT_COMMANDS`), interactive flows to the tty; the card carries the health strip (one gateway check per open) and the update badge (U/H actions) |
+| `upgrade.py` | evidence-gated re-pin (`update`) | detect → offline inspect → promote → suite → override; byte-exact restore on any failure; redundant overrides removed when the baseline catches up |
+| `tui.py` | curses widget layer | every external string through `visible_text`; `read_key` does not re-merge Alt+chords (ncurses splits them by design); Esc is the only exit key; uniform col-2 margin; KeyBar wraps upward, never clips |
 | `catalog.py` | trusted JSON load + validate | closed schemas; `version.json` single source of version |
 | `render.py` | gateway YAML | secrets resolve only at runtime into mode-0600 artifacts |
 | `proxy.py` | gateway process control | loopback only; token file 0600 |

@@ -15,6 +15,7 @@ commands and state are gone.
 from __future__ import annotations
 
 import os
+import sys
 import re
 import secrets
 import shutil
@@ -197,22 +198,33 @@ def render_runtime_config(
     resolver: Callable[[str], str | None] | None = None,
     environ: dict[str, str] | None = None,
 ) -> tuple[Path, render_mod.RenderResult]:
-    """Render the complete gateway config atomically (mode 0600, outside repo)."""
+    """Render the complete gateway config atomically (mode 0600, outside repo).
 
-    bundle = catalog_mod.load_catalog(assets_root(environ))
-    token = ensure_token(home)
-    resolve = resolver or (lambda name: resolve_secret(name, environ=environ))
-    result = render_mod.render_config(
-        bundle.docs["gateway"],
-        bundle.docs["providers"]["providers"],
-        bundle.docs["models"]["models"],
-        home=home,
-        gateway_token=token,
-        resolve_secret=resolve,
-    )
-    target = config_dir(home) / "config.yaml"
-    state.atomic_write(target, result.yaml.encode("utf-8"))
-    return target, result
+    Token creation and config write are serialized under one lock: two
+    concurrent init/run invocations can never split a fresh token from the
+    config that carries it.
+    """
+
+    state.ensure_private_dir(config_dir(home))
+    lock = state.FileLock(config_dir(home) / "api-key")
+    lock.acquire(blocking=True)
+    try:
+        bundle = catalog_mod.load_catalog(assets_root(environ))
+        token = ensure_token(home)
+        resolve = resolver or (lambda name: resolve_secret(name, environ=environ))
+        result = render_mod.render_config(
+            bundle.docs["gateway"],
+            bundle.docs["providers"]["providers"],
+            bundle.docs["models"]["models"],
+            home=home,
+            gateway_token=token,
+            resolve_secret=resolve,
+        )
+        target = config_dir(home) / "config.yaml"
+        state.atomic_write(target, result.yaml.encode("utf-8"))
+        return target, result
+    finally:
+        lock.release()
 
 
 def resolve_proxy_binary(environ: dict[str, str] | None = None) -> Path:
@@ -292,7 +304,14 @@ def cmd_run(
 
     home = _home(environ)
     ensure_directories(home)
-    target, _result = render_runtime_config(home, environ=environ)
+    target, result = render_runtime_config(home, environ=environ)
+    for item in result.unavailable:
+        # Never silently start the gateway with a provider missing its
+        # secret — cmd_init surfaces this; run/login must too.
+        print(
+            f"provider unavailable: {item['provider']} ({item['reason']})",
+            file=sys.stderr,
+        )
     binary = resolve_proxy_binary(environ)
     env = dict(os.environ if environ is None else environ)
     return execve(str(binary), [str(binary), "--config", str(target), "--local-model"], env)
@@ -309,7 +328,12 @@ def cmd_login(
 
     home = _home(environ)
     ensure_directories(home)
-    target, _result = render_runtime_config(home, environ=environ)
+    target, result = render_runtime_config(home, environ=environ)
+    for item in result.unavailable:
+        print(
+            f"provider unavailable: {item['provider']} ({item['reason']})",
+            file=sys.stderr,
+        )
     binary = resolve_proxy_binary(environ)
     env = dict(os.environ if environ is None else environ)
     flag = LOGIN_FLAGS[command]

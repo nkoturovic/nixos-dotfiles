@@ -242,6 +242,30 @@ def repin_suggestion(native_contract: dict[str, Any]) -> str | None:
     )
 
 
+def repin_hint(native_contract: dict[str, Any]) -> tuple[str, str] | None:
+    """Cheap update-available hint: ``(pinned, available)`` or None.
+
+    Basename + version comparison only — no hashing (the full verification
+    runs when the update itself is triggered), so this is safe to compute on
+    every TUI render. Returns None when the symlink is missing/unresolvable,
+    matches the pin, or is not a parseable newer version.
+    """
+
+    try:
+        record = native_contract["claude"]
+        pinned = _version_tuple(record["validated_version"])
+        configured = Path(record["executable"]["configured_path"])
+    except (KeyError, TypeError):
+        return None
+    if pinned is None or not os.path.lexists(configured):
+        return None
+    target_name = Path(os.path.realpath(configured)).name
+    available = _version_tuple(target_name)
+    if available is None or available <= pinned:
+        return None
+    return record["validated_version"], target_name
+
+
 @dataclass(frozen=True)
 class DaemonStatus:
     """Best-effort shared-daemon status: existence/pid inspection only."""

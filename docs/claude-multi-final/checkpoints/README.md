@@ -31,5 +31,5 @@ Rules:
 
 | Checkpoint | State | Handoff |
 | --- | --- | --- |
-| `2026-07-24-v2.4.0` (**current**) | claude-multi 2.4.0 activated (HM gen 98), doctor fully clean, binary re-pinned to 2.1.218, one-command update loop | [handoff/README.md](2026-07-24-v2.4.0/handoff/README.md) |
+| `2026-07-24-v2.4.1` (**current**) | claude-multi 2.4.1 activated (HM gen 99), doctor fully clean, binary re-pinned to 2.1.218, one-command/one-key update loop, TUI health surface | [handoff/README.md](2026-07-24-v2.4.1/handoff/README.md) |
 | `2026-07-24-v2.3.0` | claude-multi 2.3.0 activated (HM gen 97), doctor Ready, hygiene done, docs complete | [handoff/README.md](2026-07-24-v2.3.0/handoff/README.md) |
