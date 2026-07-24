@@ -3891,6 +3891,16 @@ def _doctor_prune(runtime: Runtime, output_stream: TextIO) -> int:
                 removed.append(f"lead prompt for forgotten session {session_id}")
         finally:
             lock.release()
+    # Pre-2.2 lead prompts were named lead-prompt-<digest>.md with no session
+    # suffix; the launcher has not written that form since, so every such
+    # file is an orphan by construction.
+    for entry in sorted(store.root.glob("lead-prompt-*.md")):
+        stem = entry.name.removeprefix("lead-prompt-").removesuffix(".md")
+        if "-" in stem:
+            continue  # session-suffixed form, handled above
+        if entry.exists():
+            state.remove_private(entry)
+            removed.append(f"orphaned pre-2.2 lead prompt {entry.name}")
     # Lifecycle lock files are permanent synchronization identities. Unlinking
     # one while another process holds its inode would create two independent
     # locks for the same session.

@@ -1969,6 +1969,26 @@ class DoctorVisibilityTests(CLITestCase):
         self.assertEqual(code, 0)
         self.assertIn("nothing stale", output)
 
+    def test_prune_collects_orphaned_digest_only_lead_prompts(self) -> None:
+        # Pre-2.2 lead prompts (lead-prompt-<digest>.md, no session suffix)
+        # are orphans by construction; session-suffixed prompts with a living
+        # record are never touched.
+        self.save_session(mode="durable", scope_generation=1)
+        root = self.runtime.session_store.root
+        orphan = root / "lead-prompt-abcdef0123456789.md"
+        state.atomic_write(orphan, b"orphaned prompt\n")
+        from claude_multi import compiler as compiler_mod
+
+        living = compiler_mod.lead_prompt_path(
+            root, "sha256:" + "a" * 64, FIXED_ID
+        )
+        state.atomic_write(living, b"living prompt\n")
+        code, output = self.run_cli(["doctor", "--prune"])
+        self.assertEqual(code, 0, output)
+        self.assertIn(f"orphaned pre-2.2 lead prompt {orphan.name}", output)
+        self.assertFalse(orphan.exists())
+        self.assertTrue(living.exists())
+
     def test_prune_rejects_symlinked_scopes_root_without_following(self) -> None:
         scopes_root = self.runtime.session_store.root / "scopes"
         if scopes_root.exists():
