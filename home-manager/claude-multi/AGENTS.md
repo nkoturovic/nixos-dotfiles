@@ -26,8 +26,13 @@ pointed at it:
 ├── locks/                       # runtime-index + per-session lifecycle FileLocks
 ├── drafts/                      # dev pipeline drafts
 └── lead-prompt-<digest>-<managed-id>.md        # compiled cm-lead prompt
-~/.config/claude-multi/          # user compositions, gateway config.yaml (secrets), api-key
+~/.config/claude-multi/          # user compositions, gateway config.yaml (secrets), api-key,
+                                 # native-contract.json (operator override, from `update`)
 ```
+
+Current default composition: **Opus 5 lead** (Sol preferred variants, Kimi
+alternates, opus5 native reviewer alternate); the trusted catalog pins Claude
+**2.1.218** as the verified binary.
 
 Launch argv (durable mode): `claude --session-id|--resume <runtime-id>
 --name cm:<comp>|cg:<model> --settings <scope>/settings.json --model <lead>
@@ -140,12 +145,25 @@ git diff --check
 
 ## 5. How to make common changes
 
-- **Add/revise a model or provider:** use the product's own pipeline —
-  `claude-multi-dev` draft → check → review (exact diff/hash) → promote.
-  Never hand-edit `catalog/` without review. Only `models.json` /
-  `providers.json` are promotable. When `qwen3.8-max` ships, follow
-  DECISIONS D21 (wire_model → context re-verify → effort tiers → one live
-  call → drop "· Preview").
+- **Add/revise a model or provider:** two sanctioned paths, by size. For a
+  new provider or a provider-kind change (transport, auth, routes), use the
+  product's own pipeline — `claude-multi-dev` draft → check → review
+  (exact diff/hash) → promote; never hand-edit `catalog/` without it. For a
+  same-provider model addition (the Opus 5 pattern), a direct catalog edit
+  is acceptable **when it lands with the full battery**: schema load +
+  `validate_catalog`, all pinned expectations updated (composition, editor,
+  transition, render, scope, catalog, cli), goldens re-blessed and the diff
+  reviewed, the live gateway re-rendered, and one consent-gated live call.
+  Only `models.json` / `providers.json` / compositions are ever edited.
+  When `qwen3.8-max` ships, follow DECISIONS D21 (wire_model → context
+  re-verify → effort tiers → one live call → drop "· Preview").
+- **Add a model the gateway doesn't know (like Opus 5):** CLIProxyAPI's
+  embedded registry may predate the model — aliases then drop from
+  `/v1/models` (routing still works). Add a local registry patch under
+  `home-manager/` mirroring the nearest existing entry (see
+  `cli-proxy-api-opus-5-model.patch`) and wire it into
+  `home-manager/claude-multi/claude-multi.nix`'s patch list; rebuild
+  through Home Manager and verify `/v1/models` serves it.
 - **Change compiled settings:** extend `COMPILED_SETTINGS_KEYS` + the compile
   + tests + bless; state the demonstrated failure case in the commit.
 - **Change record shape:** bump `RECORD_VERSION`, extend

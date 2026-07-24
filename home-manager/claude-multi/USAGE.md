@@ -45,6 +45,23 @@ next time you open the launcher after an upstream Claude update.
 
 Non-interactive (scripts): `claude-multi --composition kimi-sol`.
 
+### The composition profiles
+
+| Preset | Lead | Subagents | Use it for |
+| --- | --- | --- | --- |
+| `default` | **Opus 5** | Sol preferred · Kimi alternates · opus5 reviewer | everyday flagship work |
+| `opus-sol` | **Opus 5** | Sol only | the clean Opus+Sol pair |
+| `opus-kimi` | **Opus 5** | Kimi K3 only | Opus lead with Kimi agents |
+| `fable` | Fable 5 | Sol preferred · Kimi alternates · opus reviewer | the previous default |
+| `kimi-sol` | Kimi K3 | Sol preferred · Kimi alternates | Kimi 1M lead work |
+| `qwen-sol` | Qwen3.8 Max (preview) | Sol preferred · Kimi alternates | Qwen lead work |
+| `sol-direct` | GPT 5.6 Sol | — | single-model direct sessions |
+
+Every profile keeps workflows native, worktree isolation on implementers,
+cross-provider subagent preference, the model fence, and the compaction pin.
+Cycle them with **Tab** on the card, or pick one directly with
+`claude-multi --composition <name>`.
+
 ### Resume
 
 ```bash
@@ -160,6 +177,15 @@ transcripts (always untouched).
 
 ## FAQ / troubleshooting
 
+- **Which profile?** — `default` (Opus 5 + Sol + Kimi) for most work;
+  `opus-sol` when you want the clean Opus+Sol pair; `opus-kimi` for Opus
+  lead with Kimi agents; `kimi-sol`/`qwen-sol` when you need a Kimi or Qwen
+  1M lead; `fable` is the previous default, kept around; `sol-direct` is
+  one model, no team.
+- **Opus 4.8 vs Opus 5** — Opus 5 is the default lead and the canonical
+  Opus default (`ANTHROPIC_DEFAULT_OPUS_MODEL`). Opus 4.8 stays in the
+  catalog for existing sessions and Anthropic's own safety fallback; no
+  dedicated 4.8 profile exists on purpose (strictly inferior at equal price).
 - **`doctor` says BLOCKED** — read the lines: each names the session and the
   fix (usually `claude-multi doctor --repair-all`). `Attention` is not damage.
 - **Resume says "session doesn't exist"** — Claude finds transcripts by their
@@ -184,7 +210,8 @@ transcripts (always untouched).
 
 ```text
 ~/.local/state/claude-multi/      sessions, scopes (generated), pointers, locks
-~/.config/claude-multi/           your compositions, gateway config (secrets — keep private)
+~/.config/claude-multi/           your compositions, gateway config (secrets — keep private),
+                                  native-contract.json (operator override from `update`)
 ~/.claude/projects/…              transcripts (Claude's own; never touched by the launcher)
 ```
 

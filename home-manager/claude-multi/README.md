@@ -1,11 +1,13 @@
-# claude-multi v2.3
+# claude-multi v2.5
 
 First-class multi-model integration for Claude Code. Managed composition
 sessions compile durable `cm-*` agents and policy; ordinary gateway sessions
 use the same local model transport without inheriting a composition. Both use
 per-session settings under `~/.local/state/claude-multi/scopes/<managed-id>/`
 and then `execve` ordinary Claude Code. No scheduler, wrapper daemon, or
-per-turn interception remains.
+per-turn interception remains. The default composition leads **Opus 5** with
+GPT 5.6 Sol preferred variants and Kimi K3 alternates; `fable`, `opus-sol`,
+`opus-kimi`, `kimi-sol`, `qwen-sol`, and `sol-direct` are one Tab away.
 
 **Using it?** Start with [`USAGE.md`](USAGE.md) (simple guide, use cases,
 FAQ). **Developing it?** Start with [`AGENTS.md`](AGENTS.md) (architecture,
@@ -51,6 +53,12 @@ documented carry-through set for backgrounded/respawned sessions.
   changes — semantic diff, target-process-exited confirmation, atomic
   scope-generation swap, exact `--resume` relaunch, crash-converge to record
   authority.
+- **Updates** (`upgrade.py`): the layered native contract — the packaged
+  contract is the reviewed baseline and a strictly-newer operator override
+  (written by `claude-multi update` after its offline-inspection +
+  full-suite evidence gate) wins while newer, so re-pins take effect
+  instantly without a rebuild. The launcher card shows a health strip and an
+  update badge on version drift (U to update, H for doctor in place).
 - **Renderer** (`render.py`): pure deterministic CLIProxyAPI YAML from
   trusted JSON; provider secrets resolve only at runtime into a mode-0600
   artifact outside this repository.
@@ -105,6 +113,9 @@ claude-multi doctor --repair UUID     reconverge a session scope to record autho
 claude-multi doctor --repair-all      converge every durable session + refresh
                                       record snapshots against the installed catalog
 claude-multi doctor --prune           remove stale scope generations/staging
+claude-multi update                   evidence-gated re-pin to the newest Claude
+                                      (instant via the operator override)
+claude-multi update --activate        the same, plus home-manager switch
 claude-multi-dev check|review|promote developer onboarding (no provider calls)
 claude-multi-proxy init|status|run    gateway control (loopback only)
 ```

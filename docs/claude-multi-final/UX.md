@@ -7,21 +7,29 @@ behavioral, what is a residual — without new screens where a line suffices.
 ## 1. Startup quick-confirm (no-argument TUI)
 
 ```
-claude-multi — composition: kimi-sol (default)
-──────────────────────────────────────────────
-lead      claude-multi-kimi-k3[1m] · ultracode · workflows: native
-agents    6 selected · durable scope (per-session files)
-  analyst      gpt-multi-sol-high · high    ★preferred
-  analyst      claude-multi-kimi-k3[1m] · max
-  implementer  gpt-multi-sol-high · high    ★preferred  (worktree)
-  implementer  claude-multi-kimi-k3[1m] · max           (worktree)
-  reviewer     gpt-multi-sol-xhigh · xhigh  ★preferred
-  reviewer     claude-multi-kimi-k3[1m] · max
+claude-multi — composition: default · Trusted default · Fresh
+────────────────────────────────────────────────────────────
+lead      Opus 5 · 1M selector · effort ultracode   workflows: native
+agents    6 selected · 3 roles · durable scope (per-session files)
+  role          model                   lane
+  Analyst       GPT-5.6 Sol             high    ★ preferred
+  Analyst       Kimi K3 · 1M selector   max
+  Implementer   GPT-5.6 Sol             high    ★ preferred  (worktree)
+  Implementer   Kimi K3 · 1M selector   max       (worktree)
+  Reviewer      GPT-5.6 Sol             xhigh   ★ preferred
+  Reviewer      Opus 5 · 1M selector    xhigh
 policy    Explore→cm-analyst · Plan native · general-purpose off · generic denied
-project   2 project agents discovered (native precedence; none colliding)
-──────────────────────────────────────────────
-[Enter] launch   [e] edit   [s] sessions   [d] doctor   [q] quit
+project   no project agents discovered (native precedence; none colliding)
+health    gateway ok · pin 2.1.218
+update    Claude 2.1.219 available · pinned 2.1.218 · press U to update
+
+Status  Ready
+Enter launch · E edit · Tab preset · W wf · D details · S sessions · ? help · U update · H health · Esc cancel
 ```
+
+(The `update` row and the **U** binding appear only when a newer Claude is
+installed than the pin; the `health` row always shows the gateway and pin
+state from one loopback check per card open.)
 
 Elements and their honesty semantics:
 

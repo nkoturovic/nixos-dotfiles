@@ -622,3 +622,5 @@ workflow `model` override (gpt-multi-sol-xhigh) since cm-* types are gone.
 | + | v2.2 lifecycle identity + ordinary gateway | **done** | schema-v3 two-UUID identity; hooks; gateway mode |
 | + | v2.3.0 hardening + activation | **done** | 1,167 tests OK; gen 97; doctor Ready; review resolved |
 | + | docs + checkpoints + hygiene | **done** | AGENTS/USAGE/SANITY; first checkpoint; 16 sessions |
+| + | v2.4.x update loop + TUI health surface | **done** | 1,194 tests OK; layered contract; update cmd; gen 99 |
+| + | v2.5.0 Opus 5 default + gateway patch | **done** | gen 101; live call PASSED; 7 profiles verified |

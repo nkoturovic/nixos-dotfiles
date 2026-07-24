@@ -1,10 +1,37 @@
-# SANITY — design assessment of claude-multi (2026-07-24, v2.3.0)
+# SANITY — design assessment of claude-multi (2026-07-24, v2.3.0; addendum through v2.5.0)
 
 An independent-design review of the whole product: managed compositions,
 ordinary gateway mode, identity/lifecycle machinery, packaging, and the
 standalone-Claude boundary. Each section poses the skeptic's question, gives
 the evidence, and states a verdict. Findings that needed action were acted on;
 the rest are named reservations, documented honestly.
+
+
+## Addendum (2026-07-24, v2.4.x → v2.5.0)
+
+The assessments above held through the rest of the day, with three
+confirmations and one new registry-level gap found and closed:
+
+- **D26–D30 in production:** the hook shim survived two Home Manager
+  activations with zero scope mismatches (the original incident class is
+  gone); the layered contract made the 2.1.218 re-pin instant via the
+  operator override; `claude-multi update` proved idempotent; the TUI
+  conventions (Esc-only exits, uniform margin, wrapping keybars, health
+  strip, update badge) shipped with PTY evidence.
+- **Q4 follow-through:** the native contract is now layered exactly as the
+  assessment recommended; the re-pin procedure is a product command, not a
+  manual recipe.
+- **New gap class — vendored registry lag:** CLIProxyAPI's embedded model
+  registry predated the Opus 5 release, dropping the new aliases from
+  `/v1/models` (routing was unaffected — the registry is listing-only plus
+  max_tokens defaults). Closed with a third local registry patch; the
+  pattern for future same-day model releases is recorded in AGENTS.md §5.
+- **Composition curation:** Opus 5 leads the default (Sol preferred, Kimi
+  alternates, opus5 native reviewer alternate); Fable 5 and the opus
+  pairs (`opus-sol`, `opus-kimi`) coexist as named profiles; Opus 4.8 was
+  deliberately kept in the catalog (existing sessions + Anthropic's own
+  safety fallback) rather than given a profile. The 1M bound for Opus 5 is
+  honestly labeled user-attested until near-limit acceptance.
 
 ## Verdict in one paragraph
 

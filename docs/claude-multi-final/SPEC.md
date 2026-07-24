@@ -88,6 +88,15 @@ hygiene unsets incl. `CLAUDE_CONFIG_DIR`, both spawn keys,
 `CLAUDE_CODE_DISABLE_EXPLORE_PLAN_AGENTS` when policy replaces built-ins) —
 env is launch hygiene, never the durable policy channel (invariant 1).
 
+**Since v2.2–2.4 (the allowlist as shipped):** the managed fence narrowed
+`availableModels` to exactly the compiled lead (plus a `model` pin so the
+native Default entry cannot escape it, D24); `env`/`hooks` carry the
+lifecycle identity (`CLAUDE_MULTI_MANAGED_ID`, `CLAUDE_MULTI_LAUNCH_EPOCH`,
+and SessionStart/End hook commands through the stable
+`<state>/bin/claude-multi-hook` shim, D22/D26); and `autoCompactEnabled: true`
+is pinned for managed sessions (D28). Ordinary scopes emit only
+`availableModels` (a context-profile fence), `model`, `env`, and `hooks`.
+
 ## 3. Launch contract
 
 Argv order (fresh / resume / transition-relaunch):
