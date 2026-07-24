@@ -26,7 +26,7 @@ plain `claude` is never touched.
 ## Recorded state (verify before trusting)
 
 - **Source:** `/home/kotur/personal/nixos-dotfiles` branch `feature/term-only`
-  at commit `08a3335` (series `d65218d` → `08a3335`; nothing pushed).
+  at commit `da1f9e6` (series `d65218d` → `da1f9e6`; nothing pushed).
 - **Activated:** Home Manager generation **97**; profile package
   `/nix/store/v8h7y3nzj84zqsw4j71ff14jjzg0y4l2-claude-multi-2.3.0`;
   all three entrypoints report `2.3.0`. Rollback: gen 96 (2.2.0).
