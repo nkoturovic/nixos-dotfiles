@@ -929,6 +929,160 @@ class IdentityReconciliationTests(SessionTestCase):
         self.assertNotIn("snapshot", loaded)
 
 
+class PendingForkResolutionTests(SessionTestCase):
+    """The 2026-07-27 incident lifecycle: a native fork is observed, authority
+    later lands ON the fork (supervisor relaunch) — the stale pending marker
+    must self-clear; genuinely pending forks keep blocking until resolve-fork.
+    """
+
+    THIRD_ID = "33333333-3333-4333-8333-333333333333"
+
+    def _forked_record(self):
+        self.store.save(_record(self.snapshot))
+        forked = self.store.reconcile_runtime(
+            FIXED_ID,
+            observed_runtime_id=OTHER_ID,
+            source="fork",
+            cwd="/project/path",
+            now="2026-07-22T00:00:00Z",
+        )
+        self.assertEqual(forked["identity_state"], sessions.IDENTITY_PENDING_FORK)
+        self.assertEqual(forked["runtime_session_id"], FIXED_ID)
+        return forked
+
+    def _stuck_record(self):
+        """The exact pre-fix state: authority on the fork, marker still pending."""
+
+        record = {
+            **_record(self.snapshot),
+            "runtime_session_id": OTHER_ID,
+            "runtime_aliases": [
+                {
+                    "session_id": FIXED_ID,
+                    "source": "fork",
+                    "observed_at": "2026-07-22T00:01:00Z",
+                }
+            ],
+            "pending_forks": [
+                {"session_id": OTHER_ID, "observed_at": "2026-07-22T00:00:00Z"}
+            ],
+            "identity_state": sessions.IDENTITY_PENDING_FORK,
+        }
+        self.store.save(record)
+        return record
+
+    def test_authority_landing_on_pending_fork_auto_resolves(self) -> None:
+        self._forked_record()
+        updated = self.store.reconcile_runtime(
+            FIXED_ID,
+            observed_runtime_id=OTHER_ID,
+            source="resume",
+            cwd="/project/path",
+            now="2026-07-22T00:05:00Z",
+        )
+        self.assertEqual(updated["runtime_session_id"], OTHER_ID)
+        self.assertEqual(updated["pending_forks"], [])
+        self.assertEqual(updated["identity_state"], sessions.IDENTITY_AUTHORITATIVE)
+        self.assertEqual(
+            [item["session_id"] for item in updated["runtime_aliases"]],
+            [FIXED_ID],
+        )
+
+    def test_authority_elsewhere_keeps_pending_fork_blocking(self) -> None:
+        self._forked_record()
+        updated = self.store.reconcile_runtime(
+            FIXED_ID,
+            observed_runtime_id=self.THIRD_ID,
+            source="resume",
+            cwd="/project/path",
+            now="2026-07-22T00:05:00Z",
+        )
+        self.assertEqual(updated["runtime_session_id"], self.THIRD_ID)
+        self.assertEqual(
+            [item["session_id"] for item in updated["pending_forks"]],
+            [OTHER_ID],
+        )
+        self.assertEqual(updated["identity_state"], sessions.IDENTITY_PENDING_FORK)
+
+    def test_converge_pending_forks_clears_authority_holder(self) -> None:
+        self._stuck_record()
+        self.assertTrue(self.store.converge_pending_forks(FIXED_ID))
+        updated = self.store.load(FIXED_ID)
+        self.assertEqual(updated["pending_forks"], [])
+        self.assertEqual(updated["identity_state"], sessions.IDENTITY_AUTHORITATIVE)
+        self.assertEqual(updated["runtime_session_id"], OTHER_ID)
+        self.assertFalse(self.store.converge_pending_forks(FIXED_ID))
+
+    def test_converge_pending_forks_keeps_genuine_pending(self) -> None:
+        self._forked_record()
+        self.assertFalse(self.store.converge_pending_forks(FIXED_ID))
+        self.assertEqual(
+            self.store.load(FIXED_ID)["identity_state"],
+            sessions.IDENTITY_PENDING_FORK,
+        )
+
+    def test_converge_preserves_repair_needed(self) -> None:
+        stuck = self._stuck_record()
+        stuck = {**stuck, "identity_state": sessions.IDENTITY_REPAIR_NEEDED,
+                 "observed_model": "some-model"}
+        self.store.save(stuck)
+        self.assertTrue(self.store.converge_pending_forks(FIXED_ID))
+        updated = self.store.load(FIXED_ID)
+        self.assertEqual(updated["pending_forks"], [])
+        self.assertEqual(updated["identity_state"], sessions.IDENTITY_REPAIR_NEEDED)
+
+    def test_resolve_fork_discards_marker_and_keeps_parent(self) -> None:
+        self._forked_record()
+        updated = self.store.resolve_fork(FIXED_ID, OTHER_ID)
+        self.assertEqual(updated["pending_forks"], [])
+        self.assertEqual(updated["runtime_session_id"], FIXED_ID)
+        self.assertEqual(updated["identity_state"], sessions.IDENTITY_AUTHORITATIVE)
+
+    def test_resolve_fork_refuses_authority_holder(self) -> None:
+        self._stuck_record()
+        with self.assertRaisesRegex(sessions.SessionError, "resume authority"):
+            self.store.resolve_fork(FIXED_ID, OTHER_ID)
+
+    def test_resolve_fork_refuses_unknown_and_bad_uuid(self) -> None:
+        self._forked_record()
+        with self.assertRaisesRegex(sessions.SessionError, "no pending fork"):
+            self.store.resolve_fork(FIXED_ID, self.THIRD_ID)
+        with self.assertRaisesRegex(sessions.SessionError, "UUIDv4"):
+            self.store.resolve_fork(FIXED_ID, "not-a-uuid")
+
+    def test_pending_fork_message_names_fork_and_remedies(self) -> None:
+        record = self._forked_record()
+        message = sessions.pending_fork_message(record)
+        self.assertIn(FIXED_ID, message)
+        self.assertIn(OTHER_ID, message)
+        self.assertIn("sessions link", message)
+        self.assertIn("resolve-fork", message)
+        self.assertIn("default", message)  # recorded composition suggested
+        self.assertIn("transcript is kept", message)
+
+    def test_pending_fork_message_ordinary_uses_model_flag(self) -> None:
+        ordinary = sessions.make_ordinary_record(
+            managed_id=FIXED_ID,
+            runtime_session_id=FIXED_ID,
+            cwd="/project/path",
+            model="sol",
+            context_profile="sol",
+            catalog_version=1,
+            catalog_hash="sha256:" + "0" * 64,
+            launcher_version="2.5.0",
+            now="2026-07-21T00:00:00Z",
+        )
+        ordinary = {
+            **ordinary,
+            "pending_forks": [
+                {"session_id": OTHER_ID, "observed_at": "2026-07-22T00:00:00Z"}
+            ],
+        }
+        message = sessions.pending_fork_message(ordinary)
+        self.assertIn("--model", message)
+        self.assertIn(OTHER_ID, message)
+
+
 class PointerTests(SessionTestCase):
     def test_update_and_last_roundtrip(self) -> None:
         self.assertTrue(self.store.update_last("/project/path", FIXED_ID))

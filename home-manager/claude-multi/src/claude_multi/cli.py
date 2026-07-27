@@ -300,6 +300,9 @@ class Runtime:
         self.hook_command = str(
             scope_mod.ensure_hook_shim(state_path, self.resolved_hook_command)
         )
+        self.token_helper_command = scope_mod.ensure_token_helper_command(
+            state_path, self.environ
+        )
         self.compositions = CompositionStore(
             config,
             schema=strict_json.load(
@@ -379,10 +382,7 @@ class Runtime:
                 "identity_state", sessions.IDENTITY_UNVERIFIED
             )
             if prior_record.get("pending_forks"):
-                raise CLIError(
-                    f"session {launch_id} has an unresolved native fork; adopt the "
-                    "fork UUID before resuming the parent"
-                )
+                raise CLIError(pending_fork_message(prior_record))
             if identity_state == sessions.IDENTITY_REPAIR_NEEDED:
                 if "observed_cwd" in prior_record or "observed_model" not in prior_record:
                     raise CLIError(
@@ -442,6 +442,7 @@ class Runtime:
             ),
             hook_command=self.hook_command,
             launch_epoch=launch_epoch,
+            token_helper_command=self.token_helper_command,
         )
         if prior_record is None:
             record = sessions.make_record(
@@ -531,10 +532,7 @@ class Runtime:
                 "identity_state", sessions.IDENTITY_UNVERIFIED
             )
             if prior.get("pending_forks"):
-                raise CLIError(
-                    f"session {stable_id} has an unresolved native fork; adopt the "
-                    "fork UUID before resuming the parent"
-                )
+                raise CLIError(pending_fork_message(prior))
             if identity_state == sessions.IDENTITY_REPAIR_NEEDED:
                 if "observed_cwd" in prior or "observed_model" not in prior:
                     raise CLIError(
@@ -569,6 +567,7 @@ class Runtime:
             state_root=self.session_store.root,
             pin_model=pin_model,
             launch_epoch=launch_epoch,
+            token_helper_command=self.token_helper_command,
         )
         if prior is None:
             record = sessions.make_ordinary_record(
@@ -722,6 +721,14 @@ def build_parser() -> argparse.ArgumentParser:
     relink.add_argument(
         "--cwd", dest="repair_cwd", help="also replace the recorded original project CWD"
     )
+    resolve_fork = session_commands.add_parser(
+        "resolve-fork",
+        help="discard a pending native-fork marker (the fork transcript is kept)",
+    )
+    resolve_fork.add_argument("uuid", help="stable managed ID of the parent session")
+    resolve_fork.add_argument(
+        "fork_uuid", help="runtime UUID of the native fork to stop tracking"
+    )
     transition_parser = session_commands.add_parser(
         "transition",
         help="change a session's composition: semantic diff, exited-confirmation, relaunch",
@@ -870,6 +877,12 @@ def _collision_error(path: Path, name: str, cwd: str) -> str:
     )
 
 
+def pending_fork_message(record: dict[str, Any]) -> str:
+    """Alias kept next to the card/guard call sites (canonical: sessions)."""
+
+    return sessions.pending_fork_message(record)
+
+
 def build_quick_plan(
     runtime: Runtime,
     document: dict[str, Any],
@@ -886,10 +899,7 @@ def build_quick_plan(
         stable_id = sessions.managed_id(record)
         identity_state = record.get("identity_state", sessions.IDENTITY_UNVERIFIED)
         if record.get("pending_forks"):
-            errors.append(
-                f"session {stable_id} has an unresolved native fork; adopt the "
-                "fork UUID before resuming the parent"
-            )
+            errors.append(pending_fork_message(record))
         elif identity_state == sessions.IDENTITY_REPAIR_NEEDED and (
             "observed_cwd" in record or "observed_model" not in record
         ):
@@ -1530,6 +1540,7 @@ class _QuickConfirmScreen:
         gateway_checked: bool = False,
         gateway_check: Any | None = None,
         upgrade_runner: Any | None = None,
+        hint_detector: Any | None = None,
         tty_in: Any | None = None,
         tty_out: Any | None = None,
     ):
@@ -1543,6 +1554,9 @@ class _QuickConfirmScreen:
         self.gateway_checked = gateway_checked
         self.gateway_check = gateway_check
         self.upgrade_runner = upgrade_runner
+        self.hint_detector = (
+            hint_detector if hint_detector is not None else launch.repin_hint
+        )
         self.tty_in = tty_in if tty_in is not None else sys.stdin
         self.tty_out = tty_out if tty_out is not None else sys.stdout
 
@@ -1563,7 +1577,7 @@ class _QuickConfirmScreen:
         """Recompute pin/gateway state (after an in-TUI update)."""
 
         self.runtime.reload_catalog()
-        self.update_hint = launch.repin_hint(
+        self.update_hint = self.hint_detector(
             self.runtime.catalog.docs["native-contract"]
         )
         self.gateway_problem = self._gateway_status()
@@ -1860,28 +1874,42 @@ class _QuickConfirmScreen:
             environ_repo
             or (Path(self.runtime.environ.get("HOME", str(Path.home()))) / "personal" / "nixos-dotfiles")
         )
-        self._pause_for_lines(win, "claude-multi update — evidence-gated re-pin:")
         failed = False
-        try:
-            if runner is not None:
-                outcome = runner()
-                messages = list(outcome)
-            else:
-                outcome = upgrade_mod.run_upgrade(
-                    checkout_root=source_repo / "home-manager" / "claude-multi",
-                    native_contract=self.runtime.catalog.docs["native-contract"],
-                    override_path=sessions.config_root(self.runtime.environ) / "native-contract.json",
-                    today=sessions._now()[:10],
-                )
-                messages = list(outcome.messages)
-        except Exception as exc:
-            failed = True
-            messages = [f"update failed: {exc}"]
+        # One suspended block for the whole flow: curses must be released
+        # BEFORE the minutes-long evidence suite runs, and every phase line
+        # is written + flushed as it happens so the run never looks frozen.
         with tui.suspended_curses(win):
+            self.tty_out.write("claude-multi update — evidence-gated re-pin:\n")
+            self.tty_out.flush()
+
+            def _progress(line: str) -> None:
+                self.tty_out.write(f"  {tui.visible_text(line)}\n")
+                self.tty_out.flush()
+
+            messages: list[str]
+            try:
+                if runner is not None:
+                    messages = list(runner())
+                else:
+                    outcome = upgrade_mod.run_upgrade(
+                        checkout_root=source_repo / "home-manager" / "claude-multi",
+                        native_contract=self.runtime.catalog.docs["native-contract"],
+                        override_path=sessions.config_root(self.runtime.environ) / "native-contract.json",
+                        today=sessions._now()[:10],
+                        progress=_progress,
+                    )
+                    messages = list(outcome.messages)
+            except KeyboardInterrupt:
+                failed = True
+                messages = ["update interrupted; nothing was promoted (pin unchanged)"]
+            except Exception as exc:
+                failed = True
+                messages = [f"update failed: {exc}"]
             for line in messages:
                 self.tty_out.write(f"  {tui.visible_text(line)}\n")
             if failed:
                 self.tty_out.write("Nothing was promoted; the pin is unchanged.\n")
+            self.tty_out.flush()
         if not failed:
             self._refresh_health()
         self._resume_note(win)
@@ -2213,6 +2241,10 @@ def _line_quick_confirm(
                     native_contract=runtime.catalog.docs["native-contract"],
                     override_path=sessions.config_root(runtime.environ) / "native-contract.json",
                     today=sessions._now()[:10],
+                    progress=lambda line: (
+                        output_stream.write(f"… {tui.visible_text(line)}\n"),
+                        output_stream.flush(),
+                    ),
                 )
                 for line in outcome.messages:
                     output_stream.write(f"{tui.visible_text(line)}\n")
@@ -2354,6 +2386,12 @@ def _discover_native_sessions(
         managed_runtime_ids.update(
             item["session_id"] for item in record.get("runtime_aliases", [])
         )
+    fork_of: dict[str, str] = {}
+    for record in records:
+        for item in record.get("pending_forks", []):
+            fork_id = item.get("session_id")
+            if fork_id and fork_id not in managed_runtime_ids:
+                fork_of.setdefault(fork_id, sessions.managed_id(record))
     by_id: dict[str, dict[str, Any]] = {}
     try:
         for project_dir in projects.iterdir():
@@ -2401,6 +2439,7 @@ def _discover_native_sessions(
                 "slug": slugs[0] if len(slugs) == 1 else "(ambiguous)",
                 "cwd": cwd,
                 "mtime": item["mtime"],
+                "fork_of": fork_of.get(item["session_id"]),
             }
         )
     found.sort(key=lambda item: item["mtime"], reverse=True)
@@ -2412,6 +2451,7 @@ SESSIONS_TITLE = "sessions"
 SESSIONS_KEYBAR = (
     ("R", "resume"),
     ("T", "switch comp"),
+    ("X", "resolve fork"),
     ("F", "forget"),
     ("L", "adopt"),
     ("C", "cwd filter"),
@@ -2425,12 +2465,19 @@ SESSIONS_HELP = (
     "  R resume — reopen with the same transcript and composition.\n"
     "  T switch comp — transition: same transcript, different composition\n"
     "    (semantic diff first; the session must be exited; relaunches exactly).\n"
+    "  X resolve fork — clear/discard a native-fork marker that blocks resume\n"
+    "    (the fork transcript is kept; exact commands: sessions show <uuid>).\n"
     "  F forget — delete the launcher record + generated scope; the Claude\n"
     "    transcript is never touched.\n"
     "\n"
+    "row markers: ● live — the session is owned by the background daemon right\n"
+    "  now (reattaching to it from a Claude menu forks natively; exit it first\n"
+    "  or resume after it exits) · ⚠ fork-blocked — a native fork awaits your\n"
+    "  adopt/discard decision (X).\n"
+    "\n"
     "native (unmanaged): plain-Claude sessions discovered by name/time only —\n"
     "the launcher never opens their files. They have no managed guarantees\n"
-    "until adopted.\n"
+    "until adopted. Rows marked (fork) are native forks of a managed session.\n"
     "  L adopt — link one into a composition you choose; it becomes managed\n"
     "    (resume and switch comp then apply).\n"
     "\n"
@@ -2442,6 +2489,12 @@ FORGET_MODAL_BODY = (
     "Deletes: session record + generated scope{scope_note}.\n"
     "If the session is currently running, its agents lose their definition\n"
     "files until a resume recompiles them. Transcripts are never touched."
+)
+FORK_MODAL_TITLE = "Resolve fork on {short}?"
+FORK_MODAL_BODY = (
+    "Discard the pending-fork marker for runtime {fork_id}?\n"
+    "The fork transcript stays on disk as a native session; adopt it later\n"
+    "with `claude-multi sessions link {fork_id} --composition NAME` if needed."
 )
 FORGET_DONE = "Forgot {session_id}; record + scope deleted. Transcripts are never touched."
 RESUME_MODAL_TITLE = "Resume session {short}?"
@@ -2530,6 +2583,7 @@ class _SessionsScreen:
             self.runtime,
             cwd_filter=self.runtime.cwd if self.cwd_filter else None,
         )
+        self.live_prefixes = _live_background_prefixes()
         if self.cwd_filter:
             self.records = [
                 record for record in self.records if record["cwd"] == self.runtime.cwd
@@ -2546,7 +2600,8 @@ class _SessionsScreen:
     def _managed_rows(self) -> list[list[str]]:
         return [
             [
-                _record_identity_label(record, short=True),
+                _record_state_marker(record, self.live_prefixes)
+                + _record_identity_label(record, short=True),
                 _record_target_label(record),
                 _record_mode_label(record),
                 record["cwd"],
@@ -2558,8 +2613,9 @@ class _SessionsScreen:
     def _native_rows(self) -> list[list[str]]:
         return [
             [
-                f"{item['session_id'][:12]}…",
-                "(native)",
+                ("● " if _native_is_live(item, self.live_prefixes) else "")
+                + f"{item['session_id'][:12]}…",
+                "(fork)" if item.get("fork_of") else "(native)",
                 "unmanaged",
                 item["slug"],
                 _mtime_age(item["mtime"]),
@@ -2574,6 +2630,12 @@ class _SessionsScreen:
         win.erase()
         palette = self.palette
         height, width = win.getmaxyx()
+        keybar = tui.KeyBar(SESSIONS_KEYBAR)
+        bar_rows = keybar.rows(width)
+        # Bottom block (keybar may wrap to 2 rows): actions label, message,
+        # then the bar itself — reserve all of it so nothing is overdrawn.
+        actions_row = height - bar_rows - 2
+        message_row = height - bar_rows - 1
         title = SESSIONS_TITLE + (
             " · cwd filter ON" if self.cwd_filter else ""
         )
@@ -2586,7 +2648,8 @@ class _SessionsScreen:
             row += 2
         else:
             tui.safe_add(win, row - 1, 2, "managed (claude-multi)", palette.attr("dim"))
-            managed_max = min(len(managed_rows), height - 9)
+            managed_max = min(len(managed_rows), actions_row - row - 3)
+            managed_max = max(managed_max, 1)
             shown_rows, managed_selected = _windowed(
                 managed_rows, self.selected if self.section == "managed" else -1, managed_max
             )
@@ -2607,7 +2670,7 @@ class _SessionsScreen:
                 palette.attr("dim"),
             )
             row += 1
-            native_max = max(1, height - row - 4)
+            native_max = max(1, actions_row - row - 1)
             shown_rows, native_selected = _windowed(
                 self._native_rows(),
                 self.selected if self.section == "native" else -1,
@@ -2625,7 +2688,6 @@ class _SessionsScreen:
                 2,
                 width - 2,
                 palette,
-                # reserve: table header (+1), actions line, message, keybar
                 max_rows=native_max,
             )
         active = self._active()
@@ -2635,11 +2697,55 @@ class _SessionsScreen:
                 label = _record_actions_label(item)
             else:
                 label = "L adopt into a composition · then resume/transition apply"
-            tui.safe_add(win, height - 3, 2, label, palette.attr("dim"))
+            tui.safe_add(win, actions_row, 2, label, palette.attr("dim"))
         if self.message:
-            tui.safe_add(win, height - 2, 2, self.message, palette.attr("warn"))
-        tui.KeyBar(SESSIONS_KEYBAR).draw(win, height - 1, palette)
+            tui.safe_add(win, message_row, 2, self.message, palette.attr("warn"))
+        keybar.draw(win, height - 1, palette)
         win.refresh()
+
+    def _resolve_fork(self, win: Any, record: dict[str, Any]) -> None:
+        stable_id = sessions.managed_id(record)
+        pending = record.get("pending_forks", [])
+        if not pending:
+            self.message = "no pending fork on this session."
+            return
+        if sessions.drop_resolved_pending_forks(record) is not None:
+            try:
+                self.runtime.session_store.converge_pending_forks(stable_id)
+            except sessions.SessionError as exc:
+                # The record changed/went away between screen load and here;
+                # degrade to a message like the neighboring actions.
+                self._reload()
+                self.message = str(exc)
+                return
+            self._reload()
+            self.message = (
+                "cleared the fork marker — the live runtime had already "
+                "resolved it; resume is unblocked"
+            )
+            return
+        fork_id = pending[0]["session_id"]
+        confirmed = tui.Modal(
+            FORK_MODAL_TITLE.format(short=f"{stable_id[:8]}…"),
+            FORK_MODAL_BODY.format(fork_id=fork_id).splitlines(),
+            buttons=(("Discard marker", True), ("Cancel", False)),
+        ).run(win, self.palette, background=self._draw)
+        if not confirmed:
+            self.message = "Resolve fork cancelled."
+            return
+        try:
+            self.runtime.session_store.resolve_fork(stable_id, fork_id)
+        except sessions.SessionError as exc:
+            # Concurrent resolve/link/forget changed the pending set behind
+            # the modal; show why instead of crashing the picker.
+            self._reload()
+            self.message = str(exc)
+            return
+        self._reload()
+        remaining = len(pending) - 1
+        self.message = f"fork {fork_id[:12]}… marker discarded; transcript kept"
+        if remaining:
+            self.message += f" · {remaining} more pending (X again)"
 
     def _forget(self, win: Any, record: dict[str, Any]) -> None:
         session_id = sessions.managed_id(record)
@@ -2776,6 +2882,12 @@ class _SessionsScreen:
                 continue
             record = item
             if key.kind == "char" and key.ch.lower() == "r":
+                if record.get("pending_forks"):
+                    self.message = (
+                        "resume is fork-blocked — press X to resolve the fork "
+                        "(exact commands: sessions show)"
+                    )
+                    continue
                 lines: list[str] = []
                 if record["mode"] != "durable":
                     lines = LEGACY_RESUME_NOTE.split("; ")
@@ -2801,6 +2913,9 @@ class _SessionsScreen:
                 continue
             if key.kind == "char" and key.ch.lower() == "f":
                 self._forget(win, record)
+                continue
+            if key.kind == "char" and key.ch.lower() == "x":
+                self._resolve_fork(win, record)
                 continue
 
 
@@ -2992,6 +3107,56 @@ def _sessions_list_tui(
     raise CLIError(f"unknown sessions action {result[0]!r}")
 
 
+def _live_background_prefixes(root: Path | None = None) -> frozenset[str]:
+    """Session-id prefixes currently hosted by the Claude background daemon.
+
+    Best-effort and read-only: the daemon's pty sockets are named
+    ``<session-id-prefix>.sock`` under ``/tmp/cc-daemon-<uid>/``. A session
+    that is live there is owned by another process — reattaching to it from
+    a menu forks natively. Any error degrades to "nothing live".
+    """
+
+    if root is None:
+        getuid = getattr(os, "getuid", None)
+        if getuid is None:
+            return frozenset()
+        root = Path(f"/tmp/cc-daemon-{getuid()}")
+    try:
+        roots = list(root.glob("*/pty/*.sock"))
+    except OSError:
+        return frozenset()
+    return frozenset(sock.name[: -len(".sock")] for sock in roots if sock.name)
+
+
+def _record_is_live(record: dict[str, Any], prefixes: frozenset[str]) -> bool:
+    if not prefixes:
+        return False
+    candidates = [sessions.managed_id(record), record["runtime_session_id"]]
+    candidates.extend(
+        item["session_id"] for item in record.get("runtime_aliases", [])
+    )
+    return any(
+        candidate.startswith(prefix)
+        for candidate in candidates
+        for prefix in prefixes
+    )
+
+
+def _native_is_live(item: dict[str, Any], prefixes: frozenset[str]) -> bool:
+    return any(item["session_id"].startswith(prefix) for prefix in prefixes)
+
+
+def _record_state_marker(record: dict[str, Any], prefixes: frozenset[str]) -> str:
+    """Compact row prefix: ● live (background-owned) · ⚠ fork-blocked."""
+
+    marker = ""
+    if _record_is_live(record, prefixes):
+        marker += "● "
+    if record.get("pending_forks"):
+        marker += "⚠ "
+    return marker
+
+
 def _record_identity_label(record: dict[str, Any], *, short: bool = False) -> str:
     stable = sessions.managed_id(record)
     runtime_id = record["runtime_session_id"]
@@ -3021,6 +3186,12 @@ def _record_mode_label(record: dict[str, Any]) -> str:
 def _record_actions_label(record: dict[str, Any]) -> str:
     """UX §4 per-row action hints; legacy rows state the one-time upgrade."""
 
+    if record.get("pending_forks"):
+        return (
+            "[x] resolve fork (resume blocked until then) [f]orget · fork UUID "
+            "and exact commands: `claude-multi sessions show "
+            f"{sessions.managed_id(record)}`"
+        )
     if record["session_type"] == sessions.SESSION_TYPE_ORDINARY:
         return "[r]esume [f]orget · cross-profile model changes relaunch explicitly"
     if record["mode"] == "durable":
@@ -3104,11 +3275,13 @@ def _print_sessions_listing(runtime: Runtime, output_stream: TextIO) -> None:
     )
     output_stream.write("sessions\n")
     output_stream.write("----------------------------------------\n")
+    live = _live_background_prefixes()
     for record in records:
         # Record fields (cwd, composition_name) are external text;
         # the whole row is sanitized single-line output.
         output_stream.write(
             tui.visible_text(
+                f"{_record_state_marker(record, live)}"
                 f"{_record_identity_label(record)}  {_record_target_label(record)}  "
                 f"{_record_mode_label(record)}  {record['cwd']}  "
                 f"{record['created_at']}  {_record_actions_label(record)}"
@@ -3130,12 +3303,19 @@ def _print_sessions_listing(runtime: Runtime, output_stream: TextIO) -> None:
     )
     native = _discover_native_sessions(runtime)
     if native:
+        live = _live_background_prefixes()
         output_stream.write("native (unmanaged, discovered names+times only)\n")
         output_stream.write("----------------------------------------\n")
         for item in native:
+            marker = "● " if _native_is_live(item, live) else ""
+            kind = (
+                f"(fork of {item['fork_of'][:8]}…)"
+                if item.get("fork_of")
+                else "(native)"
+            )
             output_stream.write(
                 tui.visible_text(
-                    f"{item['session_id']}  (native)  {item['slug']}  "
+                    f"{marker}{item['session_id']}  {kind}  {item['slug']}  "
                     f"{_mtime_age(item['mtime'])}"
                 )
                 + "\n"
@@ -3376,8 +3556,12 @@ def _handle_session_event(
             _write_session_start_context(
                 output_stream,
                 "This native fork does not yet have an independent durable "
-                "claude-multi scope. Exit it, then adopt its runtime UUID "
-                f"{observed} before relying on managed composition guarantees.",
+                "claude-multi scope, and the parent is fork-blocked until you "
+                "decide. Exit this fork, then either adopt it: `claude-multi "
+                f"sessions link {observed} --composition "
+                f"{record.get('composition_name', 'NAME')}`, or discard the "
+                f"marker: `claude-multi sessions resolve-fork {stable_id} "
+                f"{observed}` (the fork transcript is kept either way).",
             )
         elif (
             record["identity_state"] == sessions.IDENTITY_REPAIR_NEEDED
@@ -3615,6 +3799,10 @@ def handle_command(
             return 0
         if command == "show":
             record = runtime.session_store.resolve(args.uuid)
+            if record.get("pending_forks"):
+                output_stream.write(
+                    sessions.pending_fork_message(record) + "\n"
+                )
             output_stream.write(strict_json.canonical_file_bytes(record).decode("utf-8"))
             return 0
         if command == "forget":
@@ -3679,6 +3867,22 @@ def handle_command(
                 interactive=interactive,
                 no_color=no_color,
             )
+        if command == "resolve-fork":
+            record = runtime.session_store.resolve(args.uuid)
+            stable_id = sessions.managed_id(record)
+            try:
+                updated = runtime.session_store.resolve_fork(stable_id, args.fork_uuid)
+            except sessions.SessionError as exc:
+                raise CLIError(str(exc)) from exc
+            output_stream.write(
+                f"Resolved fork {args.fork_uuid} on session {stable_id}: the "
+                "marker is discarded, the fork transcript stays on disk as a "
+                "native session (adopt it later with `claude-multi sessions "
+                f"link {args.fork_uuid} --composition NAME` if you ever need "
+                "it). Identity is now "
+                f"{updated.get('identity_state', sessions.IDENTITY_UNVERIFIED)}.\n"
+            )
+            return 0
         if command == "link":
             if args.uuid is None:
                 output_stream.write(
@@ -3767,6 +3971,10 @@ def handle_command(
                 override_path=sessions.config_root(runtime.environ) / "native-contract.json",
                 today=sessions._now()[:10],
                 activate=bool(args.activate),
+                progress=lambda line: (
+                    output_stream.write(f"… {tui.visible_text(line)}\n"),
+                    output_stream.flush(),
+                ),
             )
         except upgrade_mod.UpgradeError as exc:
             raise CLIError(str(exc)) from exc
@@ -3915,6 +4123,10 @@ def _check_scope_integrity(runtime: Runtime, record: dict[str, Any]) -> tuple[st
                     "client_selector"
                 ],
                 launch_epoch=record.get("launch_epoch", 0),
+                gateway_base_url=runtime.catalog.docs["gateway"]["gateway"][
+                    "base_url"
+                ],
+                token_helper_command=runtime.token_helper_command,
             )
         else:
             resolved = runtime.resolve_document(snapshot_to_document(record))
@@ -3926,6 +4138,7 @@ def _check_scope_integrity(runtime: Runtime, record: dict[str, Any]) -> tuple[st
                 managed_id=session_id,
                 hook_command=runtime.hook_command,
                 launch_epoch=record.get("launch_epoch", 0),
+                token_helper_command=runtime.token_helper_command,
             )
     except (ValueError, KeyError) as exc:
         return (
@@ -4042,11 +4255,24 @@ def _doctor_scope_report(runtime: Runtime) -> tuple[list[str], list[str], list[s
             sessions.IDENTITY_REPAIR_NEEDED,
             sessions.IDENTITY_PENDING_FORK,
         }:
-            problems.append(
-                f"session {sessions.managed_id(record)} identity is {state_label}; "
-                "inspect `claude-multi sessions show` and resume/adopt through the "
-                "supported launcher before relying on it"
-            )
+            if sessions.drop_resolved_pending_forks(record) is not None:
+                attention.append(
+                    f"session {sessions.managed_id(record)} holds a fork marker "
+                    "its live runtime already resolved; `claude-multi doctor "
+                    "--repair-all` clears it in place"
+                )
+            elif state_label == sessions.IDENTITY_PENDING_FORK:
+                problems.append(
+                    f"session {sessions.managed_id(record)} identity is "
+                    f"{state_label}; {sessions.pending_fork_message(record)}"
+                )
+            else:
+                problems.append(
+                    f"session {sessions.managed_id(record)} identity is "
+                    f"{state_label}; inspect `claude-multi sessions show` and "
+                    "resume/adopt through the supported launcher before relying "
+                    "on it"
+                )
     scope_mismatch = 0
     for record in durable:
         line, is_problem = _check_scope_integrity(runtime, record)
@@ -4238,6 +4464,7 @@ def _doctor_repair_all(runtime: Runtime, output_stream: TextIO) -> int:
             )
             continue
         try:
+            fork_converged = runtime.session_store.converge_pending_forks(stable_id)
             report = transition.converge(
                 runtime.session_store.root,
                 runtime.session_store,
@@ -4254,6 +4481,11 @@ def _doctor_repair_all(runtime: Runtime, output_stream: TextIO) -> int:
             failures.append(f"{stable_id}: {exc}")
             continue
         repaired += 1
+        if fork_converged:
+            output_stream.write(
+                f"{stable_id[:8]}… cleared a fork marker the live runtime "
+                "already resolved\n"
+            )
         for line in report:
             output_stream.write(f"{stable_id[:8]}… {tui.visible_text(line)}\n")
     output_stream.write(

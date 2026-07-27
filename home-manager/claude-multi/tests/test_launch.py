@@ -1684,6 +1684,10 @@ class LifecycleCleanupTests(LaunchTestCase):
             available_models=compiler.direct_profile_selectors(self.docs, "large"),
             default_model=self.docs["models"]["models"]["qwen38"]["client_selector"],
             launch_epoch=current["launch_epoch"],
+            gateway_base_url=self.docs["gateway"]["gateway"]["base_url"],
+            token_helper_command=str(
+                scope.gateway_token_shim_path(self.root / "state")
+            ),
         )
         scope.write_scope(self.store.root, FIXED_ID, prior_plan)
         prepared = {

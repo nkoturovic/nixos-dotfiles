@@ -317,6 +317,7 @@ class CompileScopeSettingsTests(unittest.TestCase):
             base_settings={"disableWorkflows": False},
             client_selectors=(),
             generic_agent_aliases=(),
+            gateway_base_url="http://127.0.0.1:8317",
         )
         with self.assertRaisesRegex(ScopeError, "workflow keys"):
             scope.compile_scope(
@@ -330,6 +331,7 @@ class CompileScopeSettingsTests(unittest.TestCase):
             base_settings={**meta.base_settings, "surprise": True},
             client_selectors=meta.client_selectors,
             generic_agent_aliases=meta.generic_agent_aliases,
+            gateway_base_url=meta.gateway_base_url,
         )
         with self.assertRaisesRegex(ScopeError, "allowlist"):
             scope.compile_scope(
@@ -715,3 +717,124 @@ class ManagedCompactionPinTests(unittest.TestCase):
             available_models=("gpt-multi-sol-high",),
         )
         self.assertNotIn("autoCompactEnabled", plan.settings)
+
+
+class GatewayTokenShimTests(unittest.TestCase):
+    """apiKeyHelper indirection: gateway auth survives daemon env scrubbing."""
+
+    def setUp(self) -> None:
+        self.root = Path(tempfile.mkdtemp(prefix="claude-multi-token-shim-"))
+        os.chmod(self.root, 0o700)
+        self.addCleanup(lambda: shutil.rmtree(self.root, ignore_errors=True))
+
+    def test_shim_written_executable_and_idempotent(self) -> None:
+        token_path = self.root / "cfg" / "api-key"
+        path = scope.ensure_gateway_token_shim(self.root, token_path)
+        self.assertEqual(path, scope.gateway_token_shim_path(self.root))
+        info = os.lstat(path)
+        self.assertTrue(stat.S_ISREG(info.st_mode))
+        self.assertEqual(stat.S_IMODE(info.st_mode), 0o700)
+        body = path.read_text()
+        self.assertIn(f"exec cat {token_path}", body)
+        before = path.read_bytes()
+        scope.ensure_gateway_token_shim(self.root, token_path)
+        self.assertEqual(path.read_bytes(), before)
+
+    def test_shim_mode_repair_is_unconditional(self) -> None:
+        path = scope.ensure_gateway_token_shim(self.root, self.root / "api-key")
+        os.chmod(path, 0o600)
+        scope.ensure_gateway_token_shim(self.root, self.root / "api-key")
+        self.assertEqual(stat.S_IMODE(os.lstat(path).st_mode), 0o700)
+
+    def test_shim_refreshes_when_token_path_changes(self) -> None:
+        path = scope.ensure_gateway_token_shim(self.root, self.root / "a" / "api-key")
+        scope.ensure_gateway_token_shim(self.root, self.root / "b" / "api-key")
+        body = path.read_text()
+        self.assertIn("/b/", body)
+        self.assertNotIn("/a/", body)
+
+    def test_shim_never_embeds_the_token_value(self) -> None:
+        token_path = self.root / "api-key"
+        token_path.write_text("sentinel-secret-value\n")
+        os.chmod(token_path, 0o600)
+        path = scope.ensure_gateway_token_shim(self.root, token_path)
+        self.assertNotIn("sentinel-secret-value", path.read_text())
+
+    def test_resolve_gateway_token_path(self) -> None:
+        env = {"HOME": "/home/test"}
+        self.assertEqual(
+            scope.resolve_gateway_token_path(env),
+            Path("/home/test/.config/claude-multi/api-key"),
+        )
+        env = {"HOME": "/home/test", "XDG_CONFIG_HOME": "/xdg"}
+        self.assertEqual(
+            scope.resolve_gateway_token_path(env),
+            Path("/xdg/claude-multi/api-key"),
+        )
+
+
+class GatewayRoutingDurabilityTests(unittest.TestCase):
+    """Compiled settings carry non-secret routing + helper, never the token."""
+
+    def test_managed_scope_carries_base_url_and_helper(self) -> None:
+        bundle, resolved = _resolved()
+        plan = scope.compile_scope(
+            resolved,
+            bundle.docs["roles"]["roles"],
+            bundle.prompt_bodies,
+            scope.catalog_meta_from_docs(bundle.docs),
+            managed_id=FIXED_SESSION,
+            hook_command="/state/bin/claude-multi-hook",
+            token_helper_command="/state/bin/claude-multi-gateway-token",
+        )
+        settings = plan.settings
+        self.assertEqual(settings["apiKeyHelper"], "/state/bin/claude-multi-gateway-token")
+        self.assertEqual(
+            settings["env"]["ANTHROPIC_BASE_URL"],
+            bundle.docs["gateway"]["gateway"]["base_url"],
+        )
+        self.assertNotIn("ANTHROPIC_AUTH_TOKEN", settings["env"])
+        self.assertNotIn("ANTHROPIC_API_KEY", settings["env"])
+
+    def test_managed_scope_without_helper_omits_both_keys(self) -> None:
+        bundle, resolved = _resolved()
+        plan = scope.compile_scope(
+            resolved,
+            bundle.docs["roles"]["roles"],
+            bundle.prompt_bodies,
+            scope.catalog_meta_from_docs(bundle.docs),
+            managed_id=FIXED_SESSION,
+            hook_command="/state/bin/claude-multi-hook",
+        )
+        self.assertNotIn("apiKeyHelper", plan.settings)
+        # The non-secret base URL is still durable without the helper.
+        self.assertIn("ANTHROPIC_BASE_URL", plan.settings["env"])
+
+    def test_ordinary_scope_carries_routing(self) -> None:
+        plan = scope.compile_ordinary_scope(
+            managed_id=FIXED_SESSION,
+            hook_command="/hook/shim",
+            available_models=("gpt-multi-sol-high",),
+            gateway_base_url="http://127.0.0.1:8317",
+            token_helper_command="/state/bin/claude-multi-gateway-token",
+        )
+        self.assertEqual(plan.settings["apiKeyHelper"], "/state/bin/claude-multi-gateway-token")
+        self.assertEqual(plan.settings["env"]["ANTHROPIC_BASE_URL"], "http://127.0.0.1:8317")
+
+    def test_api_key_helper_is_inside_the_allowlist(self) -> None:
+        self.assertIn("apiKeyHelper", scope.COMPILED_SETTINGS_KEYS)
+
+    def test_settings_bytes_never_contain_token_material(self) -> None:
+        bundle, resolved = _resolved()
+        plan = scope.compile_scope(
+            resolved,
+            bundle.docs["roles"]["roles"],
+            bundle.prompt_bodies,
+            scope.catalog_meta_from_docs(bundle.docs),
+            managed_id=FIXED_SESSION,
+            hook_command="/state/bin/claude-multi-hook",
+            token_helper_command="/state/bin/claude-multi-gateway-token",
+        )
+        blob = strict_json.canonical_file_bytes(plan.settings)
+        self.assertNotIn(b"ANTHROPIC_AUTH_TOKEN", blob)
+        self.assertNotIn(b"ANTHROPIC_API_KEY", blob)

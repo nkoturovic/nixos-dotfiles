@@ -125,6 +125,61 @@ def _derived_identity_state(record: dict[str, Any]) -> str:
     return IDENTITY_AUTHORITATIVE
 
 
+def drop_resolved_pending_forks(record: dict[str, Any]) -> dict[str, Any] | None:
+    """Copy of ``record`` with authority-holding pending forks removed.
+
+    A pending fork that IS the current runtime authority is already resolved
+    by reality — the live runtime is that fork, so there is nothing left to
+    adopt or discard. Returns ``None`` when nothing changed.
+    """
+
+    pending = record.get("pending_forks", [])
+    if not pending:
+        return None
+    runtime_id = record.get("runtime_session_id")
+    kept = [dict(item) for item in pending if item.get("session_id") != runtime_id]
+    if len(kept) == len(pending):
+        return None
+    updated = {**record, "pending_forks": kept}
+    if record.get("identity_state") != IDENTITY_REPAIR_NEEDED:
+        updated["identity_state"] = _derived_identity_state(updated)
+    return updated
+
+
+def pending_fork_message(record: dict[str, Any]) -> str:
+    """Actionable fork-blocked language: names the fork(s) and the remedies.
+
+    Every resume/transition guard and the card uses this so the operator
+    never sees an unnamed "adopt the fork UUID" dead end.
+    """
+
+    stable_id = managed_id(record)
+    pending = record.get("pending_forks", [])
+    fork_ids = [item.get("session_id", "?") for item in pending]
+    fork_list = ", ".join(fork_ids)
+    if record["session_type"] == SESSION_TYPE_ORDINARY:
+        adopt = f"claude-multi sessions link {fork_ids[0]} --model MODEL"
+    else:
+        adopt = (
+            f"claude-multi sessions link {fork_ids[0]} --composition "
+            f"{record.get('composition_name', 'NAME')}"
+        )
+    remedy = (
+        f"adopt it with `{adopt}`, or discard the marker with `claude-multi "
+        f"sessions resolve-fork {stable_id} {fork_ids[0]}`"
+    )
+    if len(fork_ids) > 1:
+        remedy = (
+            "adopt or discard each with `claude-multi sessions link <fork-uuid> "
+            f"--composition NAME` / `claude-multi sessions resolve-fork "
+            f"{stable_id} <fork-uuid>`"
+        )
+    return (
+        f"session {stable_id} has an unresolved native fork (runtime "
+        f"{fork_list}); {remedy} — the fork transcript is kept either way"
+    )
+
+
 def make_record(
     *,
     managed_id: str | None = None,
@@ -539,6 +594,15 @@ def reconcile_runtime_record(
         )
     updated["runtime_session_id"] = observed_runtime_id
     updated["runtime_aliases"] = aliases[-_MAX_RUNTIME_ALIASES:]
+    pending = [
+        dict(item)
+        for item in current.get("pending_forks", [])
+        if item.get("session_id") != observed_runtime_id
+    ]
+    if len(pending) != len(current.get("pending_forks", [])):
+        # Authority landing on a pending fork resolves it: the live runtime
+        # IS that fork, so there is nothing left to adopt or discard.
+        updated["pending_forks"] = pending
     if current["session_type"] == SESSION_TYPE_ORDINARY:
         if observed_model and model is None:
             updated["observed_model"] = observed_model
@@ -939,6 +1003,67 @@ class SessionStore:
         if not UUID4.fullmatch(session_id):
             raise SessionError(f"session_id {session_id!r} is not a UUIDv4")
         return state.remove_private(self._record_path(session_id))
+
+    def converge_pending_forks(self, managed_session_id: str) -> bool:
+        """Drop pending forks that hold resume authority; True when changed."""
+
+        lock = self.lifecycle_lock(managed_session_id)
+        lock.acquire(blocking=True)
+        try:
+            current = self.load(managed_session_id)
+            updated = drop_resolved_pending_forks(current)
+            if updated is None:
+                return False
+            self.save(updated)
+            return True
+        finally:
+            lock.release()
+
+    def resolve_fork(
+        self, managed_session_id: str, fork_runtime_id: str
+    ) -> dict[str, Any]:
+        """Discard one pending fork marker (metadata-only; transcript stays).
+
+        The fork's transcript remains on disk as a native session and can be
+        adopted later with `sessions link`. Refuses when the fork holds the
+        resume authority (that case converges via `converge_pending_forks`)
+        or when the id is not actually pending.
+        """
+
+        if not UUID4.fullmatch(fork_runtime_id):
+            raise SessionError(
+                f"fork runtime id {fork_runtime_id!r} is not a UUIDv4"
+            )
+        lock = self.lifecycle_lock(managed_session_id)
+        lock.acquire(blocking=True)
+        try:
+            current = self.load(managed_session_id)
+            pending = current.get("pending_forks", [])
+            if not any(
+                item.get("session_id") == fork_runtime_id for item in pending
+            ):
+                raise SessionError(
+                    f"session {managed_session_id} has no pending fork "
+                    f"{fork_runtime_id}"
+                )
+            if current.get("runtime_session_id") == fork_runtime_id:
+                raise SessionError(
+                    f"fork {fork_runtime_id} holds the resume authority of "
+                    f"session {managed_session_id}; it is already resolved "
+                    "(run `claude-multi doctor --repair-all` to clear the marker)"
+                )
+            kept = [
+                dict(item)
+                for item in pending
+                if item.get("session_id") != fork_runtime_id
+            ]
+            updated = {**current, "pending_forks": kept}
+            if current.get("identity_state") != IDENTITY_REPAIR_NEEDED:
+                updated["identity_state"] = _derived_identity_state(updated)
+            self.save(updated)
+            return updated
+        finally:
+            lock.release()
 
     def forget(self, session_id: str) -> bool:
         """Remove one record under its lifecycle lock."""

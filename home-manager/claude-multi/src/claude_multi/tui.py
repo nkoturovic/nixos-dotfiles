@@ -521,9 +521,14 @@ class KeyBar:
             col += entry
         return rows
 
+    def rows(self, width: int) -> int:
+        """Rows the bar will occupy when drawn (capped at 2, wrapping upward)."""
+
+        return min(self._rows_needed(width), 2)
+
     def draw(self, win: Any, row: int, palette: Palette, col: int = 2) -> None:
         height, width = win.getmaxyx()
-        used = min(self._rows_needed(width), 2)
+        used = self.rows(width)
         origin = max(0, row - (used - 1))
         current = origin
         for index, (key, label) in enumerate(self.bindings):

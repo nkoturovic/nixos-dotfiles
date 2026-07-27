@@ -1856,6 +1856,7 @@ class DoctorVisibilityTests(CLITestCase):
                 if self.runtime.session_store.exists(session_id)
                 else 0
             ),
+            token_helper_command=self.runtime.token_helper_command,
         )
         scope_mod.write_scope(self.runtime.session_store.root, session_id, plan)
         return plan
@@ -4376,11 +4377,12 @@ class QuickConfirmHealthUpdateTests(CLITestCase):
             update_hint=("2.1.218", "2.1.219"),
             gateway_check=lambda: None,
             upgrade_runner=lambda: calls.append(1) or ["active now: override pins 2.1.219"],
+            hint_detector=lambda _contract: None,
             tty_text="\n",
         )
         self.assertIsNone(screen.run(win))
         self.assertEqual(calls, [1])
-        # hint refreshed from the reloaded catalog (no override on disk -> hint clears)
+        # hint refreshed through the injected detector (override active -> clears)
         self.assertIsNone(screen.update_hint)
         self.assertTrue(screen.gateway_checked)
 
@@ -4388,3 +4390,328 @@ class QuickConfirmHealthUpdateTests(CLITestCase):
         screen, win = self._screen(["h", "\x1b"], gateway_check=lambda: None, tty_text="n\n\n")
         self.assertIsNone(screen.run(win))
         self.assertTrue(screen.gateway_checked)
+
+
+class ResolveForkCommandTests(CLITestCase):
+    """`sessions resolve-fork`: the discard path for pending native forks."""
+
+    def _forked(self):
+        self.save_session(mode="durable", scope_generation=1)
+        return self.runtime.session_store.reconcile_runtime(
+            FIXED_ID,
+            observed_runtime_id=OTHER_ID,
+            source="fork",
+            cwd=self.runtime.cwd,
+            now="2026-07-22T00:00:00Z",
+        )
+
+    def _stuck(self):
+        record = self._forked()
+        stuck = {
+            **record,
+            "runtime_session_id": OTHER_ID,
+            "runtime_aliases": [
+                {
+                    "session_id": FIXED_ID,
+                    "source": "fork",
+                    "observed_at": "2026-07-22T00:01:00Z",
+                }
+            ],
+        }
+        self.runtime.session_store.save(stuck)
+        return stuck
+
+    def test_resolve_fork_discards_marker(self) -> None:
+        self._forked()
+        code, output = self.run_cli(["sessions", "resolve-fork", FIXED_ID, OTHER_ID])
+        self.assertEqual(code, 0, output)
+        self.assertIn("Resolved fork", output)
+        self.assertIn("transcript stays", output)
+        record = self.runtime.session_store.load(FIXED_ID)
+        self.assertEqual(record["pending_forks"], [])
+        self.assertEqual(record["identity_state"], "authoritative")
+
+    def test_resolve_fork_authority_holder_points_at_repair_all(self) -> None:
+        self._stuck()
+        code, output = self.run_cli(["sessions", "resolve-fork", FIXED_ID, OTHER_ID])
+        self.assertEqual(code, 2)
+        self.assertIn("doctor --repair-all", output)
+
+    def test_resolve_fork_unknown_fork(self) -> None:
+        self._forked()
+        code, output = self.run_cli(
+            ["sessions", "resolve-fork", FIXED_ID, "33333333-3333-4333-8333-333333333333"]
+        )
+        self.assertEqual(code, 2)
+        self.assertIn("no pending fork", output)
+
+    def test_blocked_resume_message_is_actionable(self) -> None:
+        self._forked()
+        code, output = self.run_cli(["-r", FIXED_ID], interactive=False)
+        self.assertEqual(code, 2)
+        self.assertIn(OTHER_ID, output)
+        self.assertIn("resolve-fork", output)
+        self.assertIn("sessions link", output)
+
+
+class DoctorPendingForkTests(CLITestCase):
+    """A fork marker the live runtime already resolved: attention, not damage."""
+
+    def _stuck(self):
+        self.save_session(mode="durable", scope_generation=1)
+        record = self.runtime.session_store.reconcile_runtime(
+            FIXED_ID,
+            observed_runtime_id=OTHER_ID,
+            source="fork",
+            cwd=self.runtime.cwd,
+            now="2026-07-22T00:00:00Z",
+        )
+        stuck = {
+            **record,
+            "runtime_session_id": OTHER_ID,
+            "runtime_aliases": [
+                {
+                    "session_id": FIXED_ID,
+                    "source": "fork",
+                    "observed_at": "2026-07-22T00:01:00Z",
+                }
+            ],
+        }
+        self.runtime.session_store.save(stuck)
+        resolved = self.runtime.resolve_document(
+            self.runtime.compositions.load("default")
+        )
+        plan = scope_mod.compile_scope(
+            resolved,
+            self.runtime.catalog.docs["roles"]["roles"],
+            self.runtime.catalog.prompt_bodies,
+            scope_mod.catalog_meta_from_docs(self.runtime.catalog.docs),
+            managed_id=FIXED_ID,
+            hook_command=self.runtime.hook_command,
+            token_helper_command=self.runtime.token_helper_command,
+        )
+        scope_mod.write_scope(self.runtime.session_store.root, FIXED_ID, plan)
+
+    def test_stuck_marker_is_attention_not_blocked(self) -> None:
+        self._stuck()
+        code, output = self.run_cli(["doctor"])
+        self.assertEqual(code, 0, output)
+        self.assertIn("already resolved", output)
+        self.assertNotIn("BLOCKED", output)
+
+    def test_repair_all_clears_the_marker(self) -> None:
+        self._stuck()
+        code, output = self.run_cli(["doctor", "--repair-all"])
+        self.assertEqual(code, 0, output)
+        self.assertIn("cleared a fork marker", output)
+        self.assertEqual(
+            self.runtime.session_store.load(FIXED_ID)["pending_forks"], []
+        )
+        code, output = self.run_cli(["doctor"])
+        self.assertNotIn("already resolved", output)
+
+
+class SessionsScreenForkLiveTests(CLITestCase):
+    """The picker's fork markers, X resolution, and live (background) ●."""
+
+    def _run(self, keys):
+        from test_tui import FakeWindow
+
+        screen = cli._SessionsScreen(self.runtime, palette=tui.MONO_PALETTE)
+        win = FakeWindow(keys)
+        result = screen.run(win)
+        return result, win, screen
+
+    def _forked(self):
+        self.save_session(mode="durable", scope_generation=1)
+        return self.runtime.session_store.reconcile_runtime(
+            FIXED_ID,
+            observed_runtime_id=OTHER_ID,
+            source="fork",
+            cwd=self.runtime.cwd,
+            now="2026-07-22T00:00:00Z",
+        )
+
+    def test_fork_marker_shown_and_x_discards(self) -> None:
+        self._forked()
+        result, win, _ = self._run(["x", "\n", "\x1b"])
+        self.assertIsNone(result)
+        self.assertIn("⚠", win.frames[0])
+        self.assertTrue(
+            any("Discard the pending-fork marker" in frame for frame in win.frames)
+        )
+        self.assertEqual(
+            self.runtime.session_store.load(FIXED_ID)["pending_forks"], []
+        )
+        self.assertIn("marker discarded", win.text())
+
+    def test_x_survives_a_concurrent_fork_state_change(self) -> None:
+        # The pending set changed between screen load and modal confirm
+        # (another terminal resolved it): message, not a crashed picker.
+        self._forked()
+        with mock.patch.object(
+            self.runtime.session_store,
+            "resolve_fork",
+            side_effect=sessions.SessionError(
+                f"session {FIXED_ID} has no pending fork {OTHER_ID}"
+            ),
+        ):
+            result, win, _ = self._run(["x", "\n", "\x1b"])
+        self.assertIsNone(result)
+        self.assertIn("no pending fork", win.text())
+
+    def test_x_auto_clears_authority_holding_marker(self) -> None:
+        record = self._forked()
+        stuck = {
+            **record,
+            "runtime_session_id": OTHER_ID,
+            "runtime_aliases": [
+                {
+                    "session_id": FIXED_ID,
+                    "source": "fork",
+                    "observed_at": "2026-07-22T00:01:00Z",
+                }
+            ],
+        }
+        self.runtime.session_store.save(stuck)
+        result, win, _ = self._run(["x", "\x1b"])
+        self.assertIsNone(result)
+        self.assertIn("cleared the fork marker", win.text())
+        self.assertEqual(
+            self.runtime.session_store.load(FIXED_ID)["pending_forks"], []
+        )
+
+    def test_x_without_pending_reports_nothing_to_do(self) -> None:
+        self.save_session(mode="durable", scope_generation=1)
+        result, win, _ = self._run(["x", "\x1b"])
+        self.assertIsNone(result)
+        self.assertIn("no pending fork", win.text())
+
+    def test_resume_key_explains_fork_block(self) -> None:
+        self._forked()
+        result, win, _ = self._run(["r", "\x1b"])
+        self.assertIsNone(result)
+        self.assertIn("fork-blocked", win.text())
+
+    def test_live_marker_rendered_for_background_owned_session(self) -> None:
+        self.save_session(mode="durable", scope_generation=1)
+        with mock.patch.object(
+            cli, "_live_background_prefixes", return_value=frozenset({"11111111"})
+        ):
+            result, win, _ = self._run(["\x1b"])
+        self.assertIsNone(result)
+        self.assertIn("●", win.text())
+
+    def test_native_fork_row_is_annotated(self) -> None:
+        self._forked()
+        home = Path(self.runtime.environ["HOME"])
+        projects = home / ".claude" / "projects"
+        target = projects / "-proj"
+        target.mkdir(parents=True, exist_ok=True)
+        (target / f"{OTHER_ID}.jsonl").write_bytes(b"{}\n")
+        found = cli._discover_native_sessions(self.runtime)
+        self.assertEqual(len(found), 1)
+        self.assertEqual(found[0]["fork_of"], FIXED_ID)
+        result, win, _ = self._run(["\x1b"])
+        self.assertIn("(fork)", win.text())
+
+
+class LiveBackgroundPrefixTests(unittest.TestCase):
+    def test_socket_names_become_prefixes(self) -> None:
+        import shutil as _shutil
+
+        root = Path(tempfile.mkdtemp(prefix="cc-daemon-test-"))
+        self.addCleanup(_shutil.rmtree, root, True)
+        sock = root / "916a7da9" / "pty"
+        sock.mkdir(parents=True)
+        (sock / "707e80d4.sock").write_bytes(b"")
+        (sock / "not-a-sock.txt").write_bytes(b"")
+        (root / "916a7da9" / "spare").mkdir()
+        self.assertEqual(cli._live_background_prefixes(root), frozenset({"707e80d4"}))
+
+    def test_missing_root_is_empty(self) -> None:
+        self.assertEqual(
+            cli._live_background_prefixes(Path("/nonexistent-cc-daemon-root")),
+            frozenset(),
+        )
+
+
+class UpdateProgressTests(CLITestCase):
+    """The U action and run_upgrade report phases live (no more silent hang)."""
+
+    def test_run_upgrade_reports_phases(self) -> None:
+        import json as _json
+
+        from claude_multi import upgrade as upgrade_mod
+
+        home = Path(self.runtime.environ["HOME"])
+        checkout = self.root / "checkout"
+        (checkout / "tests").mkdir(parents=True)
+        (checkout / "catalog").mkdir()
+        contract = _json.loads(
+            (CATALOG_ROOT / "catalog" / "native-contract.json").read_text()
+        )
+        contract["claude"]["validated_version"] = "0.0.1"
+        (checkout / "catalog" / "native-contract.json").write_text(_json.dumps(contract))
+        (checkout / "version.json").write_text(
+            _json.dumps({"version": 1, "launcher_version": "2.5.0", "catalog_version": 4})
+        )
+        versions = home / ".local" / "share" / "claude" / "versions"
+        versions.mkdir(parents=True)
+        candidate = versions / "9.9.9"
+        candidate.write_bytes(
+            b'#!/bin/sh\nif [ "$1" = "--help" ]; then echo "Claude Code"; else echo "9.9.9"; fi\n'
+        )
+        candidate.chmod(0o755)
+        contract["claude"]["executable"]["configured_path"] = str(
+            home / ".local" / "bin" / "claude"
+        )
+        contract["claude"]["executable"]["resolved_path"] = str(candidate)
+
+        class _Done:
+            returncode = 0
+            stdout = "Ran 1 tests in 0.001s\nOK\n"
+            stderr = ""
+
+        notes: list[str] = []
+        outcome = upgrade_mod.run_upgrade(
+            checkout_root=checkout,
+            native_contract=contract,
+            override_path=self.root / "cfg" / "native-contract.json",
+            today="2026-07-27",
+            runner=lambda *a, **k: _Done(),
+            progress=notes.append,
+        )
+        self.assertEqual(outcome.kind, "prepared")
+        self.assertTrue(any("evidence suite" in note for note in notes))
+        self.assertTrue(any("override" in note for note in notes))
+
+    def test_u_action_streams_header_before_runner_output(self) -> None:
+        import io as _io
+
+        from test_tui import FakeWindow
+
+        screen = cli._QuickConfirmScreen(
+            self.runtime,
+            cli.build_quick_plan(
+                self.runtime,
+                self.runtime.compositions.load("default"),
+                action="fresh",
+                source="Trusted default",
+            ),
+            passthrough=[],
+            palette=tui.MONO_PALETTE,
+            update_hint=("2.1.218", "2.1.219"),
+            gateway_check=lambda: None,
+            upgrade_runner=lambda: ["active now: override pins 2.1.219"],
+            hint_detector=lambda _contract: None,
+            tty_in=_io.StringIO("\n"),
+            tty_out=(buffer := _io.StringIO()),
+        )
+        win = FakeWindow(["u", "\x1b"])
+        self.assertIsNone(screen.run(win))
+        text = buffer.getvalue()
+        self.assertIn("evidence-gated re-pin", text)
+        self.assertLess(
+            text.index("evidence-gated re-pin"), text.index("active now")
+        )

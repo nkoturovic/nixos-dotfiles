@@ -404,6 +404,7 @@ def execute(
                 store.root, scope.resolve_hook_command(env, trusted.root)
             )
         ),
+        token_helper_command=scope.ensure_token_helper_command(store.root, env),
         launch_epoch=plan.new_record.get("launch_epoch", 0),
     )
     if result.scope_plan is None:
@@ -477,9 +478,7 @@ def execute(
             "identity_state", sessions.IDENTITY_UNVERIFIED
         )
         if current.get("pending_forks"):
-            raise TransitionError(
-                "session has an unresolved native fork; adopt it before transition"
-            )
+            raise TransitionError(sessions.pending_fork_message(current))
         model_repair = (
             identity_state == sessions.IDENTITY_REPAIR_NEEDED
             and "observed_model" in current
@@ -706,7 +705,10 @@ def _document_from_record(record: dict[str, Any]) -> dict[str, Any]:
 
 
 def _ordinary_expected_plan(
-    record: dict[str, Any], trusted: Catalog, hook_command: str
+    record: dict[str, Any],
+    trusted: Catalog,
+    hook_command: str,
+    token_helper_command: str,
 ) -> scope.ScopePlan:
     """The record-authoritative ordinary gateway scope."""
 
@@ -728,6 +730,8 @@ def _ordinary_expected_plan(
         available_models=selectors,
         default_model=model["client_selector"],
         launch_epoch=record.get("launch_epoch", 0),
+        gateway_base_url=trusted.docs["gateway"]["gateway"]["base_url"],
+        token_helper_command=token_helper_command,
     )
 
 
@@ -737,12 +741,13 @@ def _expected_plan(
     *,
     state_root: Path | str | None = None,
     hook_command: str | None = None,
+    token_helper_command: str | None = None,
 ) -> scope.ScopePlan:
     """The record-authoritative scope: record composition + installed catalog."""
 
     document = _document_from_record(record)
     resolved = composition.resolve(trusted.docs, document)
-    if hook_command is None:
+    if hook_command is None or token_helper_command is None:
         if state_root is None:
             raise TransitionError(
                 "record-authoritative compile requires state_root or hook_command"
@@ -752,6 +757,7 @@ def _expected_plan(
                 state_root, scope.resolve_hook_command(None, trusted.root)
             )
         )
+        token_helper_command = scope.ensure_token_helper_command(state_root)
     return scope.compile_scope(
         resolved,
         trusted.docs["roles"]["roles"],
@@ -760,6 +766,7 @@ def _expected_plan(
         managed_id=sessions.managed_id(record),
         hook_command=hook_command,
         launch_epoch=record.get("launch_epoch", 0),
+        token_helper_command=token_helper_command,
     )
 
 
@@ -909,8 +916,11 @@ def converge(
                 store.root, scope.resolve_hook_command(None, trusted.root)
             )
         )
+        token_helper_command = scope.ensure_token_helper_command(store.root)
         if record["session_type"] == sessions.SESSION_TYPE_ORDINARY:
-            expected = _ordinary_expected_plan(record, trusted, hook_command)
+            expected = _ordinary_expected_plan(
+                record, trusted, hook_command, token_helper_command
+            )
         else:
             # Repair-time record refresh: re-resolve the recorded composition
             # against the installed catalog and absorb catalog-derived drift
@@ -943,7 +953,11 @@ def converge(
                     "(catalog-derived fields absorbed; composition unchanged)"
                 )
             expected = _expected_plan(
-                record, trusted, state_root=store.root, hook_command=hook_command
+                record,
+                trusted,
+                state_root=store.root,
+                hook_command=hook_command,
+                token_helper_command=token_helper_command,
             )
 
         if not os.path.lexists(live) and os.path.lexists(prev):

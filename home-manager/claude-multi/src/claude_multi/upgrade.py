@@ -186,6 +186,7 @@ def run_upgrade(
     env: dict[str, str] | None = None,
     activate: bool = False,
     flake_target: str | None = None,
+    progress: Callable[[str], None] | None = None,
 ) -> UpgradeOutcome:
     """Inspect → promote → evidence → override → (optionally) activate.
 
@@ -194,9 +195,56 @@ def run_upgrade(
     the packaged baseline honest; it lands at the next natural Home Manager
     activation (or immediately with ``--activate``). Any failure before the
     override write leaves both the repo and the override byte-identical.
+
+    ``progress`` receives one line per long phase (inspect, evidence suite,
+    override write, activation) so interactive callers can show life while
+    the minutes-long evidence suite runs.
+
+    The whole flow is serialized through an advisory lock next to the
+    override file: two concurrent updates (two terminals, card U + CLI)
+    queue instead of interleaving the checkout promotion.
     """
 
     from . import state  # local import: hardened writes for the config root
+
+    def _note(line: str) -> None:
+        if progress is not None:
+            progress(line)
+
+    state.ensure_private_dir(override_path.parent)
+    update_lock = state.FileLock(override_path)
+    update_lock.acquire(blocking=True)
+    try:
+        return _run_upgrade_locked(
+            checkout_root=checkout_root,
+            native_contract=native_contract,
+            override_path=override_path,
+            today=today,
+            runner=runner,
+            env=env,
+            activate=activate,
+            flake_target=flake_target,
+            note=_note,
+        )
+    finally:
+        update_lock.release()
+
+
+def _run_upgrade_locked(
+    *,
+    checkout_root: Path,
+    native_contract: dict[str, Any],
+    override_path: Path,
+    today: str,
+    runner: Callable[..., subprocess.CompletedProcess],
+    env: dict[str, str] | None,
+    activate: bool,
+    flake_target: str | None,
+    note: Callable[[str], None],
+) -> UpgradeOutcome:
+    from . import state
+
+    _note = note
 
     candidate = find_candidate(native_contract)
     if candidate is None:
@@ -216,6 +264,7 @@ def run_upgrade(
             kind="current", inspection=None, messages=tuple(messages)
         )
     inspection = inspect_candidate(candidate)
+    _note(f"inspected {inspection.version} offline (--version, --help, sha256)")
     product_root = Path(checkout_root)
     contract_path = product_root / "catalog" / "native-contract.json"
     version_path = product_root / "version.json"
@@ -247,6 +296,10 @@ def run_upgrade(
         version_path.write_text(
             json.dumps(version_doc, indent=2) + "\n", encoding="utf-8"
         )
+        _note(
+            "running the offline evidence suite against the candidate "
+            "(about 2 minutes; the suite is silent while it works)…"
+        )
         evidence = runner(
             [sys.executable, "-m", "unittest", "discover", "-s", "tests", "-t", "."],
             cwd=product_root,
@@ -277,6 +330,7 @@ def run_upgrade(
         raise
 
     state.ensure_private_dir(override_path.parent)
+    _note("evidence green; writing the operator contract override…")
     state.atomic_write(
         override_path,
         (json.dumps(promoted, indent=2, sort_keys=True) + "\n").encode("utf-8"),
@@ -294,6 +348,7 @@ def run_upgrade(
         return UpgradeOutcome(
             kind="prepared", inspection=inspection, messages=tuple(messages)
         )
+    _note("running home-manager switch (this can take a few minutes)…")
     switch = runner(
         ["home-manager", "switch", "--flake", flake_target or str(checkout_root.parents[1]) + "#kotur"],
         capture_output=True,

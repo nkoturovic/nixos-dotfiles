@@ -486,6 +486,7 @@ def compile_launch(
     scope_dir: Path | None = None,
     hook_command: str | None = None,
     launch_epoch: int = 0,
+    token_helper_command: str | None = None,
 ) -> CompileResult:
     """Compile the pure launch plan. No effects; fail closed on conflicts.
 
@@ -551,6 +552,7 @@ def compile_launch(
             managed_id=session_action.managed_id,
             hook_command=hook_command,
             launch_epoch=launch_epoch,
+            token_helper_command=token_helper_command,
         )
         agents_json = ""
     else:
@@ -719,6 +721,7 @@ def compile_direct_launch(
     state_root: Path,
     pin_model: bool = True,
     launch_epoch: int = 0,
+    token_helper_command: str | None = None,
 ) -> CompileResult:
     """Compile an ordinary gateway-backed Claude session with no composition."""
 
@@ -778,6 +781,8 @@ def compile_direct_launch(
         available_models=selectors,
         default_model=model["client_selector"],
         launch_epoch=launch_epoch,
+        gateway_base_url=docs["gateway"]["gateway"]["base_url"],
+        token_helper_command=token_helper_command,
     )
     argv: list[str] = []
     if session_action.kind == "fresh":

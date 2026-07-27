@@ -85,6 +85,9 @@ class TransitionTestCase(unittest.TestCase):
             managed_id=FIXED_ID,
             hook_command=str(scope.hook_shim_path(self.root / "state")),
             launch_epoch=launch_epoch,
+            token_helper_command=str(
+                scope.gateway_token_shim_path(self.root / "state")
+            ),
         )
 
     def _make_session(

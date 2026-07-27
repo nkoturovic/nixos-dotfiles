@@ -432,6 +432,10 @@ def _resume_failure_scope(
                 ),
                 default_model=model["client_selector"],
                 launch_epoch=prior_record.get("launch_epoch", 0),
+                gateway_base_url=trusted.docs["gateway"]["gateway"]["base_url"],
+                token_helper_command=scope.ensure_token_helper_command(
+                    store.root, environ
+                ),
             )
         except Exception:
             scope.remove_scope(store.root, session_id)
