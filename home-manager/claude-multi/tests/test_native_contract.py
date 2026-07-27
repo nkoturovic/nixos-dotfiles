@@ -133,11 +133,11 @@ class PassthroughContractTests(unittest.TestCase):
 
 
 class PromotedContractConsumptionTests(unittest.TestCase):
-    """The promoted 2.1.218 record changes no fail-closed consumption."""
+    """The promoted 2.1.220 record changes no fail-closed consumption."""
 
     def test_promoted_record_identity(self) -> None:
         record = _docs()["native-contract"]
-        self.assertEqual(record["claude"]["validated_version"], "2.1.218")
+        self.assertEqual(record["claude"]["validated_version"], "2.1.220")
         self.assertEqual(
             record["lifecycle_evidence"]["inspected_version"],
             record["claude"]["validated_version"],

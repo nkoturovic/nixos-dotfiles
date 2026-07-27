@@ -21,6 +21,7 @@ map from any landing spot (repo root README, product `AGENTS.md`/`USAGE.md`,
 | **Live ledger (what happened when)** | [STATUS.md](STATUS.md) | Append at every milestone — before claiming "done" |
 | **Development guide** | [`../../home-manager/claude-multi/AGENTS.md`](../../home-manager/claude-multi/AGENTS.md) | Any invariant, module contract, workflow, or rule change |
 | **User guide** | [`../../home-manager/claude-multi/USAGE.md`](../../home-manager/claude-multi/USAGE.md) | Any user-visible behavior/command change |
+| **Standalone Claude guide** | [`../../home-manager/claude-multi/STANDALONE.md`](../../home-manager/claude-multi/STANDALONE.md) | Machine setup / upstream daemon / update-channel facts |
 | **Design assessment** | [SANITY.md](SANITY.md) | Revisit at each checkpoint; record new reservations as found |
 | **Decisions + alternatives** | [DECISIONS.md](DECISIONS.md) | Any D-number added/revised — with evidence, never silently |
 | **Daily operations** | [HANDOFF.md](HANDOFF.md) + USAGE.md | Any operational flow change |

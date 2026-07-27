@@ -4341,6 +4341,13 @@ class QuickConfirmHealthUpdateTests(CLITestCase):
         return screen, win
 
     def test_update_badge_and_health_row_shown(self) -> None:
+        # Hermetic pin: the health row reads the catalog contract; pin it
+        # in-memory so a packaged re-pin never disturbs this widget test.
+        docs = self.runtime.catalog.docs
+        original = docs["native-contract"]
+        docs["native-contract"] = copy.deepcopy(original)
+        docs["native-contract"]["claude"]["validated_version"] = "2.1.218"
+        self.addCleanup(docs.__setitem__, "native-contract", original)
         screen, win = self._screen(
             ["\x1b"],
             update_hint=("2.1.218", "2.1.219"),

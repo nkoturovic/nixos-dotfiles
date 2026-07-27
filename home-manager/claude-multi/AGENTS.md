@@ -230,7 +230,8 @@ full): run with a disk-backed temp dir, e.g.
    attention, never let lazy state block.
 7. **Keep the map current (replicability rule):** update `STATUS.md` at
    every milestone before claiming "done"; update `AGENTS.md`/`USAGE.md`
-   with any behavior change; create the next checkpoint
+   with any behavior change (`STANDALONE.md` for machine-setup/upstream
+   behavior facts); create the next checkpoint
    (`../../docs/claude-multi-final/checkpoints/`) at every meaningful
    boundary (activation, architecture change, major integration); keep one
    canonical home per topic — pointers elsewhere, never copies. The full

@@ -7,7 +7,10 @@ your agent team survives restarts, upgrades, and background takeovers because
 it lives in per-session files instead of a one-time command line.
 
 **What it is not:** it never changes plain `claude`. Your normal Claude Code
-install, settings, and transcripts stay exactly as they were.
+install, settings, and transcripts stay exactly as they were. For how plain
+Claude Code itself works here (auto-updates, the background daemon, native
+forks, auth) — and when to use which tool — see
+[`STANDALONE.md`](STANDALONE.md).
 
 ## The three tools
 
@@ -16,6 +19,7 @@ install, settings, and transcripts stay exactly as they were.
 | `claude-multi` | Start/resume a **managed composition** session (lead + `cm-*` team) |
 | `claude-gateway` | Start/resume an **ordinary** session through the local model gateway — normal Claude Code, native `/model`, no agent team |
 | `claude-multi direct` | Same as `claude-gateway`, explicit form |
+| plain `claude` | Upstream Claude Code, untouched by all of this — see [`STANDALONE.md`](STANDALONE.md) |
 
 ## Daily use
 
@@ -151,6 +155,31 @@ claude-multi sessions link <uuid> --composition kimi-sol
 ```
 
 The session becomes managed (new stable ID; transcript untouched).
+
+### Managing compositions
+
+The presets cover the common shapes; your own compositions live in
+`~/.config/claude-multi/compositions/` (owner-only files):
+
+```bash
+claude-multi compose list                       # your compositions + trusted seeds
+claude-multi compose show <name>                # effective summary (lead, team, policy)
+claude-multi compose edit <name>                # the form editor (same as E on the card)
+claude-multi compose new <name>                 # new composition from the default shape
+claude-multi compose duplicate <src> <dst>      # copy under a new name
+claude-multi compose use-as-template <src> <dst># same idea, explicitly as a starting point
+claude-multi compose rename <src> <dst>
+claude-multi compose delete <name>
+claude-multi compose restore-default            # reset 'default' to the trusted seed
+```
+
+The editor edits slots (lead, per-role model/lane/preferred), workflow
+mode, and native-agent policy, with `?` explaining each field. Compositions
+are schema-validated at save and fail closed at resolve (an unknown model,
+lane, or role is an error, never a silent default). The shipped presets
+also follow the house conventions — workflows native, worktree isolation
+on implementers, cross-provider subagent preference, the model fence, the
+compaction pin — and `new`/`use-as-template` start you from them.
 
 ### Housekeeping
 

@@ -172,6 +172,51 @@ class RunUpgradeTests(UpgradeTestCase):
         version_doc = json.loads((product / "version.json").read_bytes())
         self.assertEqual(version_doc["catalog_version"], 4)
 
+    def test_promotion_syncs_pinned_test_literals(self) -> None:
+        product = self._product_tree()
+        old_sha = self.contract["claude"]["executable"]["sha256"]
+        pinned = (
+            'validated = "2.1.217"\n'
+            'resolved = "/home/user/.local/share/claude/versions/2.1.217"\n'
+            f'sha = "{old_sha}"\n'
+            'floors = {"opus5": "2.1.217"}  # decoupled from the artifact version\n'
+            'self.assertEqual(bundle.docs["version"]["catalog_version"], 3)\n'
+        )
+        (product / "tests" / "test_catalog.py").write_text(pinned, encoding="utf-8")
+        outcome = upgrade.run_upgrade(
+            checkout_root=product,
+            native_contract=self.contract,
+            override_path=self.root / "config" / "native-contract.json",
+            today="2026-07-24",
+            runner=self._runner(0),
+        )
+        text = (product / "tests" / "test_catalog.py").read_text(encoding="utf-8")
+        inspection = upgrade.inspect_candidate(self.new)
+        self.assertIn('validated = "2.1.218"', text)
+        self.assertIn("versions/2.1.218", text)
+        self.assertIn(f'sha = "{inspection.sha256}"', text)
+        self.assertIn('"catalog_version"], 4)', text)
+        # The decoupled per-model floor line is never touched.
+        self.assertIn('floors = {"opus5": "2.1.217"}', text)
+        self.assertTrue(
+            any("synced version-pinned test literals" in line for line in outcome.messages)
+        )
+
+    def test_evidence_failure_restores_synced_test_files(self) -> None:
+        product = self._product_tree()
+        pinned = 'validated = "2.1.217"\n'
+        target = product / "tests" / "test_native_contract.py"
+        target.write_text(pinned, encoding="utf-8")
+        with self.assertRaisesRegex(UpgradeError, "evidence suite failed"):
+            upgrade.run_upgrade(
+                checkout_root=product,
+                native_contract=self.contract,
+                override_path=self.root / "config" / "native-contract.json",
+                today="2026-07-24",
+                runner=self._runner(1, "FAILED"),
+            )
+        self.assertEqual(target.read_text(encoding="utf-8"), pinned)
+
     def test_evidence_failure_restores_repo_and_writes_no_override(self) -> None:
         product = self._product_tree()
         before_contract = (product / "catalog" / "native-contract.json").read_bytes()
@@ -318,3 +363,19 @@ _MINIMAL_CONTRACT = {
 
 def _unused_runner(*args, **kwargs):  # pragma: no cover - never reached
     raise AssertionError("runner must not run for the current path")
+
+
+class HeartbeatTests(unittest.TestCase):
+    def test_beats_and_stops_cleanly(self) -> None:
+        notes: list[str] = []
+        with upgrade._Heartbeat(notes.append, "  [3/4] evidence suite still running", interval=0.02):
+            time.sleep(0.07)
+        self.assertTrue(notes)
+        self.assertIn("evidence suite still running", notes[0])
+        self.assertIn("elapsed", notes[0])
+        time.sleep(0.05)
+        self.assertEqual(len(notes), len(notes))  # stopped: no growth assertion needed
+
+    def test_noop_without_progress(self) -> None:
+        with upgrade._Heartbeat(None, "phase", interval=0.01):
+            time.sleep(0.03)

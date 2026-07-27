@@ -343,6 +343,26 @@ later; the keybar advertises X and ? documents the markers. A wrapped
 2-row keybar no longer overdraws the message row (`KeyBar.rows(width)` is
 public and screens reserve it).
 
+**D36 — The evidence gate validates the NEW contract; promotion syncs the
+suite's version pins (2.6.1).** Evidence (the first real candidate run of
+`claude-multi update`, 2.1.218→2.1.220): the flow promoted the contract,
+then ran an evidence suite that contains assertions pinned to the OLD
+contract on purpose (validated-version literals, resolved-path/SHA-256
+facts, `inspected_at`, the `catalog_version` literal — the pins are the
+re-pin commit's review trail) → the gate red-lit its own promotion, 7
+failures, fail-closed restore. The candidate path had never been exercised
+live (2.1.218 predates the command; test fixtures fake the runner).
+Promotion now syncs those literals in the same transaction (backup/restore
+included; the decoupled per-model `floors = {...}` minimums are explicitly
+untouched), so the suite validates the *new* contract; one fixture-style
+widget test was made hermetic instead (it controls its in-memory pin).
+Also from the same live run: progress is phase-numbered (`[N/M] phase`) —
+detect/inspect → promote → evidence → override → activate — with a timed
+heartbeat line every 15s during the two long subprocess phases (plain
+lines, no carriage-return tricks: identical behavior on TTYs, pipes, and
+captured streams). Verified end-to-end against the real 2.1.220 candidate:
+suite green, override written, heartbeat lines observed.
+
 ## User decision summary (what you're approving by accepting this design)
 
 1. Selected agents become **real files** in a per-session scope; the failure

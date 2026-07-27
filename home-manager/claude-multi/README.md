@@ -13,7 +13,8 @@ shim), so sessions adopted by the background daemon keep working; native
 forks are visible, explain themselves, and resolve in one keypress.
 
 **Using it?** Start with [`USAGE.md`](USAGE.md) (simple guide, use cases,
-FAQ). **Developing it?** Start with [`AGENTS.md`](AGENTS.md) (architecture,
+FAQ) — plus [`STANDALONE.md`](STANDALONE.md) for how plain Claude Code
+itself is set up and behaves here. **Developing it?** Start with [`AGENTS.md`](AGENTS.md) (architecture,
 invariants, workflow, rules). **Picking up the project cold?** Start at the
 latest [`docs/claude-multi-final/checkpoints/`](../../docs/claude-multi-final/checkpoints/README.md)
 handoff.
@@ -108,6 +109,9 @@ claude-multi sessions link UUID (--composition NAME|--model MODEL) [--cwd PATH]
                                       adopt plain Claude as managed or ordinary
 claude-multi sessions relink-runtime MANAGED_ID RUNTIME_ID [--cwd PATH]
                                       repair pre-hook UUID/CWD drift from /status
+claude-multi sessions resolve-fork MANAGED_ID FORK_UUID
+                                      discard a pending native-fork marker
+                                      (the fork transcript is kept)
 claude-multi sessions transition UUID --composition NAME
                                       diff + exited-confirm + exact-resume relaunch
 claude-multi doctor                   binary/gateway/scope/collision checks

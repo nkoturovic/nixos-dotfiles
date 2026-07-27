@@ -46,12 +46,12 @@
   "claude": {
     "executable": {
       "configured_path": "/home/kotur/.local/bin/claude",
-      "inspected_at": "2026-07-24",
-      "inspection": "Offline symlink/path resolution and SHA-256 file hashing; local execution of the pinned 2.1.218 binary limited to --version and --help (no prompt, no provider request, no daemon contact).",
-      "resolved_path": "/home/kotur/.local/share/claude/versions/2.1.218",
-      "sha256": "e12071751a9336b8af1012c103358ff04ac18f9aaff4a738cff7ba5cdfaf63f2"
+      "inspected_at": "2026-07-27",
+      "inspection": "Offline symlink/path resolution and SHA-256 file hashing; local execution of the pinned 2.1.220 binary limited to --version and --help (no prompt, no provider request, no daemon contact).",
+      "resolved_path": "/home/kotur/.local/share/claude/versions/2.1.220",
+      "sha256": "674f61f20ff306f3100cf9200e4c36c4b70278b5bef2884549819b942a89c863"
     },
-    "validated_version": "2.1.218"
+    "validated_version": "2.1.220"
   },
   "effort_vocabulary": {
     "evidence": "Client-accepted in ordinary v1 operation against the pinned installation (launcher profiles and agent definitions). Native acceptance per pinned version remains to be confirmed by the Phase 2 native-contract probe.",
@@ -72,8 +72,8 @@
     ]
   },
   "lifecycle_evidence": {
-    "evidence_id": "deepwork-claude-multi-durable-session-config-phase0-2.1.218",
-    "inspected_version": "2.1.218"
+    "evidence_id": "deepwork-claude-multi-durable-session-config-phase0-2.1.220",
+    "inspected_version": "2.1.220"
   },
   "nested_subagents": {
     "concurrency_key": {

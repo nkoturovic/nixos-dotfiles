@@ -701,7 +701,7 @@ def build_parser() -> argparse.ArgumentParser:
         item = session_commands.add_parser(action, help=f"{action} a managed session")
         item.add_argument("uuid")
     link = session_commands.add_parser(
-        "link", help="adopt a native session without inspecting Claude state"
+        "link", help="adopt a native session (must exist in local Claude metadata)"
     )
     link.add_argument("uuid", nargs="?")
     link_target = link.add_mutually_exclusive_group()

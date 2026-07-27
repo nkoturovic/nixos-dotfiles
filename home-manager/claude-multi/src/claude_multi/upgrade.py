@@ -14,7 +14,10 @@ scavenger hunt either. This module is the whole flow as one command:
    pointed at the candidate contract;
 4. **promote**: write the new ``catalog/native-contract.json`` and bump
    ``catalog_version`` — only after the evidence passes, with byte-exact
-   backup/restore on any failure;
+   backup/restore on any failure. The suite's deliberate version pins
+   (validated-version/SHA/path literals in the contract tests) are synced
+   in the same transaction, so the evidence suite validates the *new*
+   contract instead of failing against the old one;
 5. print the exact commit + Home Manager activation commands, or run the
    activation when explicitly confirmed (``--activate`` or interactive
    approval).
@@ -32,6 +35,8 @@ import os
 import re
 import subprocess
 import sys
+import threading
+import time
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Callable
@@ -39,6 +44,40 @@ from typing import Any, Callable
 
 class UpgradeError(RuntimeError):
     """Raised on any failed upgrade step (fail closed, repo untouched)."""
+
+
+class _Heartbeat:
+    """Periodic proof-of-life line while a long subprocess phase runs."""
+
+    def __init__(
+        self, progress: Callable[[str], None] | None, label: str, interval: float = 15.0
+    ):
+        self._progress = progress
+        self._label = label
+        self._interval = interval
+        self._stop = threading.Event()
+        self._thread: threading.Thread | None = None
+
+    def __enter__(self) -> "_Heartbeat":
+        if self._progress is None:
+            return self
+        started = time.monotonic()
+
+        def _beat() -> None:
+            while not self._stop.wait(self._interval):
+                self._progress(
+                    f"{self._label} ({int(time.monotonic() - started)}s elapsed)"
+                )
+
+        self._thread = threading.Thread(target=_beat, daemon=True)
+        self._thread.start()
+        return self
+
+    def __exit__(self, *exc: object) -> bool:
+        self._stop.set()
+        if self._thread is not None:
+            self._thread.join(timeout=1)
+        return False
 
 
 _VERSION_DIR_RE = re.compile(r"^[0-9]+\.[0-9]+\.[0-9]+$")
@@ -176,6 +215,65 @@ class UpgradeOutcome:
     messages: tuple[str, ...]
 
 
+_SYNC_TEST_FILES = ("tests/test_catalog.py", "tests/test_native_contract.py")
+
+
+def _sync_pinned_test_literals(
+    product_root: Path,
+    *,
+    old_version: str,
+    new_version: str,
+    old_sha256: str | None,
+    new_sha256: str,
+    old_inspected_at: str | None,
+    new_inspected_at: str,
+    old_catalog_version: int,
+    backups: dict[Path, bytes],
+) -> list[str]:
+    """Move the suite's deliberate version pins to the promoted contract.
+
+    Several tests pin the reviewed baseline on purpose (the re-pin commit's
+    diff IS the review trail): validated-version literals, the resolved-path
+    and SHA-256 facts, and the ``catalog_version`` literal. If promotion did
+    not move them, the evidence suite would fail against the very contract
+    it is meant to validate (the 2.1.220 re-pin failure). Lines that are
+    intentionally decoupled from the artifact version (the per-model
+    ``floors = {...}`` minimums) are left untouched. Original bytes are
+    recorded in ``backups`` for the fail-closed restore.
+    """
+
+    synced: list[str] = []
+    for relative in _SYNC_TEST_FILES:
+        path = product_root / relative
+        if not path.is_file():
+            continue
+        original = path.read_bytes()
+        lines = original.decode("utf-8").splitlines(keepends=True)
+        changed: list[str] = []
+        for line in lines:
+            if "floors = {" in line:
+                changed.append(line)  # model minimums are decoupled by design
+                continue
+            updated = line.replace(old_version, new_version)
+            if old_sha256 and old_sha256 != new_sha256:
+                updated = updated.replace(old_sha256, new_sha256)
+            if old_inspected_at and old_inspected_at != new_inspected_at:
+                updated = updated.replace(
+                    f'"{old_inspected_at}"', f'"{new_inspected_at}"'
+                )
+            updated = updated.replace(
+                f'"catalog_version"], {old_catalog_version})',
+                f'"catalog_version"], {old_catalog_version + 1})',
+            )
+            changed.append(updated)
+        new_text = "".join(changed)
+        if new_text.encode("utf-8") != original:
+            backups.setdefault(path, original)
+            path.write_text(new_text, encoding="utf-8")
+            synced.append(relative)
+    return synced
+
+
 def run_upgrade(
     *,
     checkout_root: Path,
@@ -227,6 +325,7 @@ def run_upgrade(
             activate=activate,
             flake_target=flake_target,
             note=_note,
+            progress=progress,
         )
     finally:
         update_lock.release()
@@ -243,6 +342,7 @@ def _run_upgrade_locked(
     activate: bool,
     flake_target: str | None,
     note: Callable[[str], None],
+    progress: Callable[[str], None] | None,
 ) -> UpgradeOutcome:
     from . import state
 
@@ -266,7 +366,9 @@ def _run_upgrade_locked(
             kind="current", inspection=None, messages=tuple(messages)
         )
     inspection = inspect_candidate(candidate)
-    _note(f"inspected {inspection.version} offline (--version, --help, sha256)")
+    total = 5 if activate else 4
+    _note(f"[1/{total}] candidate {inspection.version} inspected offline "
+          "(--version, --help, sha256)")
     product_root = Path(checkout_root)
     contract_path = product_root / "catalog" / "native-contract.json"
     version_path = product_root / "version.json"
@@ -282,6 +384,7 @@ def _run_upgrade_locked(
         )
     contract_backup = contract_path.read_bytes()
     version_backup = version_path.read_bytes()
+    sync_backups: dict[Path, bytes] = {}
 
     promoted = render_contract(native_contract, inspection, today=today)
     version_doc = json.loads(version_backup.decode("utf-8"))
@@ -298,21 +401,43 @@ def _run_upgrade_locked(
         version_path.write_text(
             json.dumps(version_doc, indent=2) + "\n", encoding="utf-8"
         )
+        synced = _sync_pinned_test_literals(
+            product_root,
+            old_version=native_contract["claude"]["validated_version"],
+            new_version=inspection.version,
+            old_sha256=native_contract["claude"]["executable"].get("sha256"),
+            new_sha256=inspection.sha256,
+            old_inspected_at=native_contract["claude"]["executable"].get(
+                "inspected_at"
+            ),
+            new_inspected_at=today,
+            old_catalog_version=int(version_doc["catalog_version"]) - 1,
+            backups=sync_backups,
+        )
+        if synced:
+            messages.append(
+                "synced version-pinned test literals (" + ", ".join(synced) + ")"
+            )
         _note(
-            "running the offline evidence suite against the candidate "
-            "(about 2 minutes; the suite is silent while it works)…"
+            f"[2/{total}] promoted into the checkout; version-pinned test "
+            "literals synced"
         )
-        evidence = runner(
-            [sys.executable, "-m", "unittest", "discover", "-s", "tests", "-t", "."],
-            cwd=product_root,
-            env={
-                **(os.environ if env is None else env),
-                "PYTHONPATH": "src:tests",
-            },
-            capture_output=True,
-            text=True,
-            timeout=1800,
+        _note(
+            f"[3/{total}] running the offline evidence suite against the "
+            "candidate (about 2 minutes; the suite is silent between updates)…"
         )
+        with _Heartbeat(progress, f"  [3/{total}] evidence suite still running"):
+            evidence = runner(
+                [sys.executable, "-m", "unittest", "discover", "-s", "tests", "-t", "."],
+                cwd=product_root,
+                env={
+                    **(os.environ if env is None else env),
+                    "PYTHONPATH": "src:tests",
+                },
+                capture_output=True,
+                text=True,
+                timeout=1800,
+            )
         tail = (evidence.stdout or "") + (evidence.stderr or "")
         if evidence.returncode != 0:
             raise UpgradeError(
@@ -329,10 +454,12 @@ def _run_upgrade_locked(
     except BaseException:
         contract_path.write_bytes(contract_backup)
         version_path.write_bytes(version_backup)
+        for synced_path, synced_bytes in sync_backups.items():
+            synced_path.write_bytes(synced_bytes)
         raise
 
     state.ensure_private_dir(override_path.parent)
-    _note("evidence green; writing the operator contract override…")
+    _note(f"[4/{total}] evidence green; writing the operator contract override…")
     state.atomic_write(
         override_path,
         (json.dumps(promoted, indent=2, sort_keys=True) + "\n").encode("utf-8"),
@@ -350,13 +477,14 @@ def _run_upgrade_locked(
         return UpgradeOutcome(
             kind="prepared", inspection=inspection, messages=tuple(messages)
         )
-    _note("running home-manager switch (this can take a few minutes)…")
-    switch = runner(
-        ["home-manager", "switch", "--flake", flake_target or str(checkout_root.parents[1]) + "#kotur"],
-        capture_output=True,
-        text=True,
-        timeout=1800,
-    )
+    _note(f"[5/{total}] running home-manager switch (a few minutes)…")
+    with _Heartbeat(progress, f"  [5/{total}] home-manager switch still running"):
+        switch = runner(
+            ["home-manager", "switch", "--flake", flake_target or str(checkout_root.parents[1]) + "#kotur"],
+            capture_output=True,
+            text=True,
+            timeout=1800,
+        )
     if switch.returncode != 0:
         tail = (switch.stdout or "") + (switch.stderr or "")
         raise UpgradeError(
