@@ -180,6 +180,26 @@ liveness), interactive confirmation, upstream errors surfaced. **E** was
 chosen over K because K collides with the picker's vim `k`=navigate-up.
 A transition started on a ● live session now warns and names the command.
 Evidence: 1,332 host tests OK (2 skips), 9 new stop tests + transition
-note test; cross-family focused review of the feature; package builds
-2.7.0. Activated HM gen 107 (pending the focused review verdict at
-commit time — see the commit log).
+note test; focused cross-family review of the feature: **approve** (env
+scrub pinned as a test, stdin DEVNULL added, test names re-documented).
+
+## The CLIProxy integration review (approve) and its resolution
+
+Independent cross-family review of the gateway integration: **approve** —
+secrets never leak into argv/logs/files, the live config is byte-identical
+to a fresh render, both auth header forms accepted, token authority
+singular (HOME-pinned), `/v1/models` serves claude-opus-5 (registry patch
+live). Resolution items shipped: proxy `StateError` wraps as one-line
+errors (no systemd crash-loop tracebacks), the `gateway.json` patches
+manifest matches the build's three patches (catalog_version 6), the
+model-add battery documents the required gateway restart after re-renders
+(7.2.80 does not hot-reload rename-replaced configs), and STANDALONE.md
+documents the codex cloak as a listing cosmetic. Suite 1,336 OK (2
+skips). Activated **HM gen 107**; `doctor --repair-all` absorbed the
+catalog bump into all 17 records; doctor Ready, zero Attention.
+
+**Process disclosure (operator action recommended):** during the review,
+the review agent's redaction slipped and the live Kimi/Qwen provider keys
+were printed into its local transcript (mode-0600 transcript dir, this
+machine only). Rotate `KIMI_CLAUDE_API_KEY` and `QWEN_CLAUDE_API_KEY` if
+transcripts are ever synced or shared.

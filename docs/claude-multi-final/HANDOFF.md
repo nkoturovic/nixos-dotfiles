@@ -60,7 +60,7 @@ untouched; `claude-gateway` is the ordinary non-composition entrypoint.
 
 ## Installed state (2026-07-27)
 
-- claude-multi **2.6.3** active (HM generation 106; rollback: gen 105/104),
+- claude-multi **2.7.0** active (HM generation 107; rollback: gen 106/105),
   Claude pinned at **2.1.220** (hash-verified, symlink-aligned; the update
   flow proved itself end-to-end against the real candidate).
   Fork lifecycle operable (⚠/● markers, X resolve, `sessions resolve-fork`),
@@ -79,7 +79,7 @@ untouched; `claude-gateway` is the ordinary non-composition entrypoint.
   `systemctl --user restart cli-proxy-api` — the daemon does not hot-reload
   a rename-replaced config on 7.2.80 (HM switch does this for you).
 - Full evidence and census: the current checkpoint's
-  [`handoff/state-snapshot.md`](checkpoints/2026-07-27-v2.6.3/handoff/state-snapshot.md).
+  [`handoff/state-snapshot.md`](checkpoints/2026-07-27-v2.7.0/handoff/state-snapshot.md).
 
 ## Composition: qwen-sol
 
@@ -120,7 +120,7 @@ Token Plan `apps/anthropic`, bearer auth, key in
 
 ## Open items (as of 2026-07-27)
 
-Ordered in the current checkpoint: [`checkpoints/2026-07-27-v2.6.3/handoff/open-items.md`](checkpoints/2026-07-27-v2.6.3/handoff/open-items.md).
+Ordered in the current checkpoint: [`checkpoints/2026-07-27-v2.7.0/handoff/open-items.md`](checkpoints/2026-07-27-v2.7.0/handoff/open-items.md).
 
 ## Where things live
 
