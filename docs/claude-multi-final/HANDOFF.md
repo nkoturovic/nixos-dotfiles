@@ -75,6 +75,9 @@ untouched; `claude-gateway` is the ordinary non-composition entrypoint.
 - Claude updates are routine: the card badge or doctor Attention appears →
   press **U** (or `claude-multi update`) → instant effect via the operator
   override (`--activate` for the baseline refresh).
+- Gateway re-renders (`claude-multi-proxy init`, catalog edits) need a
+  `systemctl --user restart cli-proxy-api` — the daemon does not hot-reload
+  a rename-replaced config on 7.2.80 (HM switch does this for you).
 - Full evidence and census: the current checkpoint's
   [`handoff/state-snapshot.md`](checkpoints/2026-07-27-v2.6.3/handoff/state-snapshot.md).
 

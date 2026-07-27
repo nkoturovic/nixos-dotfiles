@@ -89,6 +89,17 @@ keeps running under a daemon-owned host process, visible in the
   before claude-multi 2.6.0 made gateway routing durable through the scope
   settings; managed sessions are unaffected now.)
 
+## A gateway quirk you may notice: the codex cloak
+
+If you ever list the gateway's models with a Claude CLI user agent
+(`curl -H "User-Agent: claude-cli/..." http://127.0.0.1:8317/v1/models`),
+the OpenAI-family aliases (`gpt-multi-*`) are hidden and char-reversed
+codex entries appear instead. This is upstream CLIProxy **cloak mode** for
+OAuth pools — a listing cosmetic only. **Routing is unaffected**: managed
+sessions and `/model` use exact names client-side and work daily. Do not
+"fix" it with `disable-claude-cloak-mode` (verified: that flag hides even
+the Anthropic pool instead). Nothing here touches plain `claude`.
+
 ## Forks in plain `claude`
 
 A fork is a full copy: the new session's transcript starts identical to the
@@ -118,8 +129,9 @@ picker), and any session can always be resumed natively.
   global Claude config.
 - Never sets gateway env for plain sessions (your auth is untouched).
 - Never reads transcripts, and never deletes anything under `~/.claude`.
-- Never touches the daemon/supervisor — it only *observes* (read-only)
-  to show you the ● live markers.
+- Never touches the daemon/supervisor — it only *observes* (read-only) to
+  show you the ● live markers, and ends live sessions exclusively through
+  upstream's own public `claude stop <id>` (see D38 in the design package).
 
 If something in plain `claude` behaves oddly, it is upstream behavior or
 upstream config — `claude doctor` (upstream's own) and `/status` are the

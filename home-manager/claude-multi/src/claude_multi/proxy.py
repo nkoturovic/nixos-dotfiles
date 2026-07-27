@@ -183,7 +183,12 @@ def ensure_token(home: Path) -> str:
 
     token_path = config_dir(home) / "api-key"
     if token_path.exists():
-        token = state.read_private(token_path).decode("utf-8").strip()
+        try:
+            token = state.read_private(token_path).decode("utf-8").strip()
+        except state.StateError as exc:
+            # A wrong-mode or symlinked token file must surface as a clean
+            # one-line error, not a traceback that crash-loops the unit (N1).
+            raise ProxyError(f"gateway key file is unusable: {exc}") from exc
         if not _TOKEN_SHAPE.fullmatch(token):
             raise ProxyError("gateway key file has an invalid token shape")
         return token
@@ -373,5 +378,10 @@ def main(
         print(f"claude-multi-proxy: unknown command: {command}", file=sys.stderr)
         return 1
     except ProxyError as exc:
+        print(f"claude-multi-proxy: {exc}", file=sys.stderr)
+        return 1
+    except state.StateError as exc:
+        # Filesystem-hardening refusals (wrong modes, symlinked paths) are
+        # one-line errors too — never a traceback under the systemd unit.
         print(f"claude-multi-proxy: {exc}", file=sys.stderr)
         return 1

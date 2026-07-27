@@ -189,7 +189,11 @@ full): run with a disk-backed temp dir, e.g.
   is acceptable **when it lands with the full battery**: schema load +
   `validate_catalog`, all pinned expectations updated (composition, editor,
   transition, render, scope, catalog, cli), goldens re-blessed and the diff
-  reviewed, the live gateway re-rendered, and one consent-gated live call.
+  reviewed, the live gateway re-rendered **plus restarted**
+  (`claude-multi-proxy init` writes the config, then
+  `systemctl --user restart cli-proxy-api` — the daemon does NOT hot-reload
+  a rename-replaced config.yaml on 7.2.80; without the restart it serves the
+  old routes), and one consent-gated live call.
   Only `models.json` / `providers.json` / compositions are ever edited.
   When `qwen3.8-max` ships, follow DECISIONS D21 (wire_model → context
   re-verify → effort tiers → one live call → drop "· Preview").

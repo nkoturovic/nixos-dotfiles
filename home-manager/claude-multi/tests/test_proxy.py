@@ -648,3 +648,35 @@ class SelectedSecretReadinessTests(ProxyControlTestCase):
         touched = {call.args[0] for call in spy.call_args_list}
         self.assertEqual(touched, {self.secret_file})
         self.assertNotIn(real_path, touched)
+
+
+class TokenStateErrorTests(unittest.TestCase):
+    """N1: a wrong-mode token file is a clean one-line error, no traceback."""
+
+    def test_ensure_token_wraps_state_error(self) -> None:
+        home = Path(tempfile.mkdtemp(prefix="claude-multi-proxy-"))
+        self.addCleanup(shutil.rmtree, home, True)
+        token_path = proxy.config_dir(home) / "api-key"
+        token_path.parent.mkdir(parents=True)
+        token_path.write_text("x" * 64 + "\n")
+        token_path.chmod(0o644)  # state.read_private refuses group/other access
+        with self.assertRaisesRegex(proxy.ProxyError, "unusable"):
+            proxy.ensure_token(home)
+
+    def test_main_reports_state_error_as_one_line(self) -> None:
+        import io as _io
+
+        home = Path(tempfile.mkdtemp(prefix="claude-multi-proxy-"))
+        self.addCleanup(shutil.rmtree, home, True)
+        token_path = proxy.config_dir(home) / "api-key"
+        token_path.parent.mkdir(parents=True)
+        token_path.write_text("x" * 64 + "\n")
+        token_path.chmod(0o644)
+        import sys as _sys
+
+        err = _io.StringIO()
+        with mock.patch.object(_sys, "stderr", err):
+            code = proxy.main(["init"], environ={"HOME": str(home)})
+        self.assertEqual(code, 1)
+        self.assertIn("claude-multi-proxy:", err.getvalue())
+        self.assertNotIn("Traceback", err.getvalue())

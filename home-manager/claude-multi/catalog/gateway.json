@@ -9,12 +9,17 @@
     "cliproxyapi_baseline": "7.2.80",
     "patches": [
       "cli-proxy-api-loopback-oauth.patch",
-      "cli-proxy-api-kimi-claude-compat.patch"
+      "cli-proxy-api-kimi-claude-compat.patch",
+      "cli-proxy-api-opus-5-model.patch"
     ],
     "model_discovery": "disabled",
     "renderer": "restricted-yaml-v1",
     "cliproxy_static": {
-      "tls": { "enable": false, "cert": "", "key": "" },
+      "tls": {
+        "enable": false,
+        "cert": "",
+        "key": ""
+      },
       "remote-management": {
         "allow-remote": false,
         "secret-key": "",
@@ -22,8 +27,15 @@
         "disable-auto-update-panel": true
       },
       "debug": false,
-      "pprof": { "enable": false, "addr": "127.0.0.1:8316" },
-      "plugins": { "enabled": false, "dir": "", "configs": {} },
+      "pprof": {
+        "enable": false,
+        "addr": "127.0.0.1:8316"
+      },
+      "plugins": {
+        "enabled": false,
+        "dir": "",
+        "configs": {}
+      },
       "commercial-mode": true,
       "logging-to-file": false,
       "usage-statistics-enabled": false,

@@ -127,7 +127,7 @@ class SeedLoadTests(unittest.TestCase):
     def test_version_json_matches_v2_2_schema_and_catalog_change(self) -> None:
         bundle = catalog.load_catalog(CATALOG_ROOT)
         self.assertEqual(bundle.docs["version"]["launcher_version"], "2.7.0")
-        self.assertEqual(bundle.docs["version"]["catalog_version"], 5)
+        self.assertEqual(bundle.docs["version"]["catalog_version"], 6)
 
 
 class ReferenceViolationTests(unittest.TestCase):
@@ -937,3 +937,26 @@ class ContractOverrideTests(unittest.TestCase):
         target = self._override_file(root, {"claude": {"bogus": True}})
         with self.assertRaisesRegex(catalog.CatalogError, "invalid native contract"):
             catalog.load_catalog(root, contract_override=target)
+
+
+class GatewayManifestConsistencyTests(unittest.TestCase):
+    """S2: the machine-readable patch manifest matches the build's patches."""
+
+    def test_manifest_covers_every_patch_the_nix_module_applies(self) -> None:
+        import re as _re
+
+        bundle = catalog.load_catalog(CATALOG_ROOT)
+        manifest = set(bundle.docs["gateway"]["gateway"]["patches"])
+        nix = (CATALOG_ROOT / "claude-multi.nix").read_text(encoding="utf-8")
+        applied = set(_re.findall(r"\.\./(cli-proxy-api-[a-z0-9-]+\.patch)", nix))
+        self.assertTrue(applied, "no patches found in claude-multi.nix?")
+        self.assertEqual(manifest, applied)
+
+    def test_manifest_entries_exist_as_files(self) -> None:
+        bundle = catalog.load_catalog(CATALOG_ROOT)
+        for name in bundle.docs["gateway"]["gateway"]["patches"]:
+            with self.subTest(patch=name):
+                self.assertTrue(
+                    (CATALOG_ROOT.parent / name).is_file(),
+                    f"{name} in the manifest but not next to the module",
+                )
