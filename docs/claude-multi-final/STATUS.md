@@ -627,3 +627,4 @@ workflow `model` override (gpt-multi-sol-xhigh) since cm-* types are gone.
 | + | v2.6.0 fork UX + durable gateway routing | **done** | 1,230 tests OK; incident-driven (D32–D35); review resolved |
 | + | v2.6.1 evidence-gate fix + 2.1.220 re-pin | **done** | 1,237 tests OK; D36; real update green end-to-end; pin 2.1.220 |
 | + | v2.6.2 adversarial hardening (D37) | **done** | 8-reviewer fan-out (35 findings) + fix set + final cross-family gate; 1,319 tests OK |
+| + | v2.6.3 final gate resolution | **done** | gate Revise→approve: SF1/SF2/N1/N2 resolved; 1,323 tests OK; gen 106 |

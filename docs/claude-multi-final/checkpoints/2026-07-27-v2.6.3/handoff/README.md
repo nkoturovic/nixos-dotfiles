@@ -1,7 +1,7 @@
-# Checkpoint 2026-07-27 · claude-multi v2.6.2 — START HERE
+# Checkpoint 2026-07-27 · claude-multi v2.6.3 — START HERE
 
-You are picking up the claude-multi project at its 2026-07-27 **v2.6.2**
-checkpoint: **activated (HM gen 105), doctor Ready with zero Attention
+You are picking up the claude-multi project at its 2026-07-27 **v2.6.3**
+checkpoint: **activated (HM gen 106), doctor Ready with zero Attention
 lines, Claude pinned at 2.1.220 (hash-verified, symlink-aligned), fork
 lifecycle fully operable, gateway routing durable across daemon takeovers,
 the update flow proven end-to-end, and the codebase adversarially hardened
@@ -39,9 +39,9 @@ suite's version pins). The default composition leads **Opus 5**; plain
 ## Recorded state (verify before trusting)
 
 - **Source:** `/home/kotur/personal/nixos-dotfiles` branch `feature/term-only`
-  (series through `1058133` + the activation commit; nothing pushed).
-- **Activated:** Home Manager generation **105**; entrypoints report
-  `2.6.2`. Rollback: gen 104/103.
+  (series through `0314ba9` + the activation commit; nothing pushed).
+- **Activated:** Home Manager generation **106**; entrypoints report
+  `2.6.3`. Rollback: gen 105/104.
 - **Health:** `claude-multi doctor` → **Ready, zero Attention lines**;
   `Managed Claude 2.1.220 verified` (hash-verified; symlink resolves to
   the inspected artifact); the redundant override was removed by the
@@ -56,7 +56,7 @@ suite's version pins). The default composition leads **Opus 5**; plain
 Verify with:
 
 ```bash
-claude-multi --version            # 2.6.2
+claude-multi --version            # 2.6.3
 claude-multi doctor               # Ready, zero Attention
 cd /home/kotur/personal/nixos-dotfiles && git log --oneline -8
 cd home-manager/claude-multi && PYTHONPATH=src:tests python3 -m unittest discover -s tests -t .

@@ -1,4 +1,4 @@
-# State snapshot — 2026-07-27 · v2.6.2
+# State snapshot — 2026-07-27 · v2.6.3
 
 Evidence behind the checkpoint README claims. Verify before trusting.
 
