@@ -54,20 +54,23 @@ untouched; `claude-gateway` is the ordinary non-composition entrypoint.
   (never the transcript).
 - `--legacy` = old argv mode (compatibility hatch, not a durability answer).
 
-## Installed state (2026-07-24)
+## Installed state (2026-07-27)
 
-- claude-multi **2.5.0** active (HM generation 101; rollback: gen 100/99).
+- claude-multi **2.6.0** active (HM generation 103; rollback: gen 102/101).
+  Fork lifecycle operable (⚠/● markers, X resolve, `sessions resolve-fork`),
+  gateway routing durable across daemon takeovers (apiKeyHelper shim),
+  updates narrate per phase and serialize through a lock.
 - **Opus 5 is the default lead** (default = opus5+sol+kimi; profiles
   `opus-sol`, `opus-kimi`, `fable`, `kimi-sol`, `qwen-sol`, `sol-direct`
   all live); gateway serves `claude-opus-5` and `claude-multi-opus-5`
   (CLIProxy registry patched); binary pinned at 2.1.218 and symlink-matched.
-- `claude-multi doctor` → **Ready with zero Attention lines**; 15 sessions
-  (all durable, zero legacy).
+- `claude-multi doctor` → **Ready**; 17 durable sessions; one Attention
+  line for the 2.1.220 upstream release (re-pin via U / `update` when ready).
 - Claude updates are routine: the card badge or doctor Attention appears →
   press **U** (or `claude-multi update`) → instant effect via the operator
   override (`--activate` for the baseline refresh).
 - Full evidence and census: the current checkpoint's
-  [`handoff/state-snapshot.md`](checkpoints/2026-07-24-v2.5.0/handoff/state-snapshot.md).
+  [`handoff/state-snapshot.md`](checkpoints/2026-07-27-v2.6.0/handoff/state-snapshot.md).
 
 ## Composition: qwen-sol
 
@@ -106,17 +109,9 @@ Token Plan `apps/anthropic`, bearer auth, key in
    meaningful boundaries; one canonical home per topic (see the
    "Documentation map" in this package's README).
 
-## Open items (as of 2026-07-24)
+## Open items (as of 2026-07-27)
 
-Ordered in the checkpoint: [`checkpoints/2026-07-24-v2.3.0/handoff/open-items.md`](checkpoints/2026-07-24-v2.3.0/handoff/open-items.md).
-
-- **Claude updates are now routine (2.4.1):** the card's update badge (or a
-  doctor Attention line) fires on version drift; press **U** or run
-  `claude-multi update` to re-pin with evidence — instant effect via the
-  operator override; `--activate` for the baseline refresh.
-- **U1 takeover watch**: the 2.1.218 supervisor has taken over backgrounded
-  managed sessions; observe one post-takeover `cm-*` roster intact (L2).
-- **Qwen preview → production** when `qwen3.8-max` ships (DECISIONS D21).
+Ordered in the current checkpoint: [`checkpoints/2026-07-27-v2.6.0/handoff/open-items.md`](checkpoints/2026-07-27-v2.6.0/handoff/open-items.md).
 
 ## Where things live
 

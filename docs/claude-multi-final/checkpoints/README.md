@@ -31,6 +31,7 @@ Rules:
 
 | Checkpoint | State | Handoff |
 | --- | --- | --- |
-| `2026-07-24-v2.5.0` (**current**) | claude-multi 2.5.0 (HM gen 101), Opus 5 default lead, gateway serves Opus 5, doctor fully clean | [handoff/README.md](2026-07-24-v2.5.0/handoff/README.md) |
+| `2026-07-24-v2.5.0` | claude-multi 2.5.0 (HM gen 101), Opus 5 default lead, gateway serves Opus 5, doctor fully clean | [handoff/README.md](2026-07-24-v2.5.0/handoff/README.md) |
+| `2026-07-27-v2.6.0` (**current**) | claude-multi 2.6.0 (HM gen 103): fork lifecycle operable, durable gateway routing, update narration; doctor Ready | [handoff/README.md](2026-07-27-v2.6.0/handoff/README.md) |
 | `2026-07-24-v2.4.1` | claude-multi 2.4.1 (HM gen 99), layered contract, TUI health surface | [handoff/README.md](2026-07-24-v2.4.1/handoff/README.md) |
 | `2026-07-24-v2.3.0` | claude-multi 2.3.0 (HM gen 97), hook shim, doctor Ready, hygiene done | [handoff/README.md](2026-07-24-v2.3.0/handoff/README.md) |
