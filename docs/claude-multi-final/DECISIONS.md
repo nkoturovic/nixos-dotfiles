@@ -272,6 +272,77 @@ bound, so qualification is user-attested with a conservative validated
 floor, matching the Kimi honesty rule — never called provider-safe until
 near-limit acceptance.
 
+**D32 — Pending forks self-resolve when authority lands on them; the discard
+path is a command, and every fork message is actionable (2.6.0).** Evidence
+(the 2026-07-27 incident): a backgrounded session was adopted by the
+supervisor daemon; the operator re-entered it from the `claude agents`
+menu, which forked natively; the daemon relaunched the fork, and the hook
+rightly retargeted resume authority onto it — but the stale `pending_forks`
+marker (recorded when the fork was first observed) was never cleared, so
+the record self-blocked every resume/transition with "adopt the fork UUID
+before resuming the parent" — a message that neither named the fork nor
+said how, and the picker hid the fork entirely (it filtered the record's
+own runtime id). The model: a pending fork means "two branches, operator
+must choose"; once authority lands ON a fork id, reality has chosen, so
+`reconcile_runtime_record` drops that id from `pending_forks`
+(`drop_resolved_pending_forks`); doctor reports the stale state as
+Attention (not BLOCKED) and `--repair-all` converges it
+(`converge_pending_forks`). Genuine pending forks still block; the
+resolution is explicit: adopt (`sessions link` already strips the parent's
+marker failure-atomically) or discard (`sessions resolve-fork <parent>
+<fork>`, metadata-only — the fork transcript is always kept). All guard
+sites, the card, `sessions show`, and the SessionStart fork notice use one
+message builder (`sessions.pending_fork_message`) that names the fork UUID
+and both exact commands. Rejected: auto-discarding genuine pending forks
+(silent branch loss); unblocking resume without a decision (the branches
+can diverge — guessing is worse than blocking).
+
+**D33 — Gateway routing is durable through the scope: `apiKeyHelper` +
+non-secret base URL (2.6.0).** Evidence (same incident): the daemon
+relaunches adopted sessions preserving argv (`--settings`, `--add-dir`,
+`--model`) but **scrubs `ANTHROPIC_*` from its children's environment**
+(verified on the live box: daemon env had the gateway vars, its spawned
+pty-host had zero) → the taken-over session kept its durable files yet
+every model call failed with `invalid model: claude-multi-opus-5[1m]` — a
+zombie session. The durable floor now carries routing too: compiled
+settings gain `env.ANTHROPIC_BASE_URL` (loopback URL, non-secret) and
+`apiKeyHelper` pointing at a new stable shim
+`<state>/bin/claude-multi-gateway-token` (same discipline as the hook shim:
+atomic write, mode repaired unconditionally, refreshed by every launcher
+run). The token value still never enters any file — the helper `exec cat`s
+the existing 0600 token file at runtime. Plumbed through every compile
+call site next to `hook_command` (`CatalogMeta.gateway_base_url` +
+`token_helper_command`); `apiKeyHelper` joins the closed settings allowlist
+(a demonstrated failure case, per D11). Rejected: embedding the token in
+the scope (SPEC §9 forbids it); accepting zombie takeovers as "native
+behavior" (the whole point of the durable scope is that takeovers work);
+a daemon-config patch (upstream surface, not ours — D19/D23).
+
+**D34 — Update runs are serialized and narrate themselves (2.6.0).**
+Evidence: pressing U in the TUI ran the ~2-minute evidence suite with
+curses still active — the card froze with zero output ("stuck / hang —
+nothing happened"). `run_upgrade` now takes a `progress` callback (one
+line per long phase: inspect, evidence suite with an explicit duration
+note, override write, activation), and the whole flow serializes through a
+FileLock sibling of the override path (two terminals queue instead of
+interleaving the checkout promotion). The TUI action runs inside one
+`suspended_curses` block from the start, writing+flushing each line as it
+arrives; the CLI prints the same lines. Fail-closed is unchanged (verified:
+the interrupted run left the checkout and override byte-identical).
+
+**D35 — The sessions screen shows what it knows: fork markers, live
+markers, and a resolve action (2.6.0).** "All potential actions should be
+visible in the TUI." Managed rows carry **●** (live: owned by the
+background daemon right now — best-effort, read-only glob of the daemon's
+`/tmp/cc-daemon-<uid>/*/pty/*.sock` pty-socket names; degrades to no
+marker) and **⚠** (fork-blocked). Pending non-authority forks appear as
+annotated native rows `(fork of <parent>)`. **X** resolves forks in place
+(auto-clear for the stale-authority case, confirm-modal discard
+otherwise); resume on a fork-blocked row explains instead of failing
+later; the keybar advertises X and ? documents the markers. A wrapped
+2-row keybar no longer overdraws the message row (`KeyBar.rows(width)` is
+public and screens reserve it).
+
 ## User decision summary (what you're approving by accepting this design)
 
 1. Selected agents become **real files** in a per-session scope; the failure

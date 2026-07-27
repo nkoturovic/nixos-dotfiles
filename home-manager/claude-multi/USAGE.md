@@ -79,8 +79,45 @@ automatically.
 
 Managed sessions on top, plain-Claude (native) sessions below. Keys:
 
-- **R** resume · **T** switch composition · **F** forget · **L** adopt a
-  native session · **C** filter to this directory · **?** help · **Esc** quit
+- **R** resume · **T** switch composition · **X** resolve fork · **F** forget ·
+  **L** adopt a native session · **C** filter to this directory · **?** help ·
+  **Esc** quit
+
+Row markers: **●** — the session is live right now, owned by the background
+daemon (reattaching to it from a Claude menu forks natively; exit it first or
+resume after it exits) · **⚠** — fork-blocked: a native fork awaits your
+adopt/discard decision (press **X**; resume is blocked until then). Native rows
+marked `(fork)` are forks of a managed session.
+
+### Native forks (what they are and how to resolve them)
+
+Claude Code **forks a session natively** when a second process wants a session
+that is already owned — the common case: your session got backgrounded (the
+supervisor daemon adopts it), and you re-enter it from the `claude agents`
+menu. The fork is a new session UUID with a copy of the transcript; nothing is
+deleted either way.
+
+claude-multi sees the fork through its lifecycle hooks and **blocks resume of
+the parent until you decide** — the two branches could diverge, and guessing
+would be worse. You always get the fork UUID and the exact commands (the card,
+`sessions show <uuid>`, and doctor all print them):
+
+- **Keep the fork** as its own session: `claude-multi sessions link <fork-uuid>
+  --composition NAME` (or **L** on its native row). The parent's marker clears
+  automatically.
+- **Discard the marker** (you'll never use the fork):
+  `claude-multi sessions resolve-fork <parent-uuid> <fork-uuid>`, or press
+  **X** on the parent in the sessions screen. The fork transcript stays on
+  disk, adoptable later.
+- **No decision needed** when the fork already *is* the live branch (the
+  daemon relaunched it and authority followed): the marker self-clears on the
+  next hook, and `doctor --repair-all` / **X** clears it immediately.
+
+One structural fix makes forks far less painful: managed settings now carry
+the non-secret gateway base URL plus an `apiKeyHelper` shim, so a
+daemon-relaunched session keeps its gateway routing instead of failing with
+`invalid model: claude-multi-…` (the daemon scrubs `ANTHROPIC_*` from its
+children's environment; the token itself is still never written to any file).
 
 ### Change a session's composition (transition)
 
@@ -127,6 +164,21 @@ claude-multi sessions forget <uuid>  # delete a session's record + generated fil
 `Attention` lines always name the exact fix command. `BLOCKED` means
 something is actually broken and says what.
 
+### Supported vs not-recommended vs never
+
+The tool is fail-proof by design: the main flows can't be broken by usage.
+Some side doors exist on purpose — they work, are **loudly not recommended**,
+and are never the default:
+
+| Level | What | Why |
+| --- | --- | --- |
+| **Supported** | everything in this guide: launch/resume/transition, adopt, doctor repairs, update, TUI keys | tested, guarded, recoverable |
+| **Not recommended** | plain `claude --resume <uuid>` of a managed session | works (durable scope loads), but skips binary verification + record guards |
+| **Not recommended** | `--legacy` launch flag | restores the pre-durable argv behavior whose fragility caused the original incident; a compatibility hatch, not a fallback |
+| **Not recommended** | reattaching to a **●** (background-owned) session from `claude agents` | native behavior forks the session; resolvable (X / resolve-fork) but avoidable — exit it first |
+| **Never** | editing generated scope files by hand | regenerated from the record on every converge/repair; edits vanish |
+| **Never** | deleting anything under `~/.claude` to "fix" a session | transcripts are sacred; every launcher repair is metadata-only |
+
 ### Claude version updates (how pinning works)
 
 Claude Code **auto-updates itself** (the built-in updater downloads new
@@ -146,10 +198,18 @@ loop is fully automatic except one command (or one key):
    the new binary offline, runs the full offline test suite (including the
    real-binary probes) against it, and writes an operator contract
    override — **effective immediately, no rebuild, no restart, no Home
-   Manager switch needed.**
+   Manager switch needed.** Every phase prints as it happens (the evidence
+   suite takes about two minutes — the command tells you so; it is not
+   frozen). Concurrent runs serialize through a lock, so pressing U in two
+   terminals queues instead of racing.
 3. The source checkout is promoted in the same run, so the packaged
    baseline lands at the next natural activation (or right away with
    `claude-multi update --activate`, which runs `home-manager switch`).
+
+Already-running sessions keep their start-time binary (normal for any
+process); new launches pick up the pin at once. The background daemon
+follows upstream's own channel, so a re-pin also keeps claude-multi
+binary-consistent with sessions the daemon adopted.
 
 That's it: upstream updates itself, the card flags it, one keypress
 re-pins with evidence. Managed sessions never break across upgrades, and
@@ -182,12 +242,29 @@ transcripts (always untouched).
   lead with Kimi agents; `kimi-sol`/`qwen-sol` when you need a Kimi or Qwen
   1M lead; `fable` is the previous default, kept around; `sol-direct` is
   one model, no team.
+- **Why does `/model` show only one model in my managed session?** — the
+  fence is deliberate: the session's compaction thresholds, snapshot, and
+  identity tracking are computed for the recorded lead, and a mid-session
+  switch to a different-context model would silently break compaction (the
+  trigger would be calibrated for the wrong context size). The supported
+  model change is `sessions transition` (same transcript, recomputed
+  composition). For model-flexible sessions use `claude-gateway`, whose
+  `/model` menu already offers every model inside one safe context profile.
+- **A session forked when I came back to it — why?** — it was backgrounded
+  and the supervisor daemon adopted it; reattaching from a menu forks
+  natively. See "Native forks" above. The **●** marker in the sessions
+  screen shows which sessions are background-owned right now.
+- **Can I resume a managed session with plain `claude --resume`?** — it
+  works (the durable scope's settings, agents, hooks, and gateway routing
+  all load), but it's **not recommended**: you bypass the binary
+  verification, record guards, and repair checks the launcher applies.
+  Use `claude-multi -r`.
+- **`doctor` says BLOCKED** — read the lines: each names the session and the
+  fix (usually `claude-multi doctor --repair-all`). `Attention` is not damage.
 - **Opus 4.8 vs Opus 5** — Opus 5 is the default lead and the canonical
   Opus default (`ANTHROPIC_DEFAULT_OPUS_MODEL`). Opus 4.8 stays in the
   catalog for existing sessions and Anthropic's own safety fallback; no
   dedicated 4.8 profile exists on purpose (strictly inferior at equal price).
-- **`doctor` says BLOCKED** — read the lines: each names the session and the
-  fix (usually `claude-multi doctor --repair-all`). `Attention` is not damage.
 - **Resume says "session doesn't exist"** — Claude finds transcripts by their
   original directory; resume from the session's recorded cwd (the launcher
   does this for you; adopted sessions record it at link time).
@@ -210,6 +287,8 @@ transcripts (always untouched).
 
 ```text
 ~/.local/state/claude-multi/      sessions, scopes (generated), pointers, locks
+                                  bin/claude-multi-hook (lifecycle shim)
+                                  bin/claude-multi-gateway-token (apiKeyHelper shim)
 ~/.config/claude-multi/           your compositions, gateway config (secrets — keep private),
                                   native-contract.json (operator override from `update`)
 ~/.claude/projects/…              transcripts (Claude's own; never touched by the launcher)

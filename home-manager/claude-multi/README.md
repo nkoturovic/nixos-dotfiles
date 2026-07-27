@@ -1,4 +1,4 @@
-# claude-multi v2.5
+# claude-multi v2.6
 
 First-class multi-model integration for Claude Code. Managed composition
 sessions compile durable `cm-*` agents and policy; ordinary gateway sessions
@@ -8,6 +8,9 @@ and then `execve` ordinary Claude Code. No scheduler, wrapper daemon, or
 per-turn interception remains. The default composition leads **Opus 5** with
 GPT 5.6 Sol preferred variants and Kimi K3 alternates; `fable`, `opus-sol`,
 `opus-kimi`, `kimi-sol`, `qwen-sol`, and `sol-direct` are one Tab away.
+Gateway routing is itself durable (non-secret base URL + an `apiKeyHelper`
+shim), so sessions adopted by the background daemon keep working; native
+forks are visible, explain themselves, and resolve in one keypress.
 
 **Using it?** Start with [`USAGE.md`](USAGE.md) (simple guide, use cases,
 FAQ). **Developing it?** Start with [`AGENTS.md`](AGENTS.md) (architecture,

@@ -624,3 +624,4 @@ workflow `model` override (gpt-multi-sol-xhigh) since cm-* types are gone.
 | + | docs + checkpoints + hygiene | **done** | AGENTS/USAGE/SANITY; first checkpoint; 16 sessions |
 | + | v2.4.x update loop + TUI health surface | **done** | 1,194 tests OK; layered contract; update cmd; gen 99 |
 | + | v2.5.0 Opus 5 default + gateway patch | **done** | gen 101; live call PASSED; 7 profiles verified |
+| + | v2.6.0 fork UX + durable gateway routing | **done** | 1,230 tests OK; incident-driven (D32–D35); review resolved |

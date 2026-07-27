@@ -97,6 +97,16 @@ and SessionStart/End hook commands through the stable
 is pinned for managed sessions (D28). Ordinary scopes emit only
 `availableModels` (a context-profile fence), `model`, `env`, and `hooks`.
 
+**Since v2.6 (gateway routing is durable, D33):** lifecycle settings
+additionally carry `env.ANTHROPIC_BASE_URL` (non-secret loopback URL from
+the trusted gateway doc) and `apiKeyHelper` (stable
+`<state>/bin/claude-multi-gateway-token` shim; prints the 0600 token file
+at runtime — the token value never enters scope files). Both managed and
+ordinary lifecycle scopes emit them. Motivation: the background daemon
+relaunches adopted sessions preserving argv but scrubbing `ANTHROPIC_*`
+env; without durable routing those sessions fail every model call.
+`apiKeyHelper` is in `COMPILED_SETTINGS_KEYS`.
+
 ## 3. Launch contract
 
 Argv order (fresh / resume / transition-relaunch):
@@ -192,6 +202,10 @@ claude --session-id <uuid>            # or: --resume <uuid>
    removes (generated files only).
 5. Evidence levels printed: `documented` vs `acceptance-verified` for U1–U7.
 6. Shared daemon: existence + pid only (simplified reader).
+7. Identity states surfaced per record; a `pending_forks` entry that holds
+   the current resume authority is Attention (lazy state —
+   `--repair-all`/`converge_pending_forks` clears it), while a genuine
+   pending fork is reported with the adopt/discard commands (D32).
 
 ## 8. Catalog/schema changes
 

@@ -28,7 +28,15 @@ untouched; `claude-gateway` is the ordinary non-composition entrypoint.
   gateway status and the pinned version; **Esc** cancels everywhere.
 - `claude-multi -c` resumes the last managed composition in this directory;
   `-r <managed-id|runtime-id|name>` resolves exactly; bare `-r` opens the
-  unified picker (managed + native; **L** adopts, **C** filters by cwd).
+  unified picker (managed + native; **L** adopts, **C** filters by cwd,
+  **X** resolves a fork; row markers **●** = live/background-owned,
+  **⚠** = fork-blocked).
+- Native forks (a session forked by reattaching to a background-owned
+  session) block the parent's resume until decided: **X** in the picker,
+  `sessions resolve-fork <parent> <fork>` to discard, or `sessions link
+  <fork> --composition <name>` to adopt. A marker whose fork IS the live
+  branch self-clears; `doctor --repair-all` clears it too. Fork transcripts
+  are never deleted.
 - `claude-gateway [--model sol|qwen38|kimi-k3|fable|opus]` starts an ordinary
   gateway session with native `/model`; `-c`/`-r` continue it. Same-profile
   switching stays in-process, cross-profile switching is an explicit relaunch.

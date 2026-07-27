@@ -67,12 +67,27 @@ Two modes:
    (startup/resume/clear/compact); old IDs become bounded aliases (≤16).
    Monotonic `launch_epoch` rejects delayed hooks from older launches; a
    higher epoch always wins. `transcript_path` is ignored, never stored,
-   transcripts never read.
+   transcripts never read. **Forks:** a `fork`-sourced hook only appends to
+   `pending_forks` (never retargets authority); when a later hook retargets
+   authority ONTO a pending fork id, the marker self-clears (reality
+   resolved it — the 2026-07-27 self-block incident). Genuine pending forks
+   block resume/transition until the operator adopts
+   (`sessions link`, which strips the parent's marker) or discards
+   (`sessions resolve-fork`; metadata-only, transcript kept);
+   `doctor --repair-all` converges the stale-authority case; every
+   fork-blocked message names the fork UUID + exact commands
+   (`sessions.pending_fork_message`, single source).
 3. **Never embed volatile paths in scope content.** Package/store paths
    change on every rebuild → mass scope mismatch (the 2026-07-24 incident).
    Hooks invoke `<state>/bin/claude-multi-hook`, refreshed by every launcher
    run. The shim prefers the resolved launcher, falls back to PATH.
    `scope.resolve_hook_command` is the single authority for the real command.
+   Same pattern for gateway auth: `<state>/bin/claude-multi-gateway-token`
+   (`scope.ensure_token_helper_command`) backs the compiled `apiKeyHelper`,
+   so sessions relaunched by the background daemon — which scrubs
+   `ANTHROPIC_*` from its children's env — keep gateway routing. The token
+   value never enters scope files; only the non-secret
+   `env.ANTHROPIC_BASE_URL` does.
 4. **Fail closed, atomically.** All state writes: same-dir temp + fsync +
    rename, mode 0600 in 0700 dirs, symlink-refusing (`state.py`).
    `CommittedStateError` marks "bytes replaced, dir durability unconfirmed" so
@@ -88,8 +103,9 @@ Two modes:
    safe there. Lifecycle fds are `O_CLOEXEC` and survive into execve.
 7. **Compiled settings are a closed allowlist** (`COMPILED_SETTINGS_KEYS`):
    workflow keys, `permissions.deny`, `availableModels`, `model`, `env`,
-   `hooks`, `worktree`, `autoCompactEnabled`. Nothing else without a
-   demonstrated failure case (D11).
+   `hooks`, `worktree`, `autoCompactEnabled`, `apiKeyHelper`. Nothing else
+   without a demonstrated failure case (D11; `apiKeyHelper` earned its place
+   via the daemon env-scrub incident, D33).
 8. **Managed sessions own their policy.** `autoCompactEnabled:true` is pinned
    (a user-level false silently wedges 1M sessions); managed `/model` is
    fenced to the lead — transitions are the only lead change. Ordinary mode
@@ -108,12 +124,12 @@ Two modes:
 | `sessions.py` | schema-v3 records, store, pointers, locks, adoption, reconcile | `_normalize_legacy_record` is side-effect-free on read; `transition_record` (generation+1) vs `refresh_record_snapshot` (same composition, catalog drift absorbed) |
 | `composition.py` | resolve/snapshot compositions | scalar = min explicit `scalar_tokens`; capacity narrows to strictest provider bound; trigger = (capacity−20K)×90% |
 | `compiler.py` | pure launch plan (argv/env/lead prompt) | durable requires scope_dir **and** hook_command (fails closed); never PATH-fallbacks |
-| `scope.py` | scope plan/write/gate, hook shim | `resolve_hook_command`/`ensure_hook_shim`/`hook_shim_path`; shim chmod repaired unconditionally; exact `cm-*` collision gate |
+| `scope.py` | scope plan/write/gate, hook + token shims | `resolve_hook_command`/`ensure_hook_shim`/`hook_shim_path`; shim chmod repaired unconditionally; `ensure_token_helper_command`/`gateway_token_shim_path` (apiKeyHelper); `CatalogMeta.gateway_base_url`; exact `cm-*` collision gate |
 | `launch.py` | verify→readiness→state→execve | full-hash binary check every launch; CAS cleanup; `precommitted` epoch rule for transition relaunches |
 | `transition.py` | diff, generation swap, converge | record loaded inside the lock; `converge()` = doctor repair (managed+ordinary, refresh+recompile); convert resolve failures to `TransitionError` |
-| `cli.py` | commands, TUI screens, Runtime, doctor | Runtime init refreshes the hook shim; report commands write to stdout (`_STDOUT_REPORT_COMMANDS`), interactive flows to the tty; the card carries the health strip (one gateway check per open) and the update badge (U/H actions) |
-| `upgrade.py` | evidence-gated re-pin (`update`) | detect → offline inspect → promote → suite → override; byte-exact restore on any failure; redundant overrides removed when the baseline catches up |
-| `tui.py` | curses widget layer | every external string through `visible_text`; `read_key` does not re-merge Alt+chords (ncurses splits them by design); Esc is the only exit key; uniform col-2 margin; KeyBar wraps upward, never clips |
+| `cli.py` | commands, TUI screens, Runtime, doctor | Runtime init refreshes both shims (`hook_command`, `token_helper_command`); report commands write to stdout (`_STDOUT_REPORT_COMMANDS`), interactive flows to the tty; the card carries the health strip (one gateway check per open) and the update badge (U/H actions); the sessions screen renders ⚠ fork / ● live (daemon pty-socket glob, best-effort) markers with the X resolve-fork action |
+| `upgrade.py` | evidence-gated re-pin (`update`) | detect → offline inspect → promote → suite → override; byte-exact restore on any failure; redundant overrides removed when the baseline catches up; whole flow serialized through a FileLock sibling of the override; `progress` callback emits per-phase lines |
+| `tui.py` | curses widget layer | every external string through `visible_text`; `read_key` does not re-merge Alt+chords (ncurses splits them by design); Esc is the only exit key; uniform col-2 margin; KeyBar wraps upward (≤2 rows), never clips — screens must reserve `KeyBar.rows(width)` above it or it overdraws the message row |
 | `catalog.py` | trusted JSON load + validate | closed schemas; `version.json` single source of version |
 | `render.py` | gateway YAML | secrets resolve only at runtime into mode-0600 artifacts |
 | `proxy.py` | gateway process control | loopback only; token file 0600 |
@@ -131,6 +147,11 @@ nix-build --no-out-link package.nix                                # offline pac
 nix build --no-link --file tests/default.nix                       # sandbox suite
 git diff --check
 ```
+
+On memory-tight boxes the suite's tmpfs fixture copies can fail with
+`Errno 122 Disk quota exceeded` (seen 2026-07-27 with `/tmp` at 84% and swap
+full): run with a disk-backed temp dir, e.g.
+`TMPDIR=~/.cache/claude-multi-test-tmp PYTHONPATH=src:tests python3 -m unittest discover -s tests -t .`
 
 - **Goldens** pin byte-exact compiler/scope output for the default
   composition. Any intentional change to generated bytes requires bless +

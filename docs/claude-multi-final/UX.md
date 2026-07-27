@@ -61,14 +61,19 @@ the exact `$EDITOR` command — no second interactive implementation.
 - **Uniform left padding:** every screen's content starts at column 2
   (title, tables, forms, status rows, keybars) — one visual margin.
 - **Keybars wrap upward** (to the row above) instead of clipping keys —
-  the exit binding is always fully visible.
+  the exit binding is always fully visible. A bar may occupy up to 2 rows;
+  screens reserve `KeyBar.rows(width)` above the bar so the message row is
+  never overdrawn (2.6.0, after the sessions keybar grew the X binding).
 - **Health surface on the card (2.4.1):** one loopback gateway check per
   card open (never per redraw) drives the `health` strip (gateway status +
   pin state, with an operator-override marker); when a newer Claude is
   installed than the pin, an `update` badge appears with the **U** action
   (the whole evidence-gated re-pin in place), and **H** runs doctor in
   place with an optional repair-all prompt. Line mode shows the update
-  line and a `u` command.
+  line and a `u` command. Long actions narrate themselves (2.6.0): the U
+  flow releases curses first, then prints one line per phase as it happens
+  (inspect → evidence suite with a duration note → override → optional
+  activation) — a silent frozen card always means something is wrong.
 - Navigation: arrows everywhere; `k`/`j` only on the sessions screen (no
   text inputs there); `?` opens help everywhere; `^C` interrupts.
 
@@ -93,16 +98,25 @@ L327). The TUI never presents `off` as "safer subagents" — just different.
 ```
 sessions
 ──────────────────────────────────────────────
-● a1b2…  cm:kimi-sol   durable(g2)  /repo/dotfiles   2h ago   [r]esume [t]ransition [f]orget
+● ⚠ a1b2…  cm:kimi-sol   durable(g2)  /repo/dotfiles   2h ago   [x] resolve fork (resume blocked) [f]orget
 ○ 9c8e…  cm:kimi-sol   legacy       /repo/other      3d ago   [r]esume (upgrades to durable) [f]orget
 ○ 7f3a…  linked        legacy       (native session, adopted) [r]esume (upgrades) [f]orget
 ```
 
+- Row markers (2.6.0): **●** live — the session is owned by the background
+  daemon right now (reattaching from a Claude menu forks natively); **⚠**
+  fork-blocked — a native fork awaits an adopt/discard decision. Native
+  rows may show `(fork of <parent>)`.
 - `transition` opens the semantic diff view (TRANSITIONS §3) and asks for
   explicit confirmation that **the target process has exited** before
   anything is mutated; from inside the target session it prints the diff and
   the exact post-exit command instead.
-- `resume` on legacy records states the one-time upgrade plainly.
+- `resume` on legacy records states the one-time upgrade plainly; on a
+  fork-blocked record it explains the block (resolve first) instead of
+  failing later.
+- `resolve fork` (X, 2.6.0): clears an already-resolved marker instantly,
+  or asks once before discarding a genuinely pending marker — the fork
+  transcript is always kept; the full commands are one `sessions show` away.
 - `forget` states exactly what is deleted (record + generated scope) and what
   is never touched (transcripts).
 

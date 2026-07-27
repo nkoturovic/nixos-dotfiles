@@ -1,4 +1,4 @@
-# SANITY — design assessment of claude-multi (2026-07-24, v2.3.0; addendum through v2.5.0)
+# SANITY — design assessment of claude-multi (2026-07-24, v2.3.0; addendum through v2.6.0)
 
 An independent-design review of the whole product: managed compositions,
 ordinary gateway mode, identity/lifecycle machinery, packaging, and the
@@ -6,6 +6,38 @@ standalone-Claude boundary. Each section poses the skeptic's question, gives
 the evidence, and states a verdict. Findings that needed action were acted on;
 the rest are named reservations, documented honestly.
 
+
+## Addendum (2026-07-27, v2.5.0 → v2.6.0)
+
+A live incident three days after 2.5.0 stress-tested exactly the surfaces
+this assessment called resilient — and found two genuine gaps, both closed
+with the failure case on record (D32–D35):
+
+- **Native forks were tracked but not *operable*.** The identity machinery
+  correctly observed the fork and correctly blocked an ambiguous resume —
+  then stranded the operator: the message named no fork and no remedy, and
+  the picker filtered the fork out of existence (it hid any id equal to a
+  record's runtime). Worse, a stale `pending_forks` marker could survive
+  its own resolution (authority later landed ON the fork) and self-block
+  the record forever. The tracking design was sound; the *operator
+  surface* was missing. Now: self-clearing on authority, Attention +
+  `--repair-all` convergence, a discard command, one actionable message
+  builder everywhere, ⚠/● markers and an X action in the picker.
+- **Daemon takeovers kept files but lost routing.** The durable floor
+  passed its roster check on takeover, but nobody had verified *model
+  calls* post-takeover: the daemon scrubs `ANTHROPIC_*` from its children,
+  so the taken-over session was a zombie (`invalid model`). Lesson folded
+  into the acceptance model: "survives takeover" now means routing too —
+  compiled settings carry the non-secret base URL plus an `apiKeyHelper`
+  shim (token still never in files). Verified against the live process
+  tree (daemon env vs child env, count-only inspection).
+- **Update UX failed the human test.** The evidence gate itself held
+  (fail-closed, byte-identical restore after the interrupted run), but a
+  2-minute silent suite behind a live curses screen reads as a hang.
+  Long actions now narrate themselves; concurrent runs serialize.
+- **Assessment holds otherwise:** the fork hook never retargeted authority
+  (epoch discipline worked); rollback never touched transcripts; the
+  daemon boundary (never configured, never touched) survived intact.
 
 ## Addendum (2026-07-24, v2.4.x → v2.5.0)
 
