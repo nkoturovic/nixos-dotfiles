@@ -5080,3 +5080,28 @@ class BrokenOverrideDegradationTests(CLITestCase):
         self.assertEqual(code, 0, output)
         self.assertIn("removed unreadable contract override", output)
         self.assertFalse(override.exists())
+
+
+class FinalGateLayoutTests(CLITestCase):
+    """N1: details never draw onto the reserved Status row."""
+
+    def test_details_availability_never_touches_status_row(self) -> None:
+        from test_tui import FakeWindow
+
+        screen = cli._QuickConfirmScreen(
+            self.runtime,
+            cli.build_quick_plan(
+                self.runtime,
+                self.runtime.compositions.load("default"),
+                action="fresh",
+                source="Trusted default",
+            ),
+            passthrough=[],
+            palette=tui.MONO_PALETTE,
+        )
+        win = FakeWindow(["d", "\x1b"], height=20, width=80)
+        self.assertIsNone(screen.run(win))
+        status_row_text = _row_text(
+            win, 20 - tui.KeyBar(screen._keybar().bindings).rows(80) - 2
+        )
+        self.assertIn("Status  Ready", status_row_text)

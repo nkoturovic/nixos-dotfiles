@@ -1860,6 +1860,8 @@ class _QuickConfirmScreen:
                 tui.safe_add(win, row, 2, "note      ", palette.attr("warn"))
                 tui.safe_add(win, row, 12, LEGACY_RESUME_NOTE, palette.attr("warn"))
                 row += 1
+        if row >= limit:
+            return row - start
         tui.safe_add(win, row, 2, "drift     ", palette.attr("dim"))
         drift = "None" if not plan.drift else "; ".join(plan.drift)
         tui.safe_add(win, row, 12, drift)
@@ -1868,7 +1870,7 @@ class _QuickConfirmScreen:
             tui.safe_add(win, row, 2, "availability", palette.attr("accent"))
             row += 1
             for model_id, model in sorted(runtime.catalog.models.items()):
-                if row > limit:
+                if row >= limit:
                     break
                 scope = plan.document["availability"]["models"].get(model_id, "off")
                 new = (
@@ -1949,11 +1951,15 @@ class _QuickConfirmScreen:
                         today=sessions._now()[:10],
                         progress=_progress,
                         packaged_contract=_packaged_contract(self.runtime),
+                        override_broken=self.runtime.broken_override_error is not None,
                     )
                     messages = list(outcome.messages)
             except KeyboardInterrupt:
                 failed = True
-                messages = ["update interrupted (Ctrl-C)"]
+                messages = [
+                    "update interrupted (Ctrl-C) — check `claude-multi doctor` "
+                    "for the effective pin state"
+                ]
             except Exception as exc:
                 failed = True
                 post_override = getattr(exc, "post_override", False)
@@ -2295,6 +2301,7 @@ def _line_quick_confirm(
                     override_path=sessions.config_root(runtime.environ) / "native-contract.json",
                     today=sessions._now()[:10],
                     packaged_contract=_packaged_contract(runtime),
+                override_broken=runtime.broken_override_error is not None,
                     progress=lambda line: (
                         output_stream.write(f"… {tui.visible_text(line)}\n"),
                         output_stream.flush(),
@@ -2307,7 +2314,10 @@ def _line_quick_confirm(
             except upgrade_mod.UpgradeError as exc:
                 output_stream.write(f"update failed: {tui.visible_message(exc)}\n")
             except KeyboardInterrupt:
-                output_stream.write("update interrupted (Ctrl-C); nothing was promoted\n")
+                output_stream.write(
+                    "update interrupted (Ctrl-C) — check `claude-multi doctor` "
+                    "for the effective pin state\n"
+                )
             except OSError as exc:
                 output_stream.write(f"update failed: {tui.visible_message(exc)}\n")
             continue
@@ -4091,6 +4101,7 @@ def handle_command(
                 today=sessions._now()[:10],
                 activate=bool(args.activate),
                 packaged_contract=_packaged_contract(runtime),
+                override_broken=runtime.broken_override_error is not None,
                 progress=lambda line: (
                     output_stream.write(f"… {tui.visible_text(line)}\n"),
                     output_stream.flush(),
@@ -4099,7 +4110,10 @@ def handle_command(
         except upgrade_mod.UpgradeError as exc:
             raise CLIError(str(exc)) from exc
         except KeyboardInterrupt:
-            raise CLIError("update interrupted (Ctrl-C); nothing was promoted") from None
+            raise CLIError(
+                "update interrupted (Ctrl-C) — check `claude-multi doctor` "
+                "for the effective pin state"
+            ) from None
         except OSError as exc:
             raise CLIError(f"update failed: {exc}") from exc
         for line in outcome.messages:

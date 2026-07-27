@@ -614,3 +614,64 @@ class CandidateOrderingTests(UpgradeTestCase):
             target.read_bytes(), json.dumps(self.contract, indent=2).encode() + b"\n"
         )
         self.assertEqual(list(product.glob("**/*.tmp-*")), [])
+
+
+class FinalGateResolutionTests(UpgradeTestCase):
+    """SF1/SF2/N2: the final gate's resolution set."""
+
+    def test_schema_invalid_override_is_removed_not_kept(self) -> None:
+        # Valid JSON + version, but a version shape the strict schema
+        # rejects -> broken, removed (previously kept -> doctor loop).
+        self.new.unlink()
+        product = self._product_tree()
+        override_path = self.root / "config" / "native-contract.json"
+        state.ensure_private_dir(override_path.parent)
+        doc = json.loads(json.dumps(self.contract))
+        doc["claude"]["validated_version"] = "not.a.version"
+        state.atomic_write(
+            override_path, (json.dumps(doc, indent=2) + "\n").encode("utf-8")
+        )
+        outcome = upgrade.run_upgrade(
+            checkout_root=product,
+            native_contract=self.contract,
+            override_path=override_path,
+            today="2026-07-27",
+            runner=self._runner(0),
+            packaged_contract=self.contract,
+        )
+        self.assertFalse(override_path.exists())
+        self.assertTrue(any("removed unreadable" in m for m in outcome.messages))
+
+    def test_override_broken_flag_removes_loader_rejected_override(self) -> None:
+        # Valid version shape but the loader already rejected the file
+        # (schema/secret scan): the caller's flag removes it directly.
+        self.new.unlink()
+        product = self._product_tree()
+        override_path = self.root / "config" / "native-contract.json"
+        state.ensure_private_dir(override_path.parent)
+        doc = json.loads(json.dumps(self.contract))
+        doc["claude"]["validated_version"] = "9.9.9"
+        state.atomic_write(
+            override_path, (json.dumps(doc, indent=2) + "\n").encode("utf-8")
+        )
+        outcome = upgrade.run_upgrade(
+            checkout_root=product,
+            native_contract=self.contract,
+            override_path=override_path,
+            today="2026-07-27",
+            runner=self._runner(0),
+            packaged_contract=self.contract,
+            override_broken=True,
+        )
+        self.assertFalse(override_path.exists())
+
+    def test_write_repo_file_refuses_symlinked_target(self) -> None:
+        root = Path(tempfile.mkdtemp(prefix="claude-multi-symlink-"))
+        self.addCleanup(shutil.rmtree, root, True)
+        real = root / "real"
+        real.write_text("x\n", encoding="utf-8")
+        link = root / "link"
+        link.symlink_to(real)
+        with self.assertRaisesRegex(UpgradeError, "symlinked"):
+            upgrade._write_repo_file(link, b"y\n")
+        self.assertEqual(real.read_text(encoding="utf-8"), "x\n")

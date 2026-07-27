@@ -59,6 +59,10 @@ def _write_repo_file(path: Path, data: bytes) -> None:
     temp+fsync+replace discipline with the mode carried over (review H15).
     """
 
+    if path.is_symlink():
+        # Never follow a symlink into a mode/target the caller didn't mean
+        # (final-gate N2): repo files are git-managed regulars.
+        raise UpgradeError(f"refusing to replace symlinked repo file {path}")
     try:
         mode = stat.S_IMODE(os.lstat(path).st_mode)
     except OSError:
@@ -343,6 +347,7 @@ def run_upgrade(
     flake_target: str | None = None,
     progress: Callable[[str], None] | None = None,
     packaged_contract: dict[str, Any] | None = None,
+    override_broken: bool = False,
 ) -> UpgradeOutcome:
     """Inspect → promote → evidence → override → (optionally) activate.
 
@@ -392,6 +397,7 @@ def run_upgrade(
             note=_note,
             progress=progress,
             packaged_contract=packaged_contract,
+            override_broken=override_broken,
         )
     finally:
         update_lock.release()
@@ -410,6 +416,7 @@ def _run_upgrade_locked(
     note: Callable[[str], None],
     progress: Callable[[str], None] | None,
     packaged_contract: dict[str, Any] | None,
+    override_broken: bool,
 ) -> UpgradeOutcome:
     from . import state
 
@@ -462,10 +469,12 @@ def _run_upgrade_locked(
             # Remove the override only when it is genuinely redundant: the
             # packaged baseline must have caught up. Deleting an override that
             # is strictly newer silently downgrades the trust anchor (H2).
-            # An unreadable/unversioned override fails the catalog's strict
-            # load anyway, so removing it heals rather than downgrades.
+            # An unreadable/unversioned/schema-invalid override is never
+            # applied by the loader anyway — removing it heals (and when the
+            # caller already knows the loader rejected it, ``override_broken``
+            # tells us directly; final-gate review SF1).
             redundant = False
-            broken = False
+            broken = override_broken
             override_version: str | None = None
             try:
                 override_doc = json.loads(override_path.read_bytes().decode("utf-8"))
@@ -479,7 +488,9 @@ def _run_upgrade_locked(
                 if packaged_contract is not None
                 else None
             )
-            if override_version is None:
+            if override_version is None or _version_key(override_version) is None:
+                # Unreadable, unversioned, or a version the loader's strict
+                # schema would reject: never applicable, always safe to heal.
                 broken = True
             elif packaged_version is not None:
                 ov_key = _version_key(override_version)
