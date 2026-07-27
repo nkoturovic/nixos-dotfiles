@@ -179,9 +179,10 @@ self-stop refused (env sentinel), non-live refused (best-effort pty
 liveness), interactive confirmation, upstream errors surfaced. **E** was
 chosen over K because K collides with the picker's vim `k`=navigate-up.
 A transition started on a ● live session now warns and names the command.
-Evidence: 1,332 host tests OK (2 skips), 9 new stop tests + transition
-note test; focused cross-family review of the feature: **approve** (env
-scrub pinned as a test, stdin DEVNULL added, test names re-documented).
+Evidence: 9 new stop tests + transition-note test; focused cross-family
+review of the feature: **approve** (env scrub pinned as a test, stdin
+DEVNULL added, test names re-documented). Final suite with everything:
+1,336 host tests OK (2 skips).
 
 ## The CLIProxy integration review (approve) and its resolution
 

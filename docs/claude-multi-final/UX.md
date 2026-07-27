@@ -126,6 +126,11 @@ sessions
 - `resolve fork` (X, 2.6.0): clears an already-resolved marker instantly,
   or asks once before discarding a genuinely pending marker — the fork
   transcript is always kept; the full commands are one `sessions show` away.
+- `end session` (E, 2.7.0): shown on ● live rows — stops the background
+  process with upstream `claude stop` (one confirm; conversation always
+  kept; R resumes later). Self-stops and non-live rows are refused with a
+  message. E was chosen because K collides with the screen's vim
+  `k`=navigate-up.
 - `forget` states exactly what is deleted (record + generated scope) and what
   is never touched (transcripts).
 
