@@ -169,9 +169,14 @@ def pending_fork_message(record: dict[str, Any]) -> str:
         f"sessions resolve-fork {stable_id} {fork_ids[0]}`"
     )
     if len(fork_ids) > 1:
+        link_flags = (
+            "--model MODEL"
+            if record["session_type"] == SESSION_TYPE_ORDINARY
+            else "--composition NAME"
+        )
         remedy = (
-            "adopt or discard each with `claude-multi sessions link <fork-uuid> "
-            f"--composition NAME` / `claude-multi sessions resolve-fork "
+            f"adopt or discard each with `claude-multi sessions link <fork-uuid> "
+            f"{link_flags}` / `claude-multi sessions resolve-fork "
             f"{stable_id} <fork-uuid>`"
         )
     return (
@@ -570,6 +575,16 @@ def reconcile_runtime_record(
     if source == "fork":
         pending = list(current.get("pending_forks", []))
         if not any(item.get("session_id") == observed_runtime_id for item in pending):
+            if len(pending) >= _MAX_RUNTIME_ALIASES:
+                # Never evict a genuine marker silently (review H19): the
+                # operator was told about every pending fork by name, so
+                # dropping the oldest would orphan a fork they were asked to
+                # resolve. Fail the hook visibly instead.
+                raise SessionError(
+                    f"session {managed_id(current)} already tracks "
+                    f"{_MAX_RUNTIME_ALIASES} unresolved native forks; resolve "
+                    "some (adopt or resolve-fork) before more can be tracked"
+                )
             pending.append({"session_id": observed_runtime_id, "observed_at": timestamp})
         updated["pending_forks"] = pending[-_MAX_RUNTIME_ALIASES:]
         if current.get("identity_state") == IDENTITY_REPAIR_NEEDED:
@@ -1057,7 +1072,15 @@ class SessionStore:
                 for item in pending
                 if item.get("session_id") != fork_runtime_id
             ]
-            updated = {**current, "pending_forks": kept}
+            updated = {
+                **current,
+                "pending_forks": kept,
+                # Same revocation as adoption (H9): the discarded fork's baked
+                # epoch goes stale, so its later hooks cannot claim the
+                # parent's authority. A still-running parent app reconciles
+                # on its next launcher resume.
+                "launch_epoch": current.get("launch_epoch", 0) + 1,
+            }
             if current.get("identity_state") != IDENTITY_REPAIR_NEEDED:
                 updated["identity_state"] = _derived_identity_state(updated)
             self.save(updated)
@@ -1099,51 +1122,6 @@ class SessionStore:
             return removed, scope_removed
         finally:
             lock.release()
-
-    def _resolve_pending_fork_locked(
-        self, runtime_id: str, *, exclude: str | None = None
-    ) -> list[str]:
-        """Clear a claimed fork UUID while the runtime-index lock is held."""
-
-        resolved: list[str] = []
-        for path in sorted(self.sessions_dir.glob("*.json")):
-            stable = path.stem
-            if stable == exclude or not UUID4.fullmatch(stable):
-                continue
-            lock = self.lifecycle_lock(stable)
-            lock.acquire(blocking=True)
-            try:
-                current = self.load(stable)
-                pending = current.get("pending_forks", [])
-                filtered = [
-                    dict(item)
-                    for item in pending
-                    if item.get("session_id") != runtime_id
-                ]
-                if len(filtered) == len(pending):
-                    continue
-                updated = {**current, "pending_forks": filtered}
-                if current.get("identity_state") == IDENTITY_REPAIR_NEEDED:
-                    updated["identity_state"] = IDENTITY_REPAIR_NEEDED
-                else:
-                    updated["identity_state"] = _derived_identity_state(updated)
-                self.save(updated)
-                resolved.append(stable)
-            finally:
-                lock.release()
-        return resolved
-
-    def resolve_pending_fork(self, runtime_id: str) -> list[str]:
-        """Remove an adopted runtime UUID from every parent's pending-fork set."""
-
-        if not UUID4.fullmatch(runtime_id):
-            raise SessionError(f"runtime session_id {runtime_id!r} is not a UUIDv4")
-        index_lock = self.runtime_index_lock()
-        index_lock.acquire(blocking=True)
-        try:
-            return self._resolve_pending_fork_locked(runtime_id)
-        finally:
-            index_lock.release()
 
     def link(self, record: dict[str, Any]) -> Path:
         """Failure-atomically adopt a native runtime and resolve its parent."""
@@ -1204,7 +1182,17 @@ class SessionStore:
                     if prior_bytes is None:
                         parent_lock.release()
                         continue
-                    updated = {**current, "pending_forks": filtered}
+                    updated = {
+                        **current,
+                        "pending_forks": filtered,
+                        # Revoke the adopted fork's baked credential: its scope
+                        # carries the parent's managed-id + this epoch, so its
+                        # later hooks could otherwise migrate the parent's
+                        # authority into the fork's lineage (review H9). A
+                        # still-running parent app's hooks go stale until its
+                        # next launcher resume — the relink-runtime trade-off.
+                        "launch_epoch": current.get("launch_epoch", 0) + 1,
+                    }
                     if current.get("identity_state") != IDENTITY_REPAIR_NEEDED:
                         updated["identity_state"] = _derived_identity_state(updated)
                     parent_locks.append(parent_lock)

@@ -589,7 +589,7 @@ def restore_exec_failure(
     *,
     expected_record_bytes: bytes,
     dir_fsync: Callable[[Path], None] | None = None,
-) -> None:
+) -> bool:
     """Restore prior state after the relaunch execve raised ``OSError``.
 
     Restores the exact pre-read prior record bytes first, so the record remains
@@ -624,7 +624,7 @@ def restore_exec_failure(
             expected = strict_json.loads(expected_record_bytes)
             current = store.load(session_id)
         except (strict_json.StrictJSONError, sessions.SessionError):
-            return
+            return False
         if (
             not isinstance(expected, dict)
             or expected.get("mutation_token") is None
@@ -632,18 +632,18 @@ def restore_exec_failure(
         ):
             # A newer attempt committed since the failing execute; it owns
             # the record and the scope now — restore nothing.
-            return
+            return False
         if current_bytes == expected_record_bytes:
             store.restore_record_bytes(session_id, prior_record_bytes)
         else:
             try:
                 prior = strict_json.loads(prior_record_bytes)
                 if not isinstance(prior, dict):
-                    return
+                    return False
                 prior = sessions._normalize_legacy_record(prior)
                 store.save(sessions.carry_lifecycle_state(prior, current))
             except (strict_json.StrictJSONError, sessions.SessionError):
-                return
+                return False
         sync = dir_fsync if dir_fsync is not None else scope._fsync_directory
         # Validate the scopes parent before destructive work beneath it: a
         # symlinked ancestor fails closed here (final audit L3).
@@ -664,6 +664,7 @@ def restore_exec_failure(
         if os.path.lexists(staging):
             scope._remove_tree(staging)
             sync(scopes_root)
+        return True
     finally:
         lock.release()
 

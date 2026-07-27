@@ -529,6 +529,33 @@ class KeyBar:
     def draw(self, win: Any, row: int, palette: Palette, col: int = 2) -> None:
         height, width = win.getmaxyx()
         used = self.rows(width)
+        if self._rows_needed(width) > used:
+            # Overflow beyond two rows: the D30 contract is that the exit
+            # binding is never clipped, so it gets a guaranteed spot on the
+            # bottom row; middle bindings compact behind an ellipsis.
+            origin = max(0, row - (used - 1))
+            x = col
+            index = 0
+            while index < len(self.bindings) - 1:
+                key, label = self.bindings[index]
+                entry = len(key) + 1 + len(label) + (3 if index else 0)
+                if index and x + entry > width - 2:
+                    break
+                if index:
+                    safe_add(win, origin, x, " · ", palette.attr("dim"))
+                    x += 3
+                safe_add(win, origin, x, key, palette.attr("accent"))
+                x += len(key)
+                safe_add(win, origin, x, f" {label}", palette.attr("normal"))
+                x += 1 + len(label)
+                index += 1
+            key, label = self.bindings[-1]
+            tail = "… · " if index < len(self.bindings) - 1 else ""
+            safe_add(win, origin + 1, col, tail, palette.attr("dim"))
+            x = col + len(tail)
+            safe_add(win, origin + 1, x, key, palette.attr("accent"))
+            safe_add(win, origin + 1, x + len(key), f" {label}", palette.attr("normal"))
+            return
         origin = max(0, row - (used - 1))
         current = origin
         for index, (key, label) in enumerate(self.bindings):
@@ -773,9 +800,10 @@ class SelectList:
                     f"  {item.note}",
                     palette.attr("dim") | (curses.A_REVERSE if focused else 0),
                 )
+        bar_rows = self.footer.rows(width)
         if self.message:
-            safe_add(win, height - 3, 0, self.message, palette.attr("warn"))
-        self.footer.draw(win, height - 2, palette)
+            safe_add(win, height - 1 - bar_rows, 0, self.message, palette.attr("warn"))
+        self.footer.draw(win, height - 1, palette)
         win.refresh()
 
     def run(
@@ -886,7 +914,10 @@ class Modal:
         safe_add(win, top + box_h - 1, left, horizontal, palette.attr("accent"))
         safe_add(win, top + 1, left + 2, self.title, palette.attr("accent") | curses.A_BOLD)
         row = top + 2
-        for line in self.lines[: box_h - 5]:
+        # Clamp the body slice: below box_h 5 the naive slice goes negative
+        # and would index from the list's END, showing the wrong lines on
+        # tiny terminals (review H14).
+        for line in self.lines[: max(0, box_h - 5)]:
             safe_add(win, row, left + 2, line)
             row += 1
         if self.input is not None:

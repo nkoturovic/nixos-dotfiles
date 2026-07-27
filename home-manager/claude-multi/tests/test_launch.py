@@ -1796,13 +1796,20 @@ class LifecycleCleanupTests(LaunchTestCase):
         self.store.save(current)
         result = self._compile_durable_resume(self.resolved, self.snapshot)
         before = self.store.read_record_bytes(FIXED_ID)
-        with self.assertRaisesRegex(launch.LaunchError, "unresolved native fork"):
+        # The in-lock guard must carry the actionable message (H8): fork UUID
+        # plus the adopt/discard commands, not a dead-end.
+        with self.assertRaises(launch.LaunchError) as raised:
             self._perform(
                 result,
                 current,
                 lambda *_args: "EXECUTED",
                 allow_model_relaunch=True,
             )
+        message = str(raised.exception)
+        self.assertIn("unresolved native fork", message)
+        self.assertIn(OTHER_ID, message)
+        self.assertIn("resolve-fork", message)
+        self.assertIn("sessions link", message)
         self.assertEqual(self.store.read_record_bytes(FIXED_ID), before)
 
     def test_execve_oserror_resume_cleanup_noops_when_newer_record_committed(self) -> None:
@@ -1941,3 +1948,139 @@ class LifecycleCleanupTests(LaunchTestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class LegacyResumeScopeRewriteTests(DurablePerformLaunchTests):
+    """H4: --legacy resume of a durable record still advances the scope."""
+
+    def test_legacy_resume_rewrites_scope_with_the_new_epoch(self) -> None:
+        prior = sessions.make_record(
+            session_id=FIXED_ID,
+            cwd=str(self.project),
+            composition_name="default",
+            snapshot=self.snapshot,
+            catalog_version=1,
+            catalog_hash="sha256:" + "0" * 64,
+            launcher_version="2.1.0",
+            mode="durable",
+            scope_generation=1,
+            launch_epoch=1,
+            now="2026-07-20T00:00:00Z",
+        )
+        self.store.save(prior)
+        # Pre-existing scope at epoch 1 (the session's current durable files).
+        old_plan = scope.compile_scope(
+            self.resolved,
+            self.bundle.docs["roles"]["roles"],
+            self.bundle.prompt_bodies,
+            scope.catalog_meta_from_docs(self.bundle.docs),
+            managed_id=FIXED_ID,
+            hook_command=str(scope.hook_shim_path(self.root / "state")),
+            launch_epoch=1,
+            token_helper_command=str(
+                scope.gateway_token_shim_path(self.root / "state")
+            ),
+        )
+        scope.write_scope(self.store.root, FIXED_ID, old_plan)
+
+        # A --legacy resume: argv-mode result (durable=False), record keeps
+        # mode durable, epoch advances to 2.
+        result = compiler.compile_launch(
+            docs=self.docs,
+            prompt_bodies=self.bundle.prompt_bodies,
+            resolved=self.resolved,
+            session_action=compiler.build_resume(FIXED_ID, FIXED_ID),
+            passthrough=[],
+            settings_path=Path("/trusted/settings.json"),
+            lead_prompt_path=compiler.lead_prompt_path(
+                self.root / "state", self.digest, FIXED_ID
+            ),
+        )
+        committed = {
+            **prior,
+            "launch_epoch": 2,
+            "mutation_token": None,
+        }
+        captured: dict = {}
+
+        def fake_execve(executable, argv, env):
+            captured["argv"] = argv
+            return "EXECUTED"
+
+        self._perform(result, committed, execve=fake_execve, trusted=self.bundle)
+
+        settings = strict_json.loads(
+            (self.store.root / "scopes" / FIXED_ID / "settings.json").read_bytes()
+        )
+        self.assertEqual(settings["env"]["CLAUDE_MULTI_LAUNCH_EPOCH"], "2")
+        self.assertEqual(settings["apiKeyHelper"], str(
+            scope.gateway_token_shim_path(self.store.root)
+        ))
+        # The scope remains the record-authoritative shape (fence + hooks).
+        self.assertIn("SessionStart", settings["hooks"])
+
+
+class LegacyRollbackConvergeTests(DurablePerformLaunchTests):
+    """The pre-exec rollback converges the legacy-rewritten scope too."""
+
+    def test_mutation_failure_after_scope_write_restores_prior_epoch_scope(self) -> None:
+        from unittest import mock
+
+        prior = sessions.make_record(
+            session_id=FIXED_ID,
+            cwd=str(self.project),
+            composition_name="default",
+            snapshot=self.snapshot,
+            catalog_version=1,
+            catalog_hash="sha256:" + "0" * 64,
+            launcher_version="2.1.0",
+            mode="durable",
+            scope_generation=1,
+            launch_epoch=1,
+            now="2026-07-20T00:00:00Z",
+        )
+        self.store.save(prior)
+        old_plan = scope.compile_scope(
+            self.resolved,
+            self.bundle.docs["roles"]["roles"],
+            self.bundle.prompt_bodies,
+            scope.catalog_meta_from_docs(self.bundle.docs),
+            managed_id=FIXED_ID,
+            hook_command=str(scope.hook_shim_path(self.root / "state")),
+            launch_epoch=1,
+            token_helper_command=str(
+                scope.gateway_token_shim_path(self.root / "state")
+            ),
+        )
+        scope.write_scope(self.store.root, FIXED_ID, old_plan)
+        result = compiler.compile_launch(
+            docs=self.docs,
+            prompt_bodies=self.bundle.prompt_bodies,
+            resolved=self.resolved,
+            session_action=compiler.build_resume(FIXED_ID, FIXED_ID),
+            passthrough=[],
+            settings_path=Path("/trusted/settings.json"),
+            lead_prompt_path=compiler.lead_prompt_path(
+                self.root / "state", self.digest, FIXED_ID
+            ),
+        )
+        committed = {**prior, "launch_epoch": 2, "mutation_token": None}
+
+        def boom_update_last(*_args, **_kwargs):
+            raise OSError("pointer write failed")
+
+        with mock.patch.object(
+            self.store, "update_last", side_effect=boom_update_last
+        ):
+            with self.assertRaises(OSError):
+                self._perform(result, committed, trusted=self.bundle)
+        # Record restored to the prior bytes; the scope converged with it
+        # (epoch 1 again), not left diverged at epoch 2.
+        self.assertEqual(
+            self.store.read_record_bytes(FIXED_ID),
+            strict_json.canonical_file_bytes(prior),
+        )
+        settings = strict_json.loads(
+            (self.store.root / "scopes" / FIXED_ID / "settings.json").read_bytes()
+        )
+        self.assertEqual(settings["env"]["CLAUDE_MULTI_LAUNCH_EPOCH"], "1")

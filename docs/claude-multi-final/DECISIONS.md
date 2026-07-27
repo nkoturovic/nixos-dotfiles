@@ -363,6 +363,63 @@ lines, no carriage-return tricks: identical behavior on TTYs, pipes, and
 captured streams). Verified end-to-end against the real 2.1.220 candidate:
 suite green, override written, heartbeat lines observed.
 
+**D37 — Fork credentials are revocable, reads self-heal at action paths,
+and every guard/message honors the single source (2.6.2).** An 8-reviewer
+adversarial pass (35 raw findings, ~25 deduped real) over 2.6.1 drove the
+hardening set; every fix carries a regression test:
+
+- **Fork credential revocation (H9):** adoption (`sessions link`) and
+  discard (`sessions resolve-fork`) now bump the parent's `launch_epoch`,
+  so the fork's baked hook credential (managed-id + epoch) goes stale and
+  its later clear/compact hooks can no longer migrate the parent's
+  authority into the fork's lineage (the review's deepest finding, verified
+  against the real store). Trade-off accepted and documented: a
+  still-running parent app's hooks go stale until its next launcher resume
+  — the relink-runtime precedent.
+- **Self-heal at action paths (H16):** resume flows converge
+  resolved-by-reality fork markers (record re-derived inside the same
+  flow), while display paths (picker list, doctor) keep the marker visible
+  until acted on. The fork-cap no longer evicts silently — the 17th fork
+  hook fails visibly (H19). Every guard site — including the in-lock
+  launch backstop (H8) and ordinary/multi-fork messages (H18/H20) — uses
+  the single message source with correct `--model`/`--composition`
+  branching.
+- **Token-path single authority (H1):** the apiKeyHelper shim's token path
+  is strictly HOME-relative, matching the token's writer (proxy) and
+  reader (launch) — `XDG_CONFIG_HOME` moves compositions/override but
+  deliberately not the catalog-pinned token location.
+- **Update flow (H2/H6/H10/H15/H7):** the "current" path deletes an
+  override only when genuinely redundant (≤ the packaged baseline;
+  unreadable overrides heal) and `--activate` retries land the baseline
+  instead of returning early; literal sync is boundary-anchored (prefix
+  pins like 2.1.2 can no longer mangle 2.1.216); invalid candidate
+  artifacts are skipped with a note instead of aborting; promotion writes
+  are crash-atomic with repo modes preserved; failure messages are
+  phase-accurate and interrupts are handled at every entry point.
+- **Launch/transition (H4/H17):** `--legacy` resume of a durable session
+  rewrites the scope with the new epoch (no more false doctor mismatch);
+  every cleanup/restore step is individually exception-safe (never masks
+  the original error), and `restore_exec_failure` reports whether it
+  restored — callers stop claiming restoration on a no-op.
+- **TUI (H3/H6/H8k/H12/H13/H14):** the quick card reserves the keybar +
+  Status zone up front (Status/BLOCKED and the first error line survive
+  crowded 80x14 cards); KeyBar's exit binding is unclippable (ellipsis
+  compaction past two rows); sessions screen has a minimum-size floor;
+  SelectList/transition/Modal all reserve or clamp correctly.
+- **Hygiene:** dead fork-resolution code deleted; vacuous heartbeat
+  assertion fixed; env-var test restores instead of deleting; USAGE marks
+  built-in vs machine-local profiles honestly.
+- **Second pass (the final pre-release review of the fix set itself):**
+  candidate ordering is by version key, never name order (2.1.99 lexically
+  outranks 2.1.218 — a promotion ordering regression caught before
+  release, U8); restore-path writes are as crash-atomic as promotion
+  writes (U1); the pre-exec rollback converges the legacy-rewritten scope
+  too (the exec-failure path already did); and an invalid contract
+  override degrades to the packaged baseline with a doctor BLOCKED report
+  instead of bricking every command — it is still never applied (D29),
+  and `claude-multi update` now actually reaches the removal path that
+  heals it.
+
 ## User decision summary (what you're approving by accepting this design)
 
 1. Selected agents become **real files** in a per-session scope; the failure

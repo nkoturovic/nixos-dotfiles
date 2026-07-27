@@ -1202,3 +1202,112 @@ class RootTests(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class ForkCredentialRevocationTests(SessionTestCase):
+    """H9: adopt/discard bumps the parent's epoch, staling the fork's hooks."""
+
+    def _forked(self, epoch: int = 3):
+        record = {
+            **_record(self.snapshot),
+            "launch_epoch": epoch,
+        }
+        self.store.save(record)
+        return self.store.reconcile_runtime(
+            FIXED_ID,
+            observed_runtime_id=OTHER_ID,
+            source="fork",
+            cwd="/project/path",
+            launch_epoch=epoch,
+            now="2026-07-22T00:00:00Z",
+        )
+
+    def test_resolve_fork_bumps_epoch_and_stales_the_fork_hooks(self) -> None:
+        self._forked(epoch=3)
+        updated = self.store.resolve_fork(FIXED_ID, OTHER_ID)
+        self.assertEqual(updated["launch_epoch"], 4)
+        # The fork's next id-changing hook (its baked epoch is 3) is ignored.
+        after = self.store.reconcile_runtime(
+            FIXED_ID,
+            observed_runtime_id=self.store.new_id(),
+            source="compact",
+            cwd="/project/path",
+            launch_epoch=3,
+            now="2026-07-22T00:10:00Z",
+        )
+        self.assertEqual(after["runtime_session_id"], FIXED_ID)
+        self.assertEqual(after["launch_epoch"], 4)
+
+    def test_link_adoption_bumps_parent_epoch(self) -> None:
+        forked = self._forked(epoch=2)
+        linked = sessions.make_record(
+            managed_id=self.store.new_id(),
+            runtime_session_id=OTHER_ID,
+            cwd="/project/path",
+            composition_name="default",
+            snapshot=self.snapshot,
+            catalog_version=1,
+            catalog_hash="sha256:" + "0" * 64,
+            launcher_version="2.6.1",
+            now="2026-07-22T00:05:00Z",
+        )
+        self.store.link(linked)
+        parent = self.store.load(FIXED_ID)
+        self.assertEqual(parent["pending_forks"], [])
+        self.assertEqual(parent["launch_epoch"], 3)
+
+
+class PendingForkCapTests(SessionTestCase):
+    """H19: the 17th distinct fork fails the hook visibly; nothing evicted."""
+
+    def test_cap_refuses_new_fork_without_evicting(self) -> None:
+        record = _record(self.snapshot)
+        record["pending_forks"] = [
+            {
+                "session_id": f"00000000-0000-4000-8000-{index:012d}",
+                "observed_at": "2026-07-22T00:00:00Z",
+            }
+            for index in range(16)
+        ]
+        record["identity_state"] = sessions.IDENTITY_PENDING_FORK
+        self.store.save(record)
+        with self.assertRaisesRegex(sessions.SessionError, "16 unresolved"):
+            self.store.reconcile_runtime(
+                FIXED_ID,
+                observed_runtime_id=OTHER_ID,
+                source="fork",
+                cwd="/project/path",
+                now="2026-07-22T00:05:00Z",
+            )
+        after = self.store.load(FIXED_ID)
+        self.assertEqual(len(after["pending_forks"]), 16)
+        # Re-observing an already-tracked fork is still fine (idempotent).
+        again = self.store.reconcile_runtime(
+            FIXED_ID,
+            observed_runtime_id="00000000-0000-4000-8000-000000000005",
+            source="fork",
+            cwd="/project/path",
+            now="2026-07-22T00:06:00Z",
+        )
+        self.assertEqual(len(again["pending_forks"]), 16)
+
+    def test_multi_fork_message_ordinary_uses_model_flag(self) -> None:
+        ordinary = sessions.make_ordinary_record(
+            managed_id=FIXED_ID,
+            runtime_session_id=FIXED_ID,
+            cwd="/project/path",
+            model="sol",
+            context_profile="sol",
+            catalog_version=1,
+            catalog_hash="sha256:" + "0" * 64,
+            launcher_version="2.6.1",
+            now="2026-07-21T00:00:00Z",
+        )
+        ordinary["pending_forks"] = [
+            {"session_id": OTHER_ID, "observed_at": "2026-07-22T00:00:00Z"},
+            {"session_id": "33333333-3333-4333-8333-333333333333",
+             "observed_at": "2026-07-22T00:01:00Z"},
+        ]
+        message = sessions.pending_fork_message(ordinary)
+        self.assertIn("--model MODEL", message)
+        self.assertNotIn("--composition", message)

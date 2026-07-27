@@ -721,10 +721,7 @@ def perform_launch(
                 "identity_state", sessions.IDENTITY_UNVERIFIED
             )
             if current.get("pending_forks"):
-                raise LaunchError(
-                    f"session {stable_id} has an unresolved native fork; adopt the "
-                    "fork UUID before resuming the parent"
-                )
+                raise LaunchError(sessions.pending_fork_message(current))
             if identity_state == sessions.IDENTITY_REPAIR_NEEDED and not (
                 allow_model_relaunch
                 and "observed_model" in current
@@ -783,6 +780,38 @@ def perform_launch(
         if durable:
             scope.write_scope(store.root, stable_id, result.scope_plan)
             scope_written = True
+        elif committed_record.get("mode") == "durable" and trusted is not None:
+            # --legacy launch of a durable session: the record's epoch
+            # advanced, so the on-disk scope must advance with it — the
+            # scope stays the record's durable authority or doctor reports
+            # a false record↔scope mismatch (hardening review H4). Argv
+            # stays legacy-shaped for this launch only.
+            from . import transition
+
+            try:
+                if committed_record["session_type"] == sessions.SESSION_TYPE_ORDINARY:
+                    expected = transition._ordinary_expected_plan(
+                        committed_record,
+                        trusted,
+                        str(
+                            scope.ensure_hook_shim(
+                                store.root,
+                                scope.resolve_hook_command(environ, trusted.root),
+                            )
+                        ),
+                        scope.ensure_token_helper_command(store.root, environ),
+                    )
+                else:
+                    expected = transition._expected_plan(
+                        committed_record, trusted, state_root=store.root
+                    )
+            except Exception:
+                # A scope rewrite must never break the legacy launch itself;
+                # converge rebuilds deterministically (the audit-L4 rule).
+                pass
+            else:
+                scope.write_scope(store.root, stable_id, expected)
+                scope_written = True
         store.save(committed_record)
         # The exact bytes this launch committed: the cleanup's ownership
         # token (CAS-by-own-write, audit L2).
@@ -820,19 +849,30 @@ def perform_launch(
                 elif current_bytes != pre_existing:
                     # Unknown authority: do not guess at rollback ownership.
                     raise
-                if durable and scope_written:
+                if scope_written:
                     # Only converge the scope when this attempt actually
                     # rewrote it (mirrors the execve-failure path); a failure
                     # before the scope write leaves the valid scope untouched.
-                    _resume_failure_scope(
-                        store, stable_id, pre_existing, result, trusted, environ
+                    # Covers the --legacy durable-record rewrite too (H4):
+                    # record restored to the prior epoch ⇒ scope must follow.
+                    try:
+                        _resume_failure_scope(
+                            store, stable_id, pre_existing, result, trusted, environ
+                        )
+                    except Exception:
+                        # A failing scope converge must never mask the
+                        # original failure (H17); converge rebuilds later.
+                        pass
+                try:
+                    store.restore_pointer_bytes(
+                        record["cwd"],
+                        stable_id,
+                        prior_pointer,
+                        session_type=record["session_type"],
                     )
-                store.restore_pointer_bytes(
-                    record["cwd"],
-                    stable_id,
-                    prior_pointer,
-                    session_type=record["session_type"],
-                )
+                except Exception:
+                    # Never mask the original failure with a cleanup error.
+                    pass
             elif action_kind == "fresh":
                 try:
                     current = store.load(stable_id)
@@ -920,15 +960,24 @@ def perform_launch(
                             # doctor/converge rather than guessing.
                             pass
                     if record_restored:
+                        # Each restore step is individually guarded (H17): a
+                        # cleanup failure must never mask the exec error or
+                        # skip the remaining restores.
                         if scope_written:
-                            _resume_failure_scope(
-                                store, stable_id, pre_existing, result, trusted,
-                                environ,
+                            try:
+                                _resume_failure_scope(
+                                    store, stable_id, pre_existing, result, trusted,
+                                    environ,
+                                )
+                            except Exception:
+                                pass
+                        try:
+                            store.restore_pointer_bytes(
+                                record["cwd"], stable_id, prior_pointer,
+                                session_type=record["session_type"],
                             )
-                        store.restore_pointer_bytes(
-                            record["cwd"], stable_id, prior_pointer,
-                            session_type=record["session_type"],
-                        )
+                        except Exception:
+                            pass
             else:
                 if owns_mutation:
                     store._forget_unlocked(stable_id)

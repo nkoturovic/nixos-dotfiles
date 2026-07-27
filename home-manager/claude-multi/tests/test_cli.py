@@ -4583,7 +4583,7 @@ class SessionsScreenForkLiveTests(CLITestCase):
         self.runtime.session_store.save(stuck)
         result, win, _ = self._run(["x", "\x1b"])
         self.assertIsNone(result)
-        self.assertIn("cleared the fork marker", win.text())
+        self.assertIn("fork marker cleared", win.text())
         self.assertEqual(
             self.runtime.session_store.load(FIXED_ID)["pending_forks"], []
         )
@@ -4754,3 +4754,329 @@ class ReviewNitRegressionTests(CLITestCase):
         self.assertEqual(
             self.runtime.session_store.load(FIXED_ID)["pending_forks"], []
         )
+
+
+class ForkHardeningBatchTests(CLITestCase):
+    """H16/H18/H21: resume self-heal, ordinary fork context, X remaining."""
+
+    def _stuck(self):
+        self.save_session(mode="durable", scope_generation=1)
+        record = self.runtime.session_store.reconcile_runtime(
+            FIXED_ID,
+            observed_runtime_id=OTHER_ID,
+            source="fork",
+            cwd=self.runtime.cwd,
+            now="2026-07-22T00:00:00Z",
+        )
+        stuck = {
+            **record,
+            "runtime_session_id": OTHER_ID,
+            "runtime_aliases": [
+                {
+                    "session_id": FIXED_ID,
+                    "source": "fork",
+                    "observed_at": "2026-07-22T00:01:00Z",
+                }
+            ],
+        }
+        self.runtime.session_store.save(stuck)
+
+    def test_noninteractive_resume_self_heals_authority_marker(self) -> None:
+        self._stuck()
+        code, output = self.run_cli(["-r", FIXED_ID], interactive=False)
+        self.assertEqual(code, 0, output)
+        self.assertEqual(len(self.launches), 1)
+        self.assertEqual(
+            self.runtime.session_store.load(FIXED_ID)["pending_forks"], []
+        )
+
+    def test_x_reports_remaining_genuine_forks(self) -> None:
+        from test_tui import FakeWindow
+
+        self._stuck()
+        record = self.runtime.session_store.load(FIXED_ID)
+        record = {
+            **record,
+            "pending_forks": record["pending_forks"]
+            + [
+                {
+                    "session_id": "33333333-3333-4333-8333-333333333333",
+                    "observed_at": "2026-07-22T00:02:00Z",
+                }
+            ],
+        }
+        self.runtime.session_store.save(record)
+        screen = cli._SessionsScreen(self.runtime, palette=tui.MONO_PALETTE)
+        win = FakeWindow(["x", "\x1b"])
+        self.assertIsNone(screen.run(win))
+        self.assertIn("1 genuine pending (X again)", win.text())
+        remaining = self.runtime.session_store.load(FIXED_ID)["pending_forks"]
+        self.assertEqual(
+            [item["session_id"] for item in remaining],
+            ["33333333-3333-4333-8333-333333333333"],
+        )
+
+    def test_ordinary_fork_context_uses_model_flag(self) -> None:
+        import argparse as _argparse
+        import io as _io
+        import json as _json
+
+        record = sessions.make_ordinary_record(
+            managed_id=FIXED_ID,
+            runtime_session_id=FIXED_ID,
+            cwd=self.runtime.cwd,
+            model="sol",
+            context_profile="sol",
+            catalog_version=self.runtime.catalog_version,
+            catalog_hash=self.runtime.catalog.bundle_sha256,
+            launcher_version=self.runtime.launcher_version,
+            now="2026-07-21T00:00:00Z",
+        )
+        self.runtime.session_store.save(record)
+        self.runtime.session_store.reconcile_runtime(
+            FIXED_ID,
+            observed_runtime_id=OTHER_ID,
+            source="fork",
+            cwd=self.runtime.cwd,
+            now="2026-07-22T00:00:00Z",
+        )
+        out = _io.StringIO()
+        args = _argparse.Namespace(
+            event="start", managed_id=FIXED_ID, launch_epoch=1
+        )
+        cli._handle_session_event(
+            self.runtime,
+            args,
+            input_stream=_io.StringIO(
+                _json.dumps({"session_id": OTHER_ID, "source": "fork"})
+            ),
+            output_stream=out,
+        )
+        text = out.getvalue()
+        self.assertIn("--model MODEL", text)
+        self.assertNotIn("--composition", text)
+
+
+def _row_text(win, y: int) -> str:
+    return "".join(
+        win.grid.get((y, x), (" ", 0))[0] for x in range(win.width)
+    ).rstrip()
+
+
+class CardBottomReservationTests(CLITestCase):
+    """H3: Status + keybar survive crowded cards at common terminal sizes."""
+
+    def _screen(self, keys, **kwargs):
+        from test_tui import FakeWindow
+
+        import io as _io
+
+        screen = cli._QuickConfirmScreen(
+            self.runtime,
+            self._plan(),
+            passthrough=[],
+            palette=tui.MONO_PALETTE,
+            tty_in=_io.StringIO(kwargs.pop("tty_text", "n\n\n")),
+            tty_out=_io.StringIO(),
+            **kwargs,
+        )
+        return screen, FakeWindow(keys)
+
+    def _plan(self):
+        return cli.build_quick_plan(
+            self.runtime,
+            self.runtime.compositions.load("default"),
+            action="fresh",
+            source="Trusted default",
+        )
+
+    def test_status_badge_visible_at_80x16_crowded(self) -> None:
+        self.save_session(mode="durable", scope_generation=1)
+        screen, win = self._screen(
+            ["\x1b"],
+            update_hint=("2.1.218", "2.1.220"),
+            gateway_problem=None,
+            gateway_checked=True,
+        )
+        win.height, win.width = 16, 80
+        self.assertIsNone(screen.run(win))
+        text = win.text()
+        self.assertIn("Status  Ready", text)
+        self.assertIn("Esc", text)
+
+    def test_status_badge_visible_with_details_at_80x24(self) -> None:
+        self.save_session(mode="durable", scope_generation=1)
+        screen, win = self._screen(
+            ["d", "\x1b"],
+            update_hint=("2.1.218", "2.1.220"),
+            gateway_problem=None,
+            gateway_checked=True,
+        )
+        win.height, win.width = 24, 80
+        self.assertIsNone(screen.run(win))
+        self.assertIn("Status  Ready", win.text())
+
+    def test_blocked_badge_and_error_visible_at_80x14(self) -> None:
+        record = self.save_session(mode="durable", scope_generation=1)
+        self.runtime.session_store.reconcile_runtime(
+            FIXED_ID,
+            observed_runtime_id=OTHER_ID,
+            source="fork",
+            cwd=self.runtime.cwd,
+            now="2026-07-22T00:00:00Z",
+        )
+        plan = cli.build_quick_plan(
+            self.runtime,
+            self.runtime.compositions.load("default"),
+            action="resume",
+            source="picker",
+            record=self.runtime.session_store.load(FIXED_ID),
+        )
+        self.assertFalse(plan.ready)
+        screen = cli._QuickConfirmScreen(
+            self.runtime,
+            plan,
+            passthrough=[],
+            palette=tui.MONO_PALETTE,
+        )
+        from test_tui import FakeWindow
+
+        win = FakeWindow(["\x1b"], height=14, width=80)
+        self.assertIsNone(screen.run(win))
+        text = win.text()
+        # Badge + clean first error line; no overdraw/fusion at 80x14.
+        self.assertIn("Status  BLOCKED", text)
+        self.assertIn("unresolved native", text)
+        self.assertIn("Esc cancel", text)
+
+
+class SessionsScreenFloorTests(CLITestCase):
+    """H6: the sessions screen degrades honestly below its minimum size."""
+
+    def test_tiny_terminal_shows_floor_not_overdraw(self) -> None:
+        from test_tui import FakeWindow
+
+        self.save_session(mode="durable", scope_generation=1)
+        screen = cli._SessionsScreen(self.runtime, palette=tui.MONO_PALETTE)
+        win = FakeWindow(["\x1b"], height=10, width=50)
+        self.assertIsNone(screen.run(win))
+        self.assertIn("terminal too small", win.text())
+
+
+class KeyBarExitNeverClippedTests(CLITestCase):
+    """H8k: the exit binding survives any overflow."""
+
+    def test_exit_visible_when_three_rows_needed(self) -> None:
+        from test_tui import FakeWindow
+
+        bar = tui.KeyBar(
+            (
+                ("R", "resume"), ("T", "switch comp"), ("X", "resolve fork"),
+                ("F", "forget"), ("L", "adopt"), ("C", "cwd filter"),
+                ("?", "help"), ("Esc", "quit"),
+            )
+        )
+        win = FakeWindow((), height=10, width=40)
+        bar.draw(win, 9, tui.MONO_PALETTE)
+        all_text = _row_text(win, 8) + _row_text(win, 9)
+        self.assertIn("Esc quit", all_text)
+
+
+class SelectListFooterReservationTests(CLITestCase):
+    """H12: a wrapped footer never overdraws the message row."""
+
+    def test_message_survives_wrapped_footer(self) -> None:
+        from test_tui import FakeWindow
+
+        select = tui.SelectList(
+            "pick",
+            [tui.SelectItem("one"), tui.SelectItem("two")],
+            footer=(("Enter", "choose"), ("A", "action-one"),
+                    ("B", "action-two"), ("Esc", "back")),
+        )
+        win = FakeWindow((), height=12, width=42)
+        select.message = "something happened"
+        select.draw(win, tui.MONO_PALETTE)
+        self.assertIn("something happened", _row_text(win, 12 - 1 - select.footer.rows(42)))
+        bottom = _row_text(win, 10) + _row_text(win, 11)
+        self.assertIn("Esc back", bottom)
+
+
+class ModalTinyTerminalTests(CLITestCase):
+    """H14: tiny terminals never see wrong (negative-sliced) body lines."""
+
+    def test_tiny_modal_shows_buttons_not_wrong_lines(self) -> None:
+        from test_tui import FakeWindow
+
+        modal = tui.Modal(
+            "title",
+            ["first-body-line", "second-body-line", "third-body-line"],
+            buttons=(("OK", True),),
+        )
+        win = FakeWindow((), height=5, width=40)
+        modal.draw(win, tui.MONO_PALETTE)
+        text = win.text()
+        self.assertIn("OK", text)
+        self.assertNotIn("third-body-line", text)
+
+
+class TransitionScreenLayoutTests(CLITestCase):
+    """H13: diff lines start below the separator; indicator above the bar."""
+
+    def test_first_diff_line_below_separator(self) -> None:
+        from test_tui import FakeWindow
+
+        screen = cli._TransitionScreen(
+            ["first-diff-line", "second-diff-line"], palette=tui.MONO_PALETTE
+        )
+        win = FakeWindow((), height=12, width=60)
+        screen._draw(win)
+        self.assertEqual(_row_text(win, 2).strip(), "─" * 57)
+        self.assertIn("first-diff-line", _row_text(win, 3))
+
+
+class BrokenOverrideDegradationTests(CLITestCase):
+    """An invalid override is never applied — and never bricks the CLI."""
+
+    def _broken_runtime(self):
+        config = sessions.config_root(self.runtime.environ)
+        state.ensure_private_dir(config)
+        state.atomic_write(config / "native-contract.json", b'{"claude": {bad json')
+        return cli.Runtime(
+            asset_root=CATALOG_ROOT,
+            environ=self.runtime.environ,
+            cwd=self.runtime.cwd,
+            launch_callback=self.runtime.launch_callback,
+            doctor_callback=lambda _runtime: [],
+            doctor_binary_callback=lambda _contract: ([], ["fixture binary ok"]),
+            doctor_daemon_callback=lambda: cli.launch.DaemonStatus(
+                state="absent", summary="fixture daemon absent"
+            ),
+        )
+
+    def test_runtime_degrades_and_doctor_reports(self) -> None:
+        runtime = self._broken_runtime()
+        self.assertIsNotNone(runtime.broken_override_error)
+        self.assertEqual(runtime.catalog.contract_source, "packaged")
+        saved, self.runtime = self.runtime, runtime
+        try:
+            code, output = self.run_cli(["doctor"])
+        finally:
+            self.runtime = saved
+        self.assertEqual(code, 1)
+        self.assertIn("BLOCKED", output)
+        self.assertIn("invalid and was IGNORED", output)
+        self.assertIn("claude-multi update", output)
+
+    def test_update_removes_the_broken_override(self) -> None:
+        runtime = self._broken_runtime()
+        override = sessions.config_root(self.runtime.environ) / "native-contract.json"
+        self.assertTrue(override.exists())
+        saved, self.runtime = self.runtime, runtime
+        try:
+            code, output = self.run_cli(["update"], interactive=False)
+        finally:
+            self.runtime = saved
+        self.assertEqual(code, 0, output)
+        self.assertIn("removed unreadable contract override", output)
+        self.assertFalse(override.exists())

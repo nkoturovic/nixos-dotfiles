@@ -1204,3 +1204,30 @@ class OrdinaryTransitionRefusalTests(TransitionTestCase):
         self.assertIn("availableModels", settings)
         self.assertNotIn("permissions", settings)
         self.assertEqual(settings["env"]["CLAUDE_MULTI_MANAGED_ID"], FIXED_ID)
+
+
+class RestoreReturnValueTests(ConvergeTests):
+    """H17: restore_exec_failure reports whether it actually restored."""
+
+    def test_returns_true_on_real_restore_and_false_on_foreign_state(self) -> None:
+        self._make_session()
+        plan = self._prepare(_lead_to_kimi)
+        outcome = transition.execute(plan, confirm_exited=True, environ={})
+        self.assertTrue(
+            transition.restore_exec_failure(
+                self.store,
+                FIXED_ID,
+                outcome.prior_record_bytes,
+                expected_record_bytes=outcome.committed_record_bytes,
+            )
+        )
+        # Second call: the record no longer matches the failing attempt's
+        # bytes, so the ownership guard no-ops and reports False.
+        self.assertFalse(
+            transition.restore_exec_failure(
+                self.store,
+                FIXED_ID,
+                outcome.prior_record_bytes,
+                expected_record_bytes=outcome.committed_record_bytes,
+            )
+        )

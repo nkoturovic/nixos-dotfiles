@@ -766,10 +766,14 @@ class GatewayTokenShimTests(unittest.TestCase):
             scope.resolve_gateway_token_path(env),
             Path("/home/test/.config/claude-multi/api-key"),
         )
+        # XDG_CONFIG_HOME is deliberately ignored: the token writer
+        # (proxy.config_dir) and reader (launch via gateway.token_file) are
+        # strictly HOME-relative — an XDG shim would point at an unpopulated
+        # file (hardening review H1).
         env = {"HOME": "/home/test", "XDG_CONFIG_HOME": "/xdg"}
         self.assertEqual(
             scope.resolve_gateway_token_path(env),
-            Path("/xdg/claude-multi/api-key"),
+            Path("/home/test/.config/claude-multi/api-key"),
         )
 
 

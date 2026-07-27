@@ -33,6 +33,7 @@ import hashlib
 import json
 import os
 import re
+import stat
 import subprocess
 import sys
 import threading
@@ -44,6 +45,39 @@ from typing import Any, Callable
 
 class UpgradeError(RuntimeError):
     """Raised on any failed upgrade step (fail closed, repo untouched)."""
+
+    def __init__(self, message: str, *, post_override: bool = False):
+        super().__init__(message)
+        self.post_override = post_override
+
+
+def _write_repo_file(path: Path, data: bytes) -> None:
+    """Crash-atomic write preserving the repo file's existing mode.
+
+    ``state.atomic_write`` is mode-0600-by-design for private state; checkout
+    files are normal repo files (0644), so promotion uses the same
+    temp+fsync+replace discipline with the mode carried over (review H15).
+    """
+
+    try:
+        mode = stat.S_IMODE(os.lstat(path).st_mode)
+    except OSError:
+        mode = 0o644
+    temp = path.with_name(f".{path.name}.tmp-{os.getpid()}")
+    descriptor = os.open(temp, os.O_WRONLY | os.O_CREAT | os.O_TRUNC, mode)
+    try:
+        with os.fdopen(descriptor, "wb") as handle:
+            handle.write(data)
+            handle.flush()
+            os.fsync(handle.fileno())
+        os.chmod(temp, mode)
+        os.replace(temp, path)
+    except BaseException:
+        try:
+            os.unlink(temp)
+        except OSError:
+            pass
+        raise
 
 
 class _Heartbeat:
@@ -149,8 +183,12 @@ def inspect_candidate(path: Path) -> CandidateInspection:
     return CandidateInspection(path=path, version=path.name, sha256=digest)
 
 
-def find_candidate(native_contract: dict[str, Any]) -> Path | None:
-    """Newest acceptable artifact: newer symlink target, else newest retained."""
+def find_candidates(native_contract: dict[str, Any]) -> list[Path]:
+    """Ordered acceptable artifacts: newer symlink target first, then the
+    retained versions newest-first BY VERSION KEY (never lexically — name
+    order puts 2.1.99 ahead of 2.1.218; review U8). Callers inspect in
+    order and skip invalid entries (review H10: an invalid highest name
+    must not abort the whole update)."""
 
     record = native_contract["claude"]
     pinned = _version_key(record["validated_version"])
@@ -158,25 +196,37 @@ def find_candidate(native_contract: dict[str, Any]) -> Path | None:
         raise UpgradeError(
             f"pinned version {record['validated_version']!r} is not X.Y.Z"
         )
+    ordered: list[Path] = []
     configured = Path(record["executable"]["configured_path"])
     if os.path.lexists(configured):
         target = Path(os.path.realpath(configured))
         key = _version_key(target.name)
         if key is not None and key > pinned:
-            return target
+            ordered.append(target)
     versions_dir = Path(record["executable"]["resolved_path"]).parent
-    best: tuple[tuple[int, ...], Path] | None = None
+    keyed: list[tuple[tuple[int, ...], Path]] = []
     try:
-        entries = sorted(versions_dir.iterdir())
+        entries = list(versions_dir.iterdir())
     except OSError:
         entries = []
     for entry in entries:
         key = _version_key(entry.name)
         if key is None or key <= pinned:
             continue
-        if best is None or key > best[0]:
-            best = (key, entry)
-    return best[1] if best is not None else None
+        keyed.append((key, entry))
+    keyed.sort(key=lambda item: item[0], reverse=True)
+    for _key, entry in keyed:
+        if any(existing == entry for existing in ordered):
+            continue
+        ordered.append(entry)
+    return ordered
+
+
+def find_candidate(native_contract: dict[str, Any]) -> Path | None:
+    """Newest acceptable artifact: newer symlink target, else newest retained."""
+
+    ordered = find_candidates(native_contract)
+    return ordered[0] if ordered else None
 
 
 def render_contract(
@@ -251,10 +301,17 @@ def _sync_pinned_test_literals(
         lines = original.decode("utf-8").splitlines(keepends=True)
         changed: list[str] = []
         for line in lines:
-            if "floors = {" in line:
+            if "floors" in line:
                 changed.append(line)  # model minimums are decoupled by design
                 continue
-            updated = line.replace(old_version, new_version)
+            # Boundary-anchored: the old pin must never rewrite inside a
+            # longer literal (e.g. old 2.1.2 mangling 2.1.216 into 2.1.2016
+            # — hardening review H6).
+            updated = re.sub(
+                r"(?<![0-9.])" + re.escape(old_version) + r"(?![0-9])",
+                new_version,
+                line,
+            )
             if old_sha256 and old_sha256 != new_sha256:
                 updated = updated.replace(old_sha256, new_sha256)
             if old_inspected_at and old_inspected_at != new_inspected_at:
@@ -269,7 +326,7 @@ def _sync_pinned_test_literals(
         new_text = "".join(changed)
         if new_text.encode("utf-8") != original:
             backups.setdefault(path, original)
-            path.write_text(new_text, encoding="utf-8")
+            _write_repo_file(path, new_text.encode("utf-8"))
             synced.append(relative)
     return synced
 
@@ -285,6 +342,7 @@ def run_upgrade(
     activate: bool = False,
     flake_target: str | None = None,
     progress: Callable[[str], None] | None = None,
+    packaged_contract: dict[str, Any] | None = None,
 ) -> UpgradeOutcome:
     """Inspect → promote → evidence → override → (optionally) activate.
 
@@ -301,6 +359,13 @@ def run_upgrade(
     The whole flow is serialized through an advisory lock next to the
     override file: two concurrent updates (two terminals, card U + CLI)
     queue instead of interleaving the checkout promotion.
+
+    ``packaged_contract`` is the installed baseline (asset root), used to
+    decide whether an existing override is genuinely redundant. Callers
+    must pass it: the effective contract (``native_contract``) already
+    includes the override, and deleting an override that is strictly newer
+    than the packaged baseline would silently downgrade the launch trust
+    anchor (hardening review H2).
     """
 
     from . import state  # local import: hardened writes for the config root
@@ -326,6 +391,7 @@ def run_upgrade(
             flake_target=flake_target,
             note=_note,
             progress=progress,
+            packaged_contract=packaged_contract,
         )
     finally:
         update_lock.release()
@@ -343,29 +409,110 @@ def _run_upgrade_locked(
     flake_target: str | None,
     note: Callable[[str], None],
     progress: Callable[[str], None] | None,
+    packaged_contract: dict[str, Any] | None,
 ) -> UpgradeOutcome:
     from . import state
 
     _note = note
 
-    candidate = find_candidate(native_contract)
-    if candidate is None:
-        messages = [
-            f"pinned Claude {native_contract['claude']['validated_version']} "
-            "is the newest installed artifact; nothing to re-pin."
-        ]
-        if os.path.lexists(override_path):
-            # The packaged baseline caught up: the override is redundant now.
-            # Remove it rather than leaving a stale attention line forever.
-            state.remove_private(override_path)
-            messages.append(
-                f"removed redundant contract override {override_path} "
-                "(the packaged contract is current)"
+    def _activate(messages: list[str], total: int) -> None:
+        _note(f"[{total}/{total}] running home-manager switch (a few minutes)…")
+        with _Heartbeat(
+            progress, f"  [{total}/{total}] home-manager switch still running"
+        ):
+            switch = runner(
+                ["home-manager", "switch", "--flake", flake_target or str(checkout_root.parents[1]) + "#kotur"],
+                capture_output=True,
+                text=True,
+                timeout=1800,
             )
+        if switch.returncode != 0:
+            tail = (switch.stdout or "") + (switch.stderr or "")
+            raise UpgradeError(
+                "home-manager switch failed; the override is already active and "
+                "the repo baseline is promoted — activate manually. Tail:\n"
+                + "\n".join(tail.strip().splitlines()[-15:]),
+                post_override=True,
+            )
+        messages.append("activated: home-manager switch completed")
+
+    candidate = None
+    inspection: CandidateInspection | None = None
+    skipped: list[str] = []
+    for entry in find_candidates(native_contract):
+        try:
+            inspection = inspect_candidate(entry)
+            candidate = entry
+            break
+        except UpgradeError as exc:
+            skipped.append(f"{entry.name}: {exc}")
+    skip_note = (
+        "skipped unusable candidate artifact(s): " + "; ".join(skipped)
+        if skipped
+        else None
+    )
+    if candidate is None or inspection is None:
+        pin = native_contract["claude"]["validated_version"]
+        messages = [
+            f"pinned Claude {pin} is the newest installed artifact; nothing to re-pin."
+        ]
+        if skip_note is not None:
+            messages.append(skip_note)
+        if os.path.lexists(override_path):
+            # Remove the override only when it is genuinely redundant: the
+            # packaged baseline must have caught up. Deleting an override that
+            # is strictly newer silently downgrades the trust anchor (H2).
+            # An unreadable/unversioned override fails the catalog's strict
+            # load anyway, so removing it heals rather than downgrades.
+            redundant = False
+            broken = False
+            override_version: str | None = None
+            try:
+                override_doc = json.loads(override_path.read_bytes().decode("utf-8"))
+                override_version = override_doc["claude"]["validated_version"]
+                if not isinstance(override_version, str):
+                    override_version = None
+            except (OSError, ValueError, KeyError):
+                override_version = None
+            packaged_version = (
+                packaged_contract["claude"]["validated_version"]
+                if packaged_contract is not None
+                else None
+            )
+            if override_version is None:
+                broken = True
+            elif packaged_version is not None:
+                ov_key = _version_key(override_version)
+                pk_key = _version_key(packaged_version)
+                redundant = (
+                    ov_key is not None and pk_key is not None and ov_key <= pk_key
+                )
+            if broken:
+                state.remove_private(override_path)
+                messages.append(
+                    f"removed unreadable contract override {override_path} "
+                    "(the strict loader would fail closed on it)"
+                )
+            elif redundant:
+                state.remove_private(override_path)
+                messages.append(
+                    f"removed redundant contract override {override_path} "
+                    "(the packaged contract is current)"
+                )
+            else:
+                messages.append(
+                    f"operator override pins {override_version} while "
+                    f"the packaged baseline is {packaged_version or 'unknown'}; "
+                    "the override stays (it is not redundant)"
+                )
+                if activate:
+                    _activate(messages, 2)
+                    return UpgradeOutcome(
+                        kind="activated", inspection=None, messages=tuple(messages)
+                    )
         return UpgradeOutcome(
             kind="current", inspection=None, messages=tuple(messages)
         )
-    inspection = inspect_candidate(candidate)
     total = 5 if activate else 4
     _note(f"[1/{total}] candidate {inspection.version} inspected offline "
           "(--version, --help, sha256)")
@@ -393,13 +540,16 @@ def _run_upgrade_locked(
         f"candidate: {inspection.path}",
         f"inspected offline: --version ok, --help ok, sha256 {inspection.sha256[:12]}...",
     ]
+    if skip_note is not None:
+        messages.append(skip_note)
     try:
-        contract_path.write_text(
-            json.dumps(promoted, indent=2, sort_keys=True) + "\n",
-            encoding="utf-8",
+        _write_repo_file(
+            contract_path,
+            (json.dumps(promoted, indent=2, sort_keys=True) + "\n").encode("utf-8"),
         )
-        version_path.write_text(
-            json.dumps(version_doc, indent=2) + "\n", encoding="utf-8"
+        _write_repo_file(
+            version_path,
+            (json.dumps(version_doc, indent=2) + "\n").encode("utf-8"),
         )
         synced = _sync_pinned_test_literals(
             product_root,
@@ -452,10 +602,12 @@ def _run_upgrade_locked(
             "includes the real-binary compaction/delegation probes)"
         )
     except BaseException:
-        contract_path.write_bytes(contract_backup)
-        version_path.write_bytes(version_backup)
+        # The restore runs precisely when things already failed — its
+        # writes must be just as crash-atomic as the promotion's (U1).
+        _write_repo_file(contract_path, contract_backup)
+        _write_repo_file(version_path, version_backup)
         for synced_path, synced_bytes in sync_backups.items():
-            synced_path.write_bytes(synced_bytes)
+            _write_repo_file(synced_path, synced_bytes)
         raise
 
     state.ensure_private_dir(override_path.parent)
@@ -477,22 +629,7 @@ def _run_upgrade_locked(
         return UpgradeOutcome(
             kind="prepared", inspection=inspection, messages=tuple(messages)
         )
-    _note(f"[5/{total}] running home-manager switch (a few minutes)…")
-    with _Heartbeat(progress, f"  [5/{total}] home-manager switch still running"):
-        switch = runner(
-            ["home-manager", "switch", "--flake", flake_target or str(checkout_root.parents[1]) + "#kotur"],
-            capture_output=True,
-            text=True,
-            timeout=1800,
-        )
-    if switch.returncode != 0:
-        tail = (switch.stdout or "") + (switch.stderr or "")
-        raise UpgradeError(
-            "home-manager switch failed; the override is already active and "
-            "the repo baseline is promoted — activate manually. Tail:\n"
-            + "\n".join(tail.strip().splitlines()[-15:])
-        )
-    messages.append("activated: home-manager switch completed")
+    _activate(messages, total)
     return UpgradeOutcome(
         kind="activated", inspection=inspection, messages=tuple(messages)
     )

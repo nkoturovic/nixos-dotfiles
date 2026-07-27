@@ -109,15 +109,17 @@ def gateway_token_shim_path(state_root: Path | str) -> Path:
 def resolve_gateway_token_path(environ: dict[str, str] | None = None) -> Path:
     """Where the loopback gateway token lives (never embedded in scopes).
 
-    Mirrors ``sessions.config_root`` (kept local to avoid a scope→sessions
-    layering inversion): ``$XDG_CONFIG_HOME/claude-multi`` or
-    ``~/.config/claude-multi``, plus ``api-key``.
+    Strictly HOME-relative, matching the token's two authorities: the writer
+    (``proxy.config_dir``) and the reader (launch resolves the catalog-pinned
+    ``gateway.token_file`` against HOME). It deliberately does NOT follow
+    ``XDG_CONFIG_HOME`` — compositions and the contract override do (via
+    ``sessions.config_root``), but the token location is catalog-pinned, so
+    an XDG-aware shim would point at a file the system never populates
+    (hardening review H1).
     """
 
     env = os.environ if environ is None else environ
-    xdg = env.get("XDG_CONFIG_HOME")
-    base = Path(xdg) if xdg else Path(env.get("HOME", str(Path.home()))) / ".config"
-    return base / "claude-multi" / "api-key"
+    return Path(env.get("HOME", str(Path.home()))) / ".config" / "claude-multi" / "api-key"
 
 
 def ensure_gateway_token_shim(state_root: Path | str, token_path: Path | str) -> Path:

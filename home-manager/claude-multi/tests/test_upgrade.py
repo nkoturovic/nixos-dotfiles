@@ -280,7 +280,8 @@ class CurrentCleanupTests(UpgradeTestCase):
         )
         self.assertEqual(outcome.kind, "current")
         self.assertFalse(override_path.exists())
-        self.assertTrue(any("removed redundant" in m for m in outcome.messages))
+        # An empty override is unversioned: removed as unreadable, not "redundant".
+        self.assertTrue(any("removed unreadable" in m for m in outcome.messages))
 
     def test_activate_uses_the_repo_root_as_flake_target(self) -> None:
         product = self._product_tree()
@@ -373,9 +374,243 @@ class HeartbeatTests(unittest.TestCase):
         self.assertTrue(notes)
         self.assertIn("evidence suite still running", notes[0])
         self.assertIn("elapsed", notes[0])
-        time.sleep(0.05)
-        self.assertEqual(len(notes), len(notes))  # stopped: no growth assertion needed
+        count_at_stop = len(notes)
+        time.sleep(0.06)
+        # The thread is stopped on exit: no further beats.
+        self.assertEqual(len(notes), count_at_stop)
 
     def test_noop_without_progress(self) -> None:
         with upgrade._Heartbeat(None, "phase", interval=0.01):
             time.sleep(0.03)
+
+
+class OverrideRedundancyGateTests(UpgradeTestCase):
+    """H2: the 'current' path deletes only genuinely-redundant overrides."""
+
+    def _current_setup(self, override_version: str):
+        self.new.unlink()  # nothing newer than the pin
+        product = self._product_tree()
+        override_path = self.root / "config" / "native-contract.json"
+        state.ensure_private_dir(override_path.parent)
+        doc = json.loads(json.dumps(self.contract))
+        doc["claude"]["validated_version"] = override_version
+        state.atomic_write(
+            override_path, (json.dumps(doc, indent=2) + "\n").encode("utf-8")
+        )
+        effective = json.loads(json.dumps(self.contract))
+        effective["claude"]["validated_version"] = override_version
+        return product, override_path, effective
+
+    def test_newer_override_is_kept_not_deleted(self) -> None:
+        product, override_path, effective = self._current_setup("2.1.221")
+        packaged = json.loads(json.dumps(self.contract))  # baseline stays 2.1.217
+        outcome = upgrade.run_upgrade(
+            checkout_root=product,
+            native_contract=effective,
+            override_path=override_path,
+            today="2026-07-27",
+            runner=self._runner(0),
+            packaged_contract=packaged,
+        )
+        self.assertEqual(outcome.kind, "current")
+        self.assertTrue(override_path.exists())
+        self.assertTrue(any("not redundant" in line for line in outcome.messages))
+
+    def test_equal_override_is_removed_as_redundant(self) -> None:
+        product, override_path, effective = self._current_setup("2.1.217")
+        packaged = json.loads(json.dumps(self.contract))
+        outcome = upgrade.run_upgrade(
+            checkout_root=product,
+            native_contract=effective,
+            override_path=override_path,
+            today="2026-07-27",
+            runner=self._runner(0),
+            packaged_contract=packaged,
+        )
+        self.assertEqual(outcome.kind, "current")
+        self.assertFalse(override_path.exists())
+
+    def test_newer_override_with_activate_runs_the_switch(self) -> None:
+        product, override_path, effective = self._current_setup("2.1.221")
+        packaged = json.loads(json.dumps(self.contract))
+        calls = []
+
+        def recording_runner(*args, **kwargs):
+            calls.append(args[0])
+            return subprocess.CompletedProcess(args[0], 0, "ok", "")
+
+        outcome = upgrade.run_upgrade(
+            checkout_root=product,
+            native_contract=effective,
+            override_path=override_path,
+            today="2026-07-27",
+            runner=recording_runner,
+            activate=True,
+            packaged_contract=packaged,
+        )
+        self.assertEqual(outcome.kind, "activated")
+        self.assertEqual(len(calls), 1)
+        self.assertIn("home-manager", calls[0][0])
+        self.assertTrue(override_path.exists())
+
+    def test_missing_packaged_contract_keeps_the_override(self) -> None:
+        product, override_path, effective = self._current_setup("2.1.217")
+        outcome = upgrade.run_upgrade(
+            checkout_root=product,
+            native_contract=effective,
+            override_path=override_path,
+            today="2026-07-27",
+            runner=self._runner(0),
+        )
+        self.assertTrue(override_path.exists())
+
+
+class SyncAnchoringTests(UpgradeTestCase):
+    """H6: prefix-colliding pins must never mangle decoupled literals."""
+
+    def test_prefix_collision_does_not_mangle_other_versions(self) -> None:
+        product = self._product_tree()
+        pinned = (
+            'validated = "2.1.2"\n'
+            'default_floor = floors.get(model_id, "2.1.216")\n'
+            '# 2.1.216 remains the truthful minimum floor\n'
+            'fixture = "2.1.300"\n'
+        )
+        target = product / "tests" / "test_catalog.py"
+        target.write_text(pinned, encoding="utf-8")
+        backups: dict = {}
+        synced = upgrade._sync_pinned_test_literals(
+            product,
+            old_version="2.1.2",
+            new_version="2.1.20",
+            old_sha256=None,
+            new_sha256="b" * 64,
+            old_inspected_at=None,
+            new_inspected_at="2026-07-27",
+            old_catalog_version=3,
+            backups=backups,
+        )
+        text = target.read_text(encoding="utf-8")
+        self.assertEqual(synced, ["tests/test_catalog.py"])
+        self.assertIn('validated = "2.1.20"', text)
+        self.assertIn('"2.1.216"', text)          # never mangled to 2.1.2016
+        self.assertIn('"2.1.300"', text)          # never mangled to 2.1.2000
+        self.assertIn("2.1.216 remains", text)    # comments anchored too
+        self.assertNotIn("2.1.2016", text)
+        self.assertNotIn("2.1.200", text.replace("2.1.300", ""))
+
+    def test_floors_get_lines_are_never_synced(self) -> None:
+        product = self._product_tree()
+        pinned = (
+            'validated = "2.1.217"\n'
+            'floors = {"opus5": "2.1.217"}\n'
+            'x = floors.get(model_id, "2.1.217")\n'
+        )
+        target = product / "tests" / "test_catalog.py"
+        target.write_text(pinned, encoding="utf-8")
+        upgrade._sync_pinned_test_literals(
+            product,
+            old_version="2.1.217",
+            new_version="2.1.218",
+            old_sha256=None,
+            new_sha256="b" * 64,
+            old_inspected_at=None,
+            new_inspected_at="2026-07-27",
+            old_catalog_version=3,
+            backups={},
+        )
+        text = target.read_text(encoding="utf-8")
+        self.assertIn('validated = "2.1.218"', text)
+        self.assertIn('floors = {"opus5": "2.1.217"}', text)
+        self.assertIn('floors.get(model_id, "2.1.217")', text)
+
+
+class CandidateFallbackTests(UpgradeTestCase):
+    """H10: an invalid highest-named artifact is skipped, not fatal."""
+
+    def test_invalid_highest_entry_falls_back_with_a_note(self) -> None:
+        bogus = self._write_version("2.1.300")
+        bogus.chmod(0o644)  # not executable -> fails inspection
+        product = self._product_tree()
+        outcome = upgrade.run_upgrade(
+            checkout_root=product,
+            native_contract=self.contract,
+            override_path=self.root / "config" / "native-contract.json",
+            today="2026-07-27",
+            runner=self._runner(0),
+        )
+        self.assertEqual(outcome.kind, "prepared")
+        self.assertEqual(outcome.inspection.version, "2.1.218")
+        self.assertTrue(any("skipped unusable" in line for line in outcome.messages))
+        self.assertTrue(any("2.1.300" in line for line in outcome.messages))
+
+    def test_all_candidates_invalid_reports_skips(self) -> None:
+        self.new.chmod(0o644)
+        product = self._product_tree()
+        outcome = upgrade.run_upgrade(
+            checkout_root=product,
+            native_contract=self.contract,
+            override_path=self.root / "config" / "native-contract.json",
+            today="2026-07-27",
+            runner=self._runner(0),
+        )
+        self.assertEqual(outcome.kind, "current")
+        self.assertTrue(any("skipped unusable" in line for line in outcome.messages))
+
+
+class RepoFileWriteTests(unittest.TestCase):
+    """H15: promotion writes are crash-atomic and preserve repo modes."""
+
+    def test_write_repo_file_preserves_mode_and_content(self) -> None:
+        root = Path(tempfile.mkdtemp(prefix="claude-multi-repofile-"))
+        self.addCleanup(shutil.rmtree, root, True)
+        target = root / "file.json"
+        target.write_text("old\n", encoding="utf-8")
+        target.chmod(0o644)
+        upgrade._write_repo_file(target, b"new\n")
+        self.assertEqual(target.read_bytes(), b"new\n")
+        self.assertEqual(stat.S_IMODE(os.lstat(target).st_mode), 0o644)
+        self.assertEqual(list(root.glob("*.tmp-*")), [])
+
+    def test_write_repo_file_new_file_gets_644(self) -> None:
+        root = Path(tempfile.mkdtemp(prefix="claude-multi-repofile-"))
+        self.addCleanup(shutil.rmtree, root, True)
+        target = root / "created.json"
+        upgrade._write_repo_file(target, b"x\n")
+        self.assertEqual(stat.S_IMODE(os.lstat(target).st_mode), 0o644)
+
+
+class CandidateOrderingTests(UpgradeTestCase):
+    """U8: retained versions order by version key, never lexically."""
+
+    def test_narrow_digit_versions_order_numerically(self) -> None:
+        self.contract["claude"]["validated_version"] = "2.1.50"
+        # Neutralize the symlink: it must resolve to the pin (not a candidate).
+        pinned = self._write_version("2.1.50")
+        self.link.unlink()
+        self.link.symlink_to(pinned)
+        old = self._write_version("2.1.99")
+        newer = self._write_version("2.1.218")
+        ordered = upgrade.find_candidates(self.contract)
+        # Retained versions are newest-first BY VERSION KEY: 2.1.218 > 2.1.217
+        # > 2.1.99 — lexically, 2.1.99 would incorrectly sort first (U8).
+        self.assertEqual(ordered, [newer, self.old, old])
+
+    def test_restore_writes_are_mode_preserving_atomic(self) -> None:
+        product = self._product_tree()
+        target = product / "catalog" / "native-contract.json"
+        target.chmod(0o644)
+        before_mode = stat.S_IMODE(os.lstat(target).st_mode)
+        with self.assertRaisesRegex(UpgradeError, "evidence suite failed"):
+            upgrade.run_upgrade(
+                checkout_root=product,
+                native_contract=self.contract,
+                override_path=self.root / "config" / "native-contract.json",
+                today="2026-07-27",
+                runner=self._runner(1, "FAILED"),
+            )
+        self.assertEqual(stat.S_IMODE(os.lstat(target).st_mode), before_mode)
+        self.assertEqual(
+            target.read_bytes(), json.dumps(self.contract, indent=2).encode() + b"\n"
+        )
+        self.assertEqual(list(product.glob("**/*.tmp-*")), [])

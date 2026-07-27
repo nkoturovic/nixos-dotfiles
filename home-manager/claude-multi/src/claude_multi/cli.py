@@ -283,13 +283,25 @@ class Runtime:
     ):
         self.asset_root = Path(asset_root)
         self.environ = dict(os.environ if environ is None else environ)
-        self.cwd = str(Path.cwd() if cwd is None else Path(cwd).resolve())
+        self.cwd = str(Path.cwd() if cwd is None else Path(cwd).resolve()
+        )
         config = sessions.config_root(self.environ)
         state_path = sessions.state_root(self.environ)
-        self.catalog = catalog.load_catalog(
-            self.asset_root,
-            contract_override=config / "native-contract.json",
-        )
+        self.broken_override_error: str | None = None
+        override_path = config / "native-contract.json"
+        try:
+            self.catalog = catalog.load_catalog(
+                self.asset_root, contract_override=override_path
+            )
+        except catalog.CatalogError as exc:
+            if not os.path.lexists(override_path):
+                raise
+            # An invalid override is never applied (D29) — but it must not
+            # brick every command either. Degrade to the packaged baseline
+            # and report: doctor surfaces it, and `claude-multi update`
+            # removes the broken file (its unreadable-override branch).
+            self.broken_override_error = str(exc)
+            self.catalog = catalog.load_catalog(self.asset_root)
         # Single hook-command authority: the stable shim under the state root.
         # Compiled scopes embed the shim's constant path (never a package or
         # store path), so scope bytes survive package rebuilds; the shim is
@@ -333,10 +345,20 @@ class Runtime:
         small and fully re-validated on load.
         """
 
-        self.catalog = catalog.load_catalog(
-            self.asset_root,
-            contract_override=sessions.config_root(self.environ) / "native-contract.json",
-        )
+        override_path = sessions.config_root(self.environ) / "native-contract.json"
+        try:
+            self.catalog = catalog.load_catalog(
+                self.asset_root,
+                contract_override=override_path,
+            )
+        except catalog.CatalogError as exc:
+            if not os.path.lexists(override_path):
+                raise
+            # Same degradation as __init__: never applied, always reported.
+            self.broken_override_error = str(exc)
+            self.catalog = catalog.load_catalog(self.asset_root)
+        else:
+            self.broken_override_error = None
 
     @property
     def catalog_version(self) -> int:
@@ -381,6 +403,12 @@ class Runtime:
             identity_state = prior_record.get(
                 "identity_state", sessions.IDENTITY_UNVERIFIED
             )
+            if sessions.drop_resolved_pending_forks(prior_record) is not None:
+                # A marker the live runtime already resolved self-heals here
+                # too (the picker and doctor converge it; review H16) — a
+                # stale marker must never block a noninteractive resume.
+                self.session_store.converge_pending_forks(launch_id)
+                prior_record = self.session_store.load(launch_id)
             if prior_record.get("pending_forks"):
                 raise CLIError(pending_fork_message(prior_record))
             if identity_state == sessions.IDENTITY_REPAIR_NEEDED:
@@ -531,6 +559,10 @@ class Runtime:
             identity_state = prior.get(
                 "identity_state", sessions.IDENTITY_UNVERIFIED
             )
+            if sessions.drop_resolved_pending_forks(prior) is not None:
+                # Same self-heal as the managed resume guard (review H16).
+                self.session_store.converge_pending_forks(stable_id)
+                prior = self.session_store.load(stable_id)
             if prior.get("pending_forks"):
                 raise CLIError(pending_fork_message(prior))
             if identity_state == sessions.IDENTITY_REPAIR_NEEDED:
@@ -895,6 +927,15 @@ def build_quick_plan(
     cross_provider_warning: str | None = None,
 ) -> QuickPlan:
     errors: list[str] = []
+    if record is not None and action == "resume":
+        # The operator is resuming: a marker the live runtime already
+        # resolved self-heals at this action path (review H16) instead of
+        # blocking the plan with a stale record. Display-only paths (the
+        # picker list, doctor) keep the marker visible until acted on.
+        stable_id = sessions.managed_id(record)
+        if sessions.drop_resolved_pending_forks(record) is not None:
+            runtime.session_store.converge_pending_forks(stable_id)
+            record = runtime.session_store.load(stable_id)
     if record is not None:
         stable_id = sessions.managed_id(record)
         identity_state = record.get("identity_state", sessions.IDENTITY_UNVERIFIED)
@@ -1591,6 +1632,13 @@ class _QuickConfirmScreen:
         height, width = win.getmaxyx()
         plan = self.plan
         runtime = self.runtime
+        keybar = self._keybar()
+        # Reserve the keybar zone plus the Status block up front: optional
+        # rows drop first at small sizes; Status and the exit binding are
+        # never sacrificed (hardening review H3).
+        bar_rows = keybar.rows(width)
+        bottom = height - bar_rows
+        status_reserve = 2  # blank line + Status badge
         row = 1
         tui.safe_add(win, row, 2, "claude-multi", palette.attr("accent") | curses.A_BOLD)
         action = plan.action.title()
@@ -1638,7 +1686,7 @@ class _QuickConfirmScreen:
                 ],
                 selected=-1,
             )
-            max_rows = max(2, height - row - (9 if self.details else 6))
+            max_rows = max(1, bottom - row - status_reserve - (1 if plan.errors else 0))
             row += table.draw(win, row, 2, width, palette, max_rows=max_rows)
         else:
             has_lead = any(
@@ -1654,24 +1702,25 @@ class _QuickConfirmScreen:
             tui.safe_add(win, row, 2, "agents    ", palette.attr("dim"))
             tui.Badge(_durability_badge(plan), "ok").draw(win, row, 12, palette)
             row += 1
-        if plan.resolved is not None:
+        if plan.resolved is not None and row < bottom - status_reserve:
             tui.safe_add(win, row, 2, "policy    ", palette.attr("dim"))
             tui.safe_add(win, row, 12, _policy_summary(runtime, plan.resolved))
             row += 1
-        tui.safe_add(win, row, 2, "project   ", palette.attr("dim"))
-        project_role = "error" if plan.project_collisions else "normal"
-        tui.safe_add(win, row, 12, _project_summary(plan), palette.attr(project_role))
-        row += 1
+        if row < bottom - status_reserve:
+            tui.safe_add(win, row, 2, "project   ", palette.attr("dim"))
+            project_role = "error" if plan.project_collisions else "normal"
+            tui.safe_add(win, row, 12, _project_summary(plan), palette.attr(project_role))
+            row += 1
         cwd_hint = _cwd_sessions_summary(runtime)
-        if cwd_hint is not None:
+        if cwd_hint is not None and row < bottom - status_reserve:
             tui.safe_add(win, row, 2, "sessions  ", palette.attr("dim"))
             tui.safe_add(win, row, 12, cwd_hint, palette.attr("accent"))
             row += 1
-        if plan.cross_provider_warning:
+        if plan.cross_provider_warning and row < bottom - status_reserve:
             tui.safe_add(win, row, 2, "warning   ", palette.attr("warn"))
             tui.safe_add(win, row, 12, plan.cross_provider_warning, palette.attr("warn"))
             row += 1
-        if self.gateway_problem is not None:
+        if self.gateway_problem is not None and row < bottom - status_reserve:
             tui.safe_add(win, row, 2, "health    ", palette.attr("dim"))
             tui.safe_add(
                 win, row, 12,
@@ -1679,7 +1728,7 @@ class _QuickConfirmScreen:
                 palette.attr("error"),
             )
             row += 1
-        elif self.gateway_checked:
+        elif self.gateway_checked and row < bottom - status_reserve:
             pin = runtime.catalog.docs["native-contract"]["claude"]["validated_version"]
             note = (
                 " (operator override)"
@@ -1689,7 +1738,7 @@ class _QuickConfirmScreen:
             tui.safe_add(win, row, 2, "health    ", palette.attr("dim"))
             tui.safe_add(win, row, 12, f"gateway ok · pin {pin}{note}", palette.attr("dim"))
             row += 1
-        if self.update_hint is not None:
+        if self.update_hint is not None and row < bottom - status_reserve:
             pinned, available = self.update_hint
             tui.safe_add(win, row, 2, "update    ", palette.attr("warn"))
             tui.safe_add(
@@ -1698,9 +1747,11 @@ class _QuickConfirmScreen:
                 palette.attr("warn"),
             )
             row += 1
-        if self.details:
-            row += self._draw_details(win, row, height, width)
-        row += 1
+        if self.details and row < bottom - status_reserve:
+            row += self._draw_details(win, row, width, bottom - status_reserve)
+        # Status after content (one blank when possible), never below the
+        # reserved slot; error lines flow under it and clip at the keybar.
+        row = min(row + (0 if plan.errors else 1), bottom - status_reserve)
         if plan.ready:
             tui.Badge("Status  Ready", "ok").draw(win, row, 2, palette)
         else:
@@ -1713,26 +1764,25 @@ class _QuickConfirmScreen:
         for error in errors:
             wrapped = textwrap.wrap(
                 f"- {error}",
-                width=max(32, width - 2),
+                width=max(32, width - 6),
                 subsequent_indent="  ",
                 break_long_words=False,
                 break_on_hyphens=False,
             ) or ["-"]
             for line in wrapped:
-                if row >= height - 2:
+                if row >= bottom:
                     break
                 tui.safe_add(win, row, 4, line, palette.attr("error"))
                 row += 1
-        keybar = self._keybar()
         keybar.draw(win, height - 1, palette)
         win.refresh()
 
-    def _draw_details(self, win: Any, row: int, height: int, width: int) -> int:
+    def _draw_details(self, win: Any, row: int, width: int, limit: int) -> int:
         plan = self.plan
         runtime = self.runtime
         start = row
         palette = self.palette
-        if row >= height - 4:
+        if row >= limit:
             return 0
         if plan.resolved is not None:
             scalar = (
@@ -1814,11 +1864,11 @@ class _QuickConfirmScreen:
         drift = "None" if not plan.drift else "; ".join(plan.drift)
         tui.safe_add(win, row, 12, drift)
         row += 1
-        if plan.resolved is not None and row < height - 4:
+        if plan.resolved is not None and row < limit:
             tui.safe_add(win, row, 2, "availability", palette.attr("accent"))
             row += 1
             for model_id, model in sorted(runtime.catalog.models.items()):
-                if row >= height - 3:
+                if row > limit:
                     break
                 scope = plan.document["availability"]["models"].get(model_id, "off")
                 new = (
@@ -1887,6 +1937,7 @@ class _QuickConfirmScreen:
                 self.tty_out.flush()
 
             messages: list[str]
+            post_override = False
             try:
                 if runner is not None:
                     messages = list(runner())
@@ -1897,6 +1948,7 @@ class _QuickConfirmScreen:
                         override_path=sessions.config_root(self.runtime.environ) / "native-contract.json",
                         today=sessions._now()[:10],
                         progress=_progress,
+                        packaged_contract=_packaged_contract(self.runtime),
                     )
                     messages = list(outcome.messages)
             except KeyboardInterrupt:
@@ -1904,10 +1956,11 @@ class _QuickConfirmScreen:
                 messages = ["update interrupted (Ctrl-C)"]
             except Exception as exc:
                 failed = True
+                post_override = getattr(exc, "post_override", False)
                 messages = [f"update failed: {exc}"]
             for line in messages:
                 self.tty_out.write(f"  {tui.visible_text(line)}\n")
-            if failed:
+            if failed and not post_override:
                 self.tty_out.write("Nothing was promoted; the pin is unchanged.\n")
             self.tty_out.flush()
         if not failed:
@@ -2241,6 +2294,7 @@ def _line_quick_confirm(
                     native_contract=runtime.catalog.docs["native-contract"],
                     override_path=sessions.config_root(runtime.environ) / "native-contract.json",
                     today=sessions._now()[:10],
+                    packaged_contract=_packaged_contract(runtime),
                     progress=lambda line: (
                         output_stream.write(f"… {tui.visible_text(line)}\n"),
                         output_stream.flush(),
@@ -2251,6 +2305,10 @@ def _line_quick_confirm(
                 runtime.reload_catalog()
                 update_hint = launch.repin_hint(runtime.catalog.docs["native-contract"])
             except upgrade_mod.UpgradeError as exc:
+                output_stream.write(f"update failed: {tui.visible_message(exc)}\n")
+            except KeyboardInterrupt:
+                output_stream.write("update interrupted (Ctrl-C); nothing was promoted\n")
+            except OSError as exc:
                 output_stream.write(f"update failed: {tui.visible_message(exc)}\n")
             continue
         if key == "d":
@@ -2632,6 +2690,21 @@ class _SessionsScreen:
         height, width = win.getmaxyx()
         keybar = tui.KeyBar(SESSIONS_KEYBAR)
         bar_rows = keybar.rows(width)
+        if height < 14 or width < 44:
+            # Minimum-size floor (review H6): below this the tables cannot
+            # render honestly, so show the floor note instead of overdrawing.
+            tui.safe_add(win, 1, 2, SESSIONS_TITLE, palette.attr("accent") | curses.A_BOLD)
+            tui.safe_add(
+                win, 3, 2, "terminal too small for the sessions screen;",
+                palette.attr("warn"),
+            )
+            tui.safe_add(
+                win, 4, 2, "resize, or use `claude-multi sessions list` (text).",
+                palette.attr("dim"),
+            )
+            keybar.draw(win, height - 1, palette)
+            win.refresh()
+            return
         # Bottom block (keybar may wrap to 2 rows): actions label, message,
         # then the bar itself — reserve all of it so nothing is overdrawn.
         actions_row = height - bar_rows - 2
@@ -2719,10 +2792,14 @@ class _SessionsScreen:
                 self.message = str(exc)
                 return
             self._reload()
-            self.message = (
-                "cleared the fork marker — the live runtime had already "
-                "resolved it; resume is unblocked"
+            remaining = len(
+                self.runtime.session_store.load(stable_id).get("pending_forks", [])
             )
+            self.message = "fork marker cleared (runtime already resolved it)"
+            if remaining:
+                self.message += f" · {remaining} genuine pending (X again)"
+            else:
+                self.message += "; resume unblocked"
             return
         fork_id = pending[0]["session_id"]
         confirmed = tui.Modal(
@@ -2950,21 +3027,26 @@ class _TransitionScreen:
         win.erase()
         palette = self.palette
         height, width = win.getmaxyx()
+        keybar = tui.KeyBar(self.KEYBAR)
+        bar_rows = keybar.rows(width)
+        bottom = height - bar_rows
         tui.safe_add(win, 1, 2, "transition — semantic diff", palette.attr("accent") | curses.A_BOLD)
         tui.safe_add(win, 2, 2, "─" * min(width - 3, 60), palette.attr("dim"))
-        visible = max(1, height - 4)
+        visible = max(1, bottom - 4)
         self.scroll = max(0, min(self.scroll, max(0, len(self.diff) - visible)))
+        # Diff lines start below the separator (review H13), clipped at the
+        # reserved scroll-indicator/keybar zone.
         for offset, line in enumerate(self.diff[self.scroll : self.scroll + visible]):
-            tui.safe_add(win, 2 + offset, 2, line)
+            tui.safe_add(win, 3 + offset, 2, line)
         if len(self.diff) > visible:
             tui.safe_add(
                 win,
-                height - 2,
-                0,
+                bottom - 1,
+                2,
                 f"{self.scroll + 1}-{min(len(self.diff), self.scroll + visible)} of {len(self.diff)}",
                 palette.attr("dim"),
             )
-        tui.KeyBar(self.KEYBAR).draw(win, height - 1, palette)
+        keybar.draw(win, height - 1, palette)
         win.refresh()
 
     def run(self, win: Any) -> bool:
@@ -3403,16 +3485,29 @@ def _sessions_transition(
         try:
             return runtime.perform(prepared)
         except Exception as exc:
-            transition.restore_exec_failure(
-                runtime.session_store,
-                plan.session_id,
-                outcome.prior_record_bytes,
-                expected_record_bytes=outcome.committed_record_bytes,
-            )
+            try:
+                restored = transition.restore_exec_failure(
+                    runtime.session_store,
+                    plan.session_id,
+                    outcome.prior_record_bytes,
+                    expected_record_bytes=outcome.committed_record_bytes,
+                )
+            except Exception:
+                # A failing restore must never mask the launch failure (H17).
+                restored = False
             kind = "exec failed" if isinstance(exc, OSError) else "launch failed"
+            if restored:
+                note = (
+                    "the prior scope generation and record were restored"
+                )
+            else:
+                note = (
+                    "state was NOT restored (a newer attempt owns it or the "
+                    "restore failed); run `claude-multi doctor --repair "
+                    f"{plan.session_id}` before retrying"
+                )
             raise CLIError(
-                f"relaunch {kind} ({exc}); the prior scope generation "
-                f"and record were restored. Retry with: {plan.command_text}"
+                f"relaunch {kind} ({exc}); {note}. Retry with: {plan.command_text}"
             ) from exc
     raise CLIError(f"unknown transition outcome kind {outcome.kind!r}")
 
@@ -3421,6 +3516,13 @@ def _print_composition(runtime: Runtime, document: dict[str, Any], stream: TextI
     plan = build_quick_plan(runtime, document, action="fresh", source="Saved composition")
     stream.write(render_quick_confirm(runtime, plan, details=True))
 
+
+
+
+def _packaged_contract(runtime: Runtime) -> dict[str, Any]:
+    """The installed baseline contract (asset root), pre-override (H2)."""
+
+    return strict_json.load(runtime.asset_root / "catalog" / "native-contract.json")
 
 def _run_editor_command(
     runtime: Runtime,
@@ -3553,15 +3655,23 @@ def _handle_session_event(
             item.get("session_id") == observed
             for item in record.get("pending_forks", [])
         ):
+            if record["session_type"] == sessions.SESSION_TYPE_ORDINARY:
+                adopt_hint = f"claude-multi sessions link {observed} --model MODEL"
+            else:
+                adopt_hint = (
+                    f"claude-multi sessions link {observed} --composition "
+                    f"{record.get('composition_name', 'NAME')}"
+                )
             _write_session_start_context(
                 output_stream,
                 "This native fork does not yet have an independent durable "
                 "claude-multi scope, and the parent is fork-blocked until you "
-                "decide. Exit this fork, then either adopt it: `claude-multi "
-                f"sessions link {observed} --composition "
-                f"{record.get('composition_name', 'NAME')}`, or discard the "
-                f"marker: `claude-multi sessions resolve-fork {stable_id} "
-                f"{observed}` (the fork transcript is kept either way).",
+                f"decide. Exit this fork, then either adopt it: `{adopt_hint}`, "
+                f"or discard the marker: `claude-multi sessions resolve-fork "
+                f"{stable_id} {observed}` (the fork transcript is kept either "
+                "way). Note: adopting or discarding advances the parent's "
+                "launch epoch, so this fork's later hooks can no longer claim "
+                "the parent.",
             )
         elif (
             record["identity_state"] == sessions.IDENTITY_REPAIR_NEEDED
@@ -3615,6 +3725,15 @@ def _collect_doctor_reports(
     """
 
     problems: list[str] = []
+    if runtime.broken_override_error is not None:
+        # Real damage: the operator contract override is invalid and was
+        # ignored (the packaged baseline is in effect). The fix is one
+        # command: `claude-multi update` removes the broken file.
+        problems.append(
+            "the contract override is invalid and was IGNORED (packaged "
+            f"baseline in effect): {runtime.broken_override_error}; run "
+            "`claude-multi update` to remove it"
+        )
     for name in runtime.compositions.names():
         try:
             resolved = runtime.resolve_document(runtime.compositions.load(name))
@@ -3971,6 +4090,7 @@ def handle_command(
                 override_path=sessions.config_root(runtime.environ) / "native-contract.json",
                 today=sessions._now()[:10],
                 activate=bool(args.activate),
+                packaged_contract=_packaged_contract(runtime),
                 progress=lambda line: (
                     output_stream.write(f"… {tui.visible_text(line)}\n"),
                     output_stream.flush(),
@@ -3978,6 +4098,10 @@ def handle_command(
             )
         except upgrade_mod.UpgradeError as exc:
             raise CLIError(str(exc)) from exc
+        except KeyboardInterrupt:
+            raise CLIError("update interrupted (Ctrl-C); nothing was promoted") from None
+        except OSError as exc:
+            raise CLIError(f"update failed: {exc}") from exc
         for line in outcome.messages:
             output_stream.write(f"{tui.visible_text(line)}\n")
         return 0

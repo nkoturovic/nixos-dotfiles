@@ -142,11 +142,16 @@ class SecretBoundaryTests(unittest.TestCase):
         self.assertIn("claude-fable-5", result.yaml)
 
     def test_renderer_never_reads_process_env(self) -> None:
+        prior = os.environ.get("KIMI_CLAUDE_API_KEY")
         os.environ["KIMI_CLAUDE_API_KEY"] = "env-value-must-be-ignored"
         try:
             result = _render(resolve_secret=lambda name: None)
         finally:
-            del os.environ["KIMI_CLAUDE_API_KEY"]
+            # Restore, not delete: a pre-existing value must survive the test.
+            if prior is None:
+                del os.environ["KIMI_CLAUDE_API_KEY"]
+            else:
+                os.environ["KIMI_CLAUDE_API_KEY"] = prior
         self.assertNotIn("env-value-must-be-ignored", result.yaml)
         self.assertEqual(result.available_providers, ("anthropic", "openai"))
 

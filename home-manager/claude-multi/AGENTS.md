@@ -87,7 +87,12 @@ Two modes:
    so sessions relaunched by the background daemon — which scrubs
    `ANTHROPIC_*` from its children's env — keep gateway routing. The token
    value never enters scope files; only the non-secret
-   `env.ANTHROPIC_BASE_URL` does.
+   `env.ANTHROPIC_BASE_URL` does. The token path is **strictly
+   HOME-relative** (`~/.config/claude-multi/api-key`), matching its writer
+   (`proxy.config_dir`) and reader (launch via catalog-pinned
+   `gateway.token_file`) — it deliberately ignores `XDG_CONFIG_HOME`, which
+   moves compositions/override (`sessions.config_root`) but not the
+   catalog-pinned token location (hardening review H1).
 4. **Fail closed, atomically.** All state writes: same-dir temp + fsync +
    rename, mode 0600 in 0700 dirs, symlink-refusing (`state.py`).
    `CommittedStateError` marks "bytes replaced, dir durability unconfirmed" so

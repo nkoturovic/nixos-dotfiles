@@ -51,9 +51,13 @@ Non-interactive (scripts): `claude-multi --composition kimi-sol`.
 
 ### The composition profiles
 
+`default` is the only built-in trusted seed; the rest are the named profiles
+on this machine (all creatable in seconds with `compose new` /
+`use-as-template` — see "Managing compositions"):
+
 | Preset | Lead | Subagents | Use it for |
 | --- | --- | --- | --- |
-| `default` | **Opus 5** | Sol preferred · Kimi alternates · opus5 reviewer | everyday flagship work |
+| `default` (built-in) | **Opus 5** | Sol preferred · Kimi alternates · opus5 reviewer | everyday flagship work |
 | `opus-sol` | **Opus 5** | Sol only | the clean Opus+Sol pair |
 | `opus-kimi` | **Opus 5** | Kimi K3 only | Opus lead with Kimi agents |
 | `fable` | Fable 5 | Sol preferred · Kimi alternates · opus reviewer | the previous default |
@@ -113,9 +117,14 @@ would be worse. You always get the fork UUID and the exact commands (the card,
   `claude-multi sessions resolve-fork <parent-uuid> <fork-uuid>`, or press
   **X** on the parent in the sessions screen. The fork transcript stays on
   disk, adoptable later.
+- Either decision **advances the parent's launch epoch**, which retires the
+  fork's hook credential — a fork left running after adopt/discard can no
+  longer claim the parent's identity. (Side effect of the same rule: a
+  parent app still running while you resolve its fork reconciles again on
+  its next launcher resume — nothing to do, nothing lost.)
 - **No decision needed** when the fork already *is* the live branch (the
-  daemon relaunched it and authority followed): the marker self-clears on the
-  next hook, and `doctor --repair-all` / **X** clears it immediately.
+  daemon relaunched it and authority followed): the marker self-clears on
+  the next hook, a resume, `doctor --repair-all`, or **X**.
 
 One structural fix makes forks far less painful: managed settings now carry
 the non-secret gateway base URL plus an `apiKeyHelper` shim, so a
