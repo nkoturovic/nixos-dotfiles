@@ -1,4 +1,4 @@
-# State snapshot — 2026-07-27 · v2.6.1
+# State snapshot — 2026-07-27 · v2.6.2
 
 Evidence behind the checkpoint README claims. Verify before trusting.
 
@@ -115,3 +115,30 @@ Evidence behind the checkpoint README claims. Verify before trusting.
   update channel, which-tool-when, and the never-touch boundaries.
 - `USAGE.md`: composition-management section (all compose subcommands),
   standalone pointers; validation claims verified against the code.
+
+## v2.6.2 (same night): adversarial hardening, two review rounds (D37)
+
+1. **Round 1 — 8-reviewer fan-out** (mixed families, dimension-scoped,
+   read-only): 35 raw findings, ~25 deduped real. Deepest: fork hook
+   credentials outlived adoption/discard (parent authority could migrate
+   into the fork's lineage); apiKeyHelper token path diverged under
+   XDG_CONFIG_HOME; the update "current" path could delete a strictly-newer
+   override (silent pin downgrade); the quick card had no bottom
+   reservation (Status/BLOCKED clipped at common sizes).
+2. **Fix set:** all 25, each with regression tests — fork credential
+   revocation by epoch bump, single-authority token path, redundancy-gated
+   override cleanup + activate retry, anchored literal sync, crash-atomic
+   promotion+restore writes, candidate fallback, exception-safe cleanups,
+   card/sessions/keybar/modal layout reservations, self-healing resume
+   paths, dead-code deletion.
+3. **Round 2 — final cross-family gate** (Sol xhigh on the fix diff):
+   caught a candidate-ordering regression (lexical 2.1.99 > numeric
+   2.1.218, U8 — fixed with version-key sort + test), non-atomic restore
+   writes (U1 — fixed), a missed rollback branch for the legacy scope
+   rewrite (fixed + test), and the broken-override-bricks-CLI
+   reachability flaw (fixed by degrade-to-packaged + doctor BLOCKED +
+   update-heals loop, tested end-to-end).
+4. **Evidence:** 1,319 host tests OK (2 provider-secret skips); PTY OK;
+   sandbox suite OK; package builds 2.6.2; `git diff --check` clean.
+   Activated HM gen 105; doctor Ready, zero Attention; no scope-shape
+   change (no repair-all needed); pin 2.1.220 verified, symlink-aligned.
