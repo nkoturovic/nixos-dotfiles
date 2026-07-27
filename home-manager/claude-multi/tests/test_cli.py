@@ -8,6 +8,7 @@ import io
 import os
 import re
 import shutil
+import subprocess
 import sys
 import tempfile
 import threading
@@ -5105,3 +5106,149 @@ class FinalGateLayoutTests(CLITestCase):
             win, 20 - tui.KeyBar(screen._keybar().bindings).rows(80) - 2
         )
         self.assertIn("Status  Ready", status_row_text)
+
+
+class SessionsStopTests(CLITestCase):
+    """`sessions stop` + the picker's E action (upstream stop primitive)."""
+
+    def _fixture_contract(self):
+        import hashlib as _hashlib
+
+        binary = self.root / "versions" / "2.1.999"
+        binary.parent.mkdir(parents=True, exist_ok=True)
+        binary.write_bytes(b"#!/bin/sh\n")
+        binary.chmod(0o755)
+        return {
+            "claude": {
+                "validated_version": "2.1.999",
+                "executable": {
+                    "configured_path": str(self.root / "bin" / "claude"),
+                    "resolved_path": str(binary),
+                    "sha256": _hashlib.sha256(binary.read_bytes()).hexdigest(),
+                    "inspection": "fixture",
+                    "inspected_at": "2026-07-27",
+                },
+            }
+        }
+
+    def _runtime_with_fixture_contract(self):
+        docs = self.runtime.catalog.docs
+        original = docs["native-contract"]
+        docs["native-contract"] = self._fixture_contract()
+        self.addCleanup(docs.__setitem__, "native-contract", original)
+
+    def _runner(self, captured):
+        def run(argv, **kwargs):
+            captured.append((list(argv), kwargs.get("env")))
+            return subprocess.CompletedProcess(argv, 0, "stopped\n", "")
+        return run
+
+    def test_stop_happy_path_invokes_verified_binary(self) -> None:
+        self._runtime_with_fixture_contract()
+        self.save_session(mode="durable", scope_generation=1)
+        captured = []
+        with mock.patch.object(cli, "_live_background_prefixes", return_value=frozenset({"11111111"})), \
+             mock.patch("subprocess.run", side_effect=self._runner(captured)):
+            code, output = self.run_cli(
+                ["sessions", "stop", FIXED_ID, "--yes"], interactive=False
+            )
+        self.assertEqual(code, 0, output)
+        argv, env = captured[0]
+        self.assertEqual(argv[1:], ["stop", FIXED_ID])
+        # The scrubbed env is the only barrier between the gateway
+        # token/CLAUDE_MULTI_SECRET_ENV and the subprocess (review S1).
+        self.assertEqual(set(env), {"PATH", "HOME"})
+        self.assertIn("Stopped session", output)
+        self.assertIn("conversation is kept", output)
+
+    def test_stop_refuses_when_not_live(self) -> None:
+        self.save_session(mode="durable", scope_generation=1)
+        with mock.patch.object(cli, "_live_background_prefixes", return_value=frozenset()):
+            code, output = self.run_cli(
+                ["sessions", "stop", FIXED_ID, "--yes"], interactive=False
+            )
+        self.assertEqual(code, 0, output)
+        self.assertIn("nothing to stop", output)
+
+    def test_stop_refuses_self_stop(self) -> None:
+        self.save_session(mode="durable", scope_generation=1)
+        self.runtime.environ["CLAUDE_MULTI_MANAGED_ID"] = FIXED_ID
+        try:
+            with mock.patch.object(
+                cli, "_live_background_prefixes", return_value=frozenset({"11111111"})
+            ):
+                code, output = self.run_cli(
+                    ["sessions", "stop", FIXED_ID, "--yes"], interactive=False
+                )
+        finally:
+            del self.runtime.environ["CLAUDE_MULTI_MANAGED_ID"]
+        self.assertEqual(code, 0, output)
+        self.assertIn("running inside", output)
+
+    def test_stop_noninteractive_requires_yes(self) -> None:
+        self.save_session(mode="durable", scope_generation=1)
+        with mock.patch.object(cli, "_live_background_prefixes", return_value=frozenset({"11111111"})):
+            code, output = self.run_cli(["sessions", "stop", FIXED_ID], interactive=False)
+        self.assertEqual(code, 2)
+        self.assertIn("--yes", output)
+
+    def test_stop_confirmation_declined(self) -> None:
+        self.save_session(mode="durable", scope_generation=1)
+        with mock.patch.object(cli, "_live_background_prefixes", return_value=frozenset({"11111111"})):
+            code, output = self.run_cli(["sessions", "stop", FIXED_ID], "n\n")
+        self.assertEqual(code, 0, output)
+        self.assertIn("cancelled", output)
+
+    def test_stop_upstream_failure_surfaces(self) -> None:
+        self._runtime_with_fixture_contract()
+        self.save_session(mode="durable", scope_generation=1)
+
+        def failing(argv, **kwargs):
+            return subprocess.CompletedProcess(argv, 3, "", "no such session")
+
+        with mock.patch.object(cli, "_live_background_prefixes", return_value=frozenset({"11111111"})), \
+             mock.patch("subprocess.run", side_effect=failing):
+            code, output = self.run_cli(
+                ["sessions", "stop", FIXED_ID, "--yes"], interactive=False
+            )
+        self.assertEqual(code, 2)
+        self.assertIn("no such session", output)
+
+    def test_tui_e_stops_live_row(self) -> None:
+        from test_tui import FakeWindow
+
+        self._runtime_with_fixture_contract()
+        self.save_session(mode="durable", scope_generation=1)
+        captured = []
+        with mock.patch.object(cli, "_live_background_prefixes", return_value=frozenset({"11111111"})), \
+             mock.patch("subprocess.run", side_effect=self._runner(captured)):
+            screen = cli._SessionsScreen(self.runtime, palette=tui.MONO_PALETTE)
+            win = FakeWindow(["e", "\n", "\x1b"])
+            self.assertIsNone(screen.run(win))
+        self.assertEqual(len(captured), 1)
+        self.assertIn("conversation kept", win.text())
+        self.assertTrue(any("Stop live session" in frame for frame in win.frames))
+
+    def test_tui_e_not_live_is_a_message(self) -> None:
+        from test_tui import FakeWindow
+
+        self.save_session(mode="durable", scope_generation=1)
+        with mock.patch.object(cli, "_live_background_prefixes", return_value=frozenset()):
+            screen = cli._SessionsScreen(self.runtime, palette=tui.MONO_PALETTE)
+            win = FakeWindow(["e", "\x1b"])
+            self.assertIsNone(screen.run(win))
+        self.assertIn("nothing to stop", win.text())
+
+    def test_transition_live_note_shown_when_target_live(self) -> None:
+        self.save_session(mode="durable", scope_generation=1)
+        shifted = self.runtime.compositions.load("default")
+        shifted["name"] = "shifted"
+        shifted["slots"][0]["model"] = "sol"
+        self.runtime.compositions.save(shifted)
+        with mock.patch.object(cli, "_live_background_prefixes", return_value=frozenset({"11111111"})):
+            code, output = self.run_cli(
+                ["sessions", "transition", FIXED_ID, "--composition", "shifted"],
+                "n\n",
+            )
+        self.assertIn("stop it first", output)
+        self.assertIn("sessions stop", output)

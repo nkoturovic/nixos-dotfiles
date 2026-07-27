@@ -87,15 +87,22 @@ automatically.
 
 Managed sessions on top, plain-Claude (native) sessions below. Keys:
 
-- **R** resume · **T** switch composition · **X** resolve fork · **F** forget ·
-  **L** adopt a native session · **C** filter to this directory · **?** help ·
-  **Esc** quit
+- **R** resume · **T** switch composition · **X** resolve fork ·
+  **E** end session (stop a live ● one) · **F** forget · **L** adopt a native
+  session · **C** filter to this directory · **?** help · **Esc** quit
 
 Row markers: **●** — the session is live right now, owned by the background
 daemon (reattaching to it from a Claude menu forks natively; exit it first or
 resume after it exits) · **⚠** — fork-blocked: a native fork awaits your
 adopt/discard decision (press **X**; resume is blocked until then). Native rows
 marked `(fork)` are forks of a managed session.
+
+**Ending a live session safely:** **E** on a ● row (or `claude-multi sessions
+stop <uuid> [--yes]`) stops the background process with upstream's own
+`claude stop <id>` — never a signal, never the transcript; the conversation is
+always kept and **R** resumes it later. Self-stops (the session you're inside)
+and non-live sessions are refused with a message. A transition on a ● live
+session warns and names this command.
 
 ### Native forks (what they are and how to resolve them)
 

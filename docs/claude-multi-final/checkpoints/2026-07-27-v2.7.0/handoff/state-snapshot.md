@@ -1,4 +1,4 @@
-# State snapshot — 2026-07-27 · v2.6.3
+# State snapshot — 2026-07-27 · v2.7.0
 
 Evidence behind the checkpoint README claims. Verify before trusting.
 
@@ -166,3 +166,20 @@ with regression tests:
 builds 2.6.3; `git diff --check` clean. Activated HM **gen 106**; doctor
 Ready, zero Attention; pin 2.1.220 verified, symlink-aligned. Commits:
 `1058133` (fix set) → `0314ba9` (gate resolution) → checkpoint commit.
+
+## v2.7.0 (same night): the lifecycle gains stop (D38)
+
+The incident's last usability gap: claude-multi could detect (●) but not
+end a live background session — ending the zombie required native
+agent-view keybindings under pressure. `sessions stop <uuid> [--yes]` and
+**E** on picker rows now stop live sessions through upstream's own
+`claude stop <id>` (verified binary, scrubbed env, timeout; never a
+signal, never daemon internals; conversation always kept). Guards:
+self-stop refused (env sentinel), non-live refused (best-effort pty
+liveness), interactive confirmation, upstream errors surfaced. **E** was
+chosen over K because K collides with the picker's vim `k`=navigate-up.
+A transition started on a ● live session now warns and names the command.
+Evidence: 1,332 host tests OK (2 skips), 9 new stop tests + transition
+note test; cross-family focused review of the feature; package builds
+2.7.0. Activated HM gen 107 (pending the focused review verdict at
+commit time — see the commit log).

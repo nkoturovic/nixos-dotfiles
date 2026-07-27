@@ -16,6 +16,7 @@ import io
 import os
 import shutil
 import stat
+import subprocess
 import sys
 import textwrap
 from dataclasses import dataclass, field
@@ -760,6 +761,17 @@ def build_parser() -> argparse.ArgumentParser:
     resolve_fork.add_argument("uuid", help="stable managed ID of the parent session")
     resolve_fork.add_argument(
         "fork_uuid", help="runtime UUID of the native fork to stop tracking"
+    )
+    stop = session_commands.add_parser(
+        "stop",
+        help="stop a live background-owned session (upstream `claude stop`; "
+        "the conversation is always kept)",
+    )
+    stop.add_argument("uuid", help="stable managed ID (or an existing alias)")
+    stop.add_argument(
+        "--yes",
+        action="store_true",
+        help="skip the interactive confirmation (required non-interactively)",
     )
     transition_parser = session_commands.add_parser(
         "transition",
@@ -2520,6 +2532,7 @@ SESSIONS_KEYBAR = (
     ("R", "resume"),
     ("T", "switch comp"),
     ("X", "resolve fork"),
+    ("E", "end session"),
     ("F", "forget"),
     ("L", "adopt"),
     ("C", "cwd filter"),
@@ -2535,6 +2548,8 @@ SESSIONS_HELP = (
     "    (semantic diff first; the session must be exited; relaunches exactly).\n"
     "  X resolve fork — clear/discard a native-fork marker that blocks resume\n"
     "    (the fork transcript is kept; exact commands: sessions show <uuid>).\n"
+    "  E end session — stop a live (●) background-owned session with\n"
+    "    upstream `claude stop` (conversation always kept; resume with R).\n"
     "  F forget — delete the launcher record + generated scope; the Claude\n"
     "    transcript is never touched.\n"
     "\n"
@@ -2563,6 +2578,13 @@ FORK_MODAL_BODY = (
     "Discard the pending-fork marker for runtime {fork_id}?\n"
     "The fork transcript stays on disk as a native session; adopt it later\n"
     "with `claude-multi sessions link {fork_id} --composition NAME` if needed."
+)
+STOP_MODAL_TITLE = "Stop live session {short}?"
+STOP_MODAL_BODY = (
+    "The session is live in the background (daemon-owned, ●).\n"
+    "It will be stopped with upstream `claude stop {runtime_id}` — never a\n"
+    "signal, never the transcript. The conversation is always kept and\n"
+    "resumes later with R."
 )
 FORGET_DONE = "Forgot {session_id}; record + scope deleted. Transcripts are never touched."
 RESUME_MODAL_TITLE = "Resume session {short}?"
@@ -2778,6 +2800,8 @@ class _SessionsScreen:
             item = active[self.selected]
             if self.section == "managed":
                 label = _record_actions_label(item)
+                if _record_is_live(item, self.live_prefixes):
+                    label += " · [e] end (live ●)"
             else:
                 label = "L adopt into a composition · then resume/transition apply"
             tui.safe_add(win, actions_row, 2, label, palette.attr("dim"))
@@ -2785,6 +2809,30 @@ class _SessionsScreen:
             tui.safe_add(win, message_row, 2, self.message, palette.attr("warn"))
         keybar.draw(win, height - 1, palette)
         win.refresh()
+
+    def _stop_live(self, win: Any, record: dict[str, Any]) -> None:
+        stable_id = sessions.managed_id(record)
+        runtime_id = sessions.runtime_session_id(record)
+        refusal = _stop_precheck(self.runtime, record)
+        if refusal is not None:
+            self.message = refusal + "."
+            return
+        confirmed = tui.Modal(
+            STOP_MODAL_TITLE.format(short=f"{stable_id[:8]}…"),
+            STOP_MODAL_BODY.format(runtime_id=runtime_id).splitlines(),
+            buttons=(("Stop", True), ("Cancel", False)),
+        ).run(win, self.palette, background=self._draw)
+        if not confirmed:
+            self.message = "Stop cancelled."
+            return
+        problem = _stop_runtime(self.runtime, runtime_id)
+        if problem is not None:
+            self.message = f"stop failed: {problem[:60]}"
+            return
+        self._reload()
+        self.message = (
+            f"stopped {stable_id[:8]}… · conversation kept; R resumes when ready"
+        )
 
     def _resolve_fork(self, win: Any, record: dict[str, Any]) -> None:
         stable_id = sessions.managed_id(record)
@@ -2966,6 +3014,11 @@ class _SessionsScreen:
                         "adopt this session first (L); resume/transition/forget "
                         "apply to managed sessions"
                     )
+                elif key.kind == "char" and key.ch.lower() == "e":
+                    self.message = (
+                        "end session applies to managed sessions; adopt first (L) "
+                        "or use `claude stop " + item["session_id"] + "` directly"
+                    )
                 continue
             record = item
             if key.kind == "char" and key.ch.lower() == "r":
@@ -3004,6 +3057,9 @@ class _SessionsScreen:
             if key.kind == "char" and key.ch.lower() == "x":
                 self._resolve_fork(win, record)
                 continue
+            if key.kind == "char" and key.ch.lower() == "e":
+                self._stop_live(win, record)
+                continue
 
 
 TRANSITION_HELP = (
@@ -3028,10 +3084,17 @@ class _TransitionScreen:
 
     KEYBAR = (("Enter", "confirm exited"), ("?", "help"), ("Esc", "cancel"))
 
-    def __init__(self, diff: list[str], *, palette: tui.Palette):
+    def __init__(
+        self,
+        diff: list[str],
+        *,
+        palette: tui.Palette,
+        live_note: str | None = None,
+    ):
         self.diff = diff
         self.palette = palette
         self.scroll = 0
+        self.live_note = live_note
 
     def _draw(self, win: Any) -> None:
         win.erase()
@@ -3042,12 +3105,16 @@ class _TransitionScreen:
         bottom = height - bar_rows
         tui.safe_add(win, 1, 2, "transition — semantic diff", palette.attr("accent") | curses.A_BOLD)
         tui.safe_add(win, 2, 2, "─" * min(width - 3, 60), palette.attr("dim"))
-        visible = max(1, bottom - 4)
+        first = 3
+        if self.live_note is not None:
+            tui.safe_add(win, first, 2, self.live_note, palette.attr("warn"))
+            first += 1
+        visible = max(1, bottom - first - 1)
         self.scroll = max(0, min(self.scroll, max(0, len(self.diff) - visible)))
         # Diff lines start below the separator (review H13), clipped at the
         # reserved scroll-indicator/keybar zone.
         for offset, line in enumerate(self.diff[self.scroll : self.scroll + visible]):
-            tui.safe_add(win, 3 + offset, 2, line)
+            tui.safe_add(win, first + offset, 2, line)
         if len(self.diff) > visible:
             tui.safe_add(
                 win,
@@ -3099,6 +3166,7 @@ def _transition_confirm(
     input_stream: TextIO,
     output_stream: TextIO,
     no_color: bool,
+    live_note: str | None = None,
 ) -> bool:
     """Exited-confirmation: curses Modal when capable, else the [y/N] line."""
 
@@ -3106,7 +3174,7 @@ def _transition_confirm(
         palette = tui.detect_palette(
             no_color=no_color, tty_in=input_stream, tty_out=output_stream
         )
-        screen = _TransitionScreen(diff, palette=palette)
+        screen = _TransitionScreen(diff, palette=palette, live_note=live_note)
         try:
             return bool(
                 tui.run_curses_on_streams(
@@ -3232,6 +3300,52 @@ def _record_is_live(record: dict[str, Any], prefixes: frozenset[str]) -> bool:
         for candidate in candidates
         for prefix in prefixes
     )
+
+
+def _stop_runtime(
+    runtime: Runtime,
+    runtime_id: str,
+    *,
+    runner: Callable[..., subprocess.CompletedProcess] | None = None,
+) -> str | None:
+    """Upstream `claude stop <id>` via the verified binary; error text or None.
+
+    This is the only process-lifecycle action claude-multi takes, and it goes
+    through upstream's own public CLI — never a signal, never daemon
+    internals. The conversation is always kept (upstream guarantee).
+    """
+
+    status = launch.resolve_claude(runtime.catalog.docs["native-contract"])
+    run = subprocess.run if runner is None else runner
+    try:
+        outcome = run(
+            [str(status.inspected_path), "stop", runtime_id],
+            capture_output=True,
+            text=True,
+            timeout=60,
+            stdin=subprocess.DEVNULL,
+            env={"PATH": "/usr/bin:/bin", "HOME": runtime.environ.get("HOME", "/")},
+        )
+    except (OSError, subprocess.TimeoutExpired) as exc:
+        return str(exc)
+    if outcome.returncode != 0:
+        tail = ((outcome.stdout or "") + (outcome.stderr or "")).strip()
+        return tail or f"exit code {outcome.returncode}"
+    return None
+
+
+def _stop_precheck(runtime: Runtime, record: dict[str, Any]) -> str | None:
+    """Shared stop guards; a refusal message, or None when stop is possible."""
+
+    stable_id = sessions.managed_id(record)
+    if runtime.environ.get("CLAUDE_MULTI_MANAGED_ID") == stable_id:
+        return "refusing to stop the session you are running inside"
+    if not _record_is_live(record, _live_background_prefixes()):
+        return (
+            "not live in the background — nothing to stop (if it is attached "
+            "in a terminal, exit it there)"
+        )
+    return None
 
 
 def _native_is_live(item: dict[str, Any], prefixes: frozenset[str]) -> bool:
@@ -3385,6 +3499,7 @@ def _print_sessions_listing(runtime: Runtime, output_stream: TextIO) -> None:
     output_stream.write(
         "actions: [r]esume `claude-multi -r <uuid>` · "
         "[t]ransition `claude-multi sessions transition <uuid> --composition <name>` · "
+        "[e]nd a live session `claude-multi sessions stop <uuid>` · "
         "[f]orget `claude-multi sessions forget <uuid>` "
         "(deletes the record + generated scope; transcripts are never touched)\n"
     )
@@ -3445,6 +3560,16 @@ def _sessions_transition(
     if not interactive_diff:
         for line in plan.diff:
             output_stream.write(f"{tui.visible_text(line)}\n")
+    live_note: str | None = None
+    if _record_is_live(plan.prior_record, _live_background_prefixes()):
+        live_note = (
+            "the target session is LIVE in the background (●, daemon-owned) — "
+            "a transition on a live session forks it; stop it first with "
+            "`claude-multi sessions stop "
+            f"{sessions.managed_id(plan.prior_record)}`"
+        )
+        if not interactive_diff:
+            output_stream.write(f"{tui.visible_text(live_note)}\n")
     if args.its_exited:
         confirm = True
     elif interactive:
@@ -3453,6 +3578,7 @@ def _sessions_transition(
             input_stream=input_stream,
             output_stream=output_stream,
             no_color=no_color,
+            live_note=live_note,
         )
     else:
         confirm = False
@@ -4010,6 +4136,40 @@ def handle_command(
                 f"link {args.fork_uuid} --composition NAME` if you ever need "
                 "it). Identity is now "
                 f"{updated.get('identity_state', sessions.IDENTITY_UNVERIFIED)}.\n"
+            )
+            return 0
+        if command == "stop":
+            record = runtime.session_store.resolve(args.uuid)
+            stable_id = sessions.managed_id(record)
+            runtime_id = sessions.runtime_session_id(record)
+            refusal = _stop_precheck(runtime, record)
+            if refusal is not None:
+                output_stream.write(f"session {stable_id}: {refusal}.\n")
+                return 0
+            if not args.yes:
+                if not interactive:
+                    raise CLIError(
+                        "sessions stop requires --yes when non-interactive"
+                    )
+                output_stream.write(
+                    f"Stop live background session {stable_id} (runtime "
+                    f"{runtime_id}) with upstream `claude stop`? The "
+                    "conversation is always kept. [y/N] "
+                )
+                output_stream.flush()
+                answer = (input_stream.readline() or "").strip().lower()
+                if answer not in ("y", "yes"):
+                    output_stream.write("Stop cancelled.\n")
+                    return 0
+            problem = _stop_runtime(runtime, runtime_id)
+            if problem is not None:
+                raise CLIError(
+                    f"upstream stop failed for {runtime_id}: {problem}"
+                )
+            output_stream.write(
+                f"Stopped session {stable_id} (runtime {runtime_id}). The "
+                "conversation is kept — resume it with `claude-multi -r "
+                f"{stable_id}` when ready.\n"
             )
             return 0
         if command == "link":

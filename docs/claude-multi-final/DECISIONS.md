@@ -429,6 +429,31 @@ hardening set; every fix carries a regression test:
   admitted one line onto the reserved Status row and its fixed rows were
   unbounded (N1); the repo-file writer refuses symlinked targets (N2).
 
+**D38 — Session lifecycle includes stop, through upstream's own CLI
+(2.7.0).** Evidence (the 2026-07-27 incident): a daemon-hosted,
+env-scrubbed zombie session blocked a clean resume, and claude-multi had
+no way to end it — the operator had to learn native agent-view
+keybindings under pressure. claude-multi already manages the lifecycle
+(start/resume/reconcile/forget); stop was the missing action. Boundary
+analysis: the hard rule "never touch the live daemon/supervisor" (and
+D19/D23's never-configure-upstream) forbids signals, process kills, and
+daemon internals — but `claude stop <id>` is upstream's *own public CLI*
+("its conversation is kept"), the same category as the `claude --resume`
+the launcher execs every launch. So: `sessions stop <uuid>` and **E**
+"end session" on ● picker rows invoke exactly that, via the
+hash-verified binary, with a scrubbed env (PATH+HOME), a timeout, and
+honest failure surfacing. Guards: refuse self-stop (the session you are
+inside, via the env sentinel), refuse non-live sessions (pty-socket
+liveness, best-effort as in D35), interactive confirmation (or `--yes`
+for scripts), transcripts never touched. The key is **E** because K
+collides with the sessions screen's vim `k`=navigate-up; collisions
+between screen-local bindings are resolved per screen. A transition
+started on a ● live session warns first and names the command (closing
+the "must be exited" gap the transition flow always documented but never
+helped with). Rejected: direct SIGTERM/pkill (daemon boundary), a
+claude-multi-owned kill of any kind (upstream owns process lifecycle),
+auto-stopping on transition (the operator decides).
+
 ## User decision summary (what you're approving by accepting this design)
 
 1. Selected agents become **real files** in a per-session scope; the failure

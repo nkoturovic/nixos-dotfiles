@@ -37,6 +37,10 @@ untouched; `claude-gateway` is the ordinary non-composition entrypoint.
   <fork> --composition <name>` to adopt. A marker whose fork IS the live
   branch self-clears; `doctor --repair-all` clears it too. Fork transcripts
   are never deleted.
+- **Stop a live (●) session:** **E** on the picker row, or
+  `claude-multi sessions stop <uuid> [--yes]` — upstream `claude stop` via
+  the verified binary (never a signal; conversation always kept). Refuses
+  self-stops and non-live sessions. Transitions on a ● session warn first.
 - `claude-gateway [--model sol|qwen38|kimi-k3|fable|opus]` starts an ordinary
   gateway session with native `/model`; `-c`/`-r` continue it. Same-profile
   switching stays in-process, cross-profile switching is an explicit relaunch.
