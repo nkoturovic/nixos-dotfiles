@@ -126,8 +126,8 @@ class SeedLoadTests(unittest.TestCase):
 
     def test_version_json_matches_v2_2_schema_and_catalog_change(self) -> None:
         bundle = catalog.load_catalog(CATALOG_ROOT)
-        self.assertEqual(bundle.docs["version"]["launcher_version"], "2.7.0")
-        self.assertEqual(bundle.docs["version"]["catalog_version"], 6)
+        self.assertEqual(bundle.docs["version"]["launcher_version"], "2.7.1")
+        self.assertEqual(bundle.docs["version"]["catalog_version"], 7)
 
 
 class ReferenceViolationTests(unittest.TestCase):
@@ -713,7 +713,12 @@ class NativeContractTests(unittest.TestCase):
         self.assertEqual(set(acceptance), {"U1", "U2", "U5", "U6"})
         for name, entry in acceptance.items():
             with self.subTest(acceptance=name):
-                self.assertEqual(entry["status"], "unverified")
+                if name == "U5":
+                    # D39: the fence is acceptance-verified by the offline
+                    # delegation probe on the pinned binary.
+                    self.assertEqual(entry["status"], "verified")
+                else:
+                    self.assertEqual(entry["status"], "unverified")
         # The same-launch delivery record is deleted: contingency is the only
         # lead delivery, so no delivery record remains to drift.
         self.assertNotIn("lead_delivery", record)

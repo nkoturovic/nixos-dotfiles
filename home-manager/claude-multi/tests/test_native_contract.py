@@ -152,7 +152,10 @@ class PromotedContractConsumptionTests(unittest.TestCase):
         acceptance = {
             entry["status"] for entry in record["acceptance"].values()
         }
-        self.assertEqual(acceptance, {"unverified"})
+        # D39: U5 (the availableModels fence) is acceptance-verified by the
+        # offline delegation probe on the pinned binary; the rest stay
+        # unverified until their own acceptance runs.
+        self.assertEqual(acceptance, {"unverified", "verified"})
         self.assertEqual(record["nested_subagents"]["decision"], "pending")
         self.assertEqual(
             {

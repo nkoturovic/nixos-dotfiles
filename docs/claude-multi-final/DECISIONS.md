@@ -454,6 +454,42 @@ helped with). Rejected: direct SIGTERM/pkill (daemon boundary), a
 claude-multi-owned kill of any kind (upstream owns process lifecycle),
 auto-stopping on transition (the operator decides).
 
+**D39 — `availableModels` covers lead + every roster selector (2.7.1).**
+Evidence (2026-07-28, operator-reported and triple-confirmed): subagents
+named `cm-*-sol-*` in a Kimi-led session issued `claude-multi-kimi-k3`
+requests — 355 transcript entries, 993 model fields, zero `gpt-multi` in
+12 hours of gateway journal; the same held for an Opus-5-led session (all
+subagents ran Opus 5). Root cause: D24 narrowed `availableModels` to
+exactly the lead for `/model` safety — but Claude Code resolves agent
+frontmatter `model:` through the same pool (documented chain at SA
+L242-251: env var → per-invocation parameter → frontmatter → session,
+with a **silent skip-and-inherit** fallback), so every managed
+composition was single-model in disguise; cross-family review
+independence was void in practice — and per-agent effort executed on the
+wrong model too (xhigh lanes ran on the lead). The fence now compiles to
+`sorted({lead} ∪ {variant selectors})`; the `/model` Default entry stays
+lead-pinned; `effort:`/`isolation:` are fence-independent (verified). A
+manual `/model` switch to a roster model is possible again and is
+backstopped honestly by the identity machinery (observed-model →
+repair-needed with the relaunch guidance) rather than hidden. Radar, so
+this class can never go quiet again: (1) the offline delegation probe
+runs against the production-shaped fence and asserts the subagent's wire
+model on the pinned binary every build — with the lead-only negative
+control preserved as the incident document; that probe is the U5
+acceptance (native-contract now `verified`); (2) doctor audits
+user/project settings for a `CLAUDE_CODE_SUBAGENT_MODEL` env override
+(step 1 of that chain — the one remaining roster-flattening vector;
+pre-fix it was inert, post-fix it would recreate the incident). All 17
+live scopes converge to the new pool on the next `--repair-all`.
+Accepted residuals, documented not fixed: `ANTHROPIC_DEFAULT_OPUS/FABLE`
+env defaults resolve outside the fence by design (canonical passthrough
+routes, served); a Sol lead at harness effort `ultracode` keeps the
+sol-high wire contract (reasoning.effort=high) — harness effort and
+provider reasoning are different axes (lead-slot lane selection is the
+candidate open item if a wire-level mapping is ever wanted); doctor
+converge regenerates scopes only — the lead appendix is rewritten on
+every launch, which is the correct heal point.
+
 ## User decision summary (what you're approving by accepting this design)
 
 1. Selected agents become **real files** in a per-session scope; the failure

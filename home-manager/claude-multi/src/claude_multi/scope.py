@@ -425,7 +425,17 @@ def compile_scope(
     # native /model change only the main thread while leaving the recorded
     # composition and generated roster stale. Composition transitions are the
     # only supported cross-model change.
-    settings["availableModels"] = [resolved.lead.client_selector]
+    # availableModels governs TWO things in Claude Code: the /model menu
+    # AND agent frontmatter model resolution. A lead-only fence silently
+    # degrades every variant's dispatch to the lead model (the subagent
+    # named Sol runs on the lead instead — verified live: Sol-typed agents
+    # issued claude-multi-kimi-k3 requests, and the gateway never saw a
+    # gpt-multi request). The roster's selectors MUST be present or the
+    # composition is single-model in disguise (D39).
+    variant_selectors = {variant.client_selector for variant in resolved.variants}
+    settings["availableModels"] = sorted(
+        {resolved.lead.client_selector, *variant_selectors}
+    )
     # Claude's /model picker always retains a "Default" entry; pin the
     # settings default to the same lead so that entry cannot escape the fence.
     settings["model"] = resolved.lead.client_selector

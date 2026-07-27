@@ -122,9 +122,15 @@ Two modes:
    without a demonstrated failure case (D11; `apiKeyHelper` earned its place
    via the daemon env-scrub incident, D33).
 8. **Managed sessions own their policy.** `autoCompactEnabled:true` is pinned
-   (a user-level false silently wedges 1M sessions); managed `/model` is
-   fenced to the lead — transitions are the only lead change. Ordinary mode
-   respects user settings except the context-safe profile fence.
+   (a user-level false silently wedges 1M sessions). `availableModels` is
+   **lead + every roster selector** (dedup, sorted) with `model` pinned to
+   the lead: the pool must cover the roster or agent dispatch silently
+   falls back to the lead (the 2026-07-28 routing incident, D39 — the
+   delegation probe guards the wire model against the production-shaped
+   fence every build). A manual `/model` switch away from the lead is
+   backstopped by the identity machinery (observed-model → repair-needed),
+   never hidden. Ordinary mode respects user settings except the
+   context-safe profile fence.
 9. **Simplicity budget.** No new mode/schema/daemon/state without a
    demonstrated failure case. Prefer deletion over addition.
 10. **Upstream `claude` is never configured or hijacked.** D19/D23: no global

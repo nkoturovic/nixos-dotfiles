@@ -9,8 +9,8 @@
       "status": "unverified"
     },
     "U5": {
-      "note": "availableModels is compiled into scope settings as the per-invocation model fence; native acceptance of the fence is pending.",
-      "status": "unverified"
+      "note": "availableModels compiles lead + every roster selector (D39) after the lead-only fence silently degraded all subagent dispatch to the lead; the offline delegation probe asserts the subagent's wire model through the production-shaped fence on the pinned binary every build (with the lead-only negative control preserved as the incident document).",
+      "status": "verified"
     },
     "U6": {
       "note": "Nested spawning is documented on for 2.1.217 (depth 5 fixed) and prompts allow bounded delegation; spawn env keys stay unset pending acceptance.",

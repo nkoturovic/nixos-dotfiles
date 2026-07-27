@@ -78,7 +78,7 @@ Closed key allowlist (catalog-validated):
 | `workflowSizeGuideline` | package default `"medium"` (unchanged) |
 | `workflowKeywordTriggerEnabled` | `false` (unchanged; explicit asks still work, WF L83) |
 | `permissions.deny` | `["Agent(Explore)","Agent(general-purpose)","Agent(claude)"]` per `native_agents` policy + contract generic aliases (SA L501–517; replaces `--disallowedTools` argv) |
-| `availableModels` | sorted catalog client selectors + lead selector (model fence, U5) |
+| `availableModels` | sorted catalog client selectors + lead selector (model fence, U5) — **amended D39:** lead + every selected variant selector (dedup, sorted); roster-only, and `model` stays lead-pinned |
 | `worktree.baseRef` | `"head"` when any selected variant uses `isolation: worktree` — implementers branch from the current local HEAD, carrying local/unpushed **commits** (WT L101–106). It does NOT expose uncommitted working-tree changes; that is accepted (lead integrates; implementers never edit the main checkout) |
 
 Rationale per key is in DECISIONS.md D11. No other settings keys are
@@ -96,6 +96,10 @@ and SessionStart/End hook commands through the stable
 `<state>/bin/claude-multi-hook` shim, D22/D26); and `autoCompactEnabled: true`
 is pinned for managed sessions (D28). Ordinary scopes emit only
 `availableModels` (a context-profile fence), `model`, `env`, and `hooks`.
+**Amended in v2.7.1 (D39):** the lead-only narrowing silently degraded all
+subagent dispatch to the lead model; `availableModels` is now lead +
+every selected variant selector (dedup, sorted), `model` stays
+lead-pinned.
 
 **Since v2.6 (gateway routing is durable, D33):** lifecycle settings
 additionally carry `env.ANTHROPIC_BASE_URL` (non-secret loopback URL from

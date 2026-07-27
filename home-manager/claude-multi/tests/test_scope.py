@@ -253,10 +253,19 @@ class CompileScopeSettingsTests(unittest.TestCase):
         self.assertNotIn("Agent(Plan)", denies)
         self.assertEqual(denies, ["Agent(claude)"])
 
-    def test_available_models_fences_exact_managed_lead(self) -> None:
-        _, _, plan = _plan()
-        self.assertEqual(plan.settings["availableModels"], ["claude-multi-opus-5[1m]"])
-        self.assertEqual(plan.settings["model"], "claude-multi-opus-5[1m]")
+    def test_available_models_cover_lead_and_every_variant_selector(self) -> None:
+        _, resolved, plan = _plan()
+        # availableModels governs /model AND agent dispatch: every roster
+        # selector must be present or variants silently run as the lead (D39).
+        self.assertEqual(
+            plan.settings["availableModels"],
+            sorted(
+                {resolved.lead.client_selector}
+                | {variant.client_selector for variant in resolved.variants}
+            ),
+        )
+        # The /model Default entry stays pinned to the lead regardless.
+        self.assertEqual(plan.settings["model"], resolved.lead.client_selector)
 
     def test_lifecycle_hooks_are_scoped_and_metadata_only(self) -> None:
         bundle, resolved, _ = _plan()

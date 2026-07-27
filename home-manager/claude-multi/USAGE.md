@@ -148,7 +148,9 @@ claude-multi sessions transition <uuid> --composition qwen-sol
 Shows a semantic diff (what changes), asks you to confirm the session has
 **exited**, then relaunches with the exact same transcript under the new
 composition. Model/agent/effort/workflow changes all go through this — the
-managed `/model` menu is fenced to the lead on purpose.
+managed `/model` menu is deliberately roster-shaped (lead + your agent
+team's models, lead pinned as Default); a manual switch away from the lead
+is flagged by the identity machinery with the exact relaunch guidance.
 
 ### Ordinary gateway sessions
 
@@ -287,14 +289,16 @@ transcripts (always untouched).
   lead with Kimi agents; `kimi-sol`/`qwen-sol` when you need a Kimi or Qwen
   1M lead; `fable` is the previous default, kept around; `sol-direct` is
   one model, no team.
-- **Why does `/model` show only one model in my managed session?** — the
-  fence is deliberate: the session's compaction thresholds, snapshot, and
-  identity tracking are computed for the recorded lead, and a mid-session
-  switch to a different-context model would silently break compaction (the
-  trigger would be calibrated for the wrong context size). The supported
-  model change is `sessions transition` (same transcript, recomputed
-  composition). For model-flexible sessions use `claude-gateway`, whose
-  `/model` menu already offers every model inside one safe context profile.
+- **Why does `/model` show only the lead plus the roster models in my
+  managed session?** — the pool is deliberately roster-shaped: the lead
+  (pinned as Default) plus exactly the models your agent team uses, so
+  subagent dispatch always resolves correctly. Switching the lead
+  mid-session is still not the supported path (compaction thresholds and
+  identity tracking are lead-shaped) — the session will flag it as an
+  identity mismatch with the exact relaunch guidance; the supported model
+  change is `sessions transition`. For model-flexible sessions use
+  `claude-gateway`, whose `/model` menu offers every model inside one
+  safe context profile.
 - **A session forked when I came back to it — why?** — it was backgrounded
   and the supervisor daemon adopted it; reattaching from a menu forks
   natively. See "Native forks" above. The **●** marker in the sessions

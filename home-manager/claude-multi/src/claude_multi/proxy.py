@@ -268,6 +268,12 @@ def cmd_init(args: list[str], *, environ: dict[str, str] | None = None) -> int:
     target, result = render_runtime_config(home, environ=environ)
     for line in _summarize(result, target):
         print(line)
+    print(
+        "note: the daemon does not hot-reload a replaced config on 7.2.80 — "
+        "apply it with `systemctl --user restart cli-proxy-api` "
+        "(Home Manager switch does this for you).",
+        file=sys.stderr,
+    )
     return 0
 
 

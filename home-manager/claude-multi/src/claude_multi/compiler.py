@@ -340,8 +340,17 @@ def validate_passthrough(args: list[str]) -> list[str]:
 
 
 def _canonical_route(routes: list[str], family: str) -> str:
-    """Canonical Anthropic passthrough route for a family; fail closed if absent."""
+    """Canonical Anthropic passthrough route for a family; fail closed if absent.
 
+    Exact ``claude-<family>-<N>`` name first, then the first name containing
+    the family (legacy compat) — never an accidental substring hit on an
+    unrelated route (e.g. "opus" inside a future non-Opus name).
+    """
+
+    prefix = f"claude-{family}-"
+    for name in routes:
+        if name.startswith(prefix):
+            return name
     for name in routes:
         if family in name:
             return name

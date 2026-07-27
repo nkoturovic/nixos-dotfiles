@@ -998,6 +998,21 @@ class RealPinnedBinaryTests(ScopeProbeTestCase):
 
     def test_real_scripted_delegation_headless(self) -> None:
         scope = self._scope_dir()
+        # Production-shaped fence (compile_scope's emission, D39): the
+        # availableModels pool carries the lead AND every roster selector.
+        # The emission itself is pinned by test_scope.py + the blessed
+        # golden; this probe pins what the pinned binary DOES with that
+        # shape — the subagent's request must carry its frontmatter model.
+        # (The lead-only negative control below documents the incident.)
+        state.atomic_write(
+            self.fixture.claude_config_dir / "settings.json",
+            strict_json.canonical_file_bytes(
+                {
+                    "availableModels": ["lead-probe-model", "probe-model"],
+                    "model": "lead-probe-model",
+                }
+            ),
+        )
         try:
             result = probe.run_scripted_delegation(
                 "cm-probe-marker",
@@ -1024,12 +1039,64 @@ class RealPinnedBinaryTests(ScopeProbeTestCase):
         assert result.evidence is not None
         raw = result.evidence.read_bytes()
         self.assertNotIn(b"Use the Agent tool exactly once", raw)
+        # THE guard: the subagent's own request must carry the marker
+        # frontmatter model through the production-shaped fence — never a
+        # silent fallback to the lead.
+        request_models = [record.model for record in result.requests]
+        self.assertIn(
+            "probe-model",
+            request_models,
+            f"subagent dispatch lost its frontmatter model: {request_models}",
+        )
         print(
             "real delegation outcome: ran "
             f"classification={result.classification} branch={result.branch} "
             f"returncode={result.returncode} timed_out={result.timed_out} "
             f"requests={len(result.requests)} "
+            f"models={sorted({m for m in request_models if m})} "
             f"fixture_domains_after={list(result.daemon.fixture_domains_after)}"
+        )
+
+    def test_lead_only_fence_reproduces_the_silent_fallback(self) -> None:
+        """Negative control for the 2026-07-28 incident: with availableModels
+        narrowed to the lead alone (the pre-D39 shape), the subagent's
+        request silently carries the LEAD model, not its frontmatter model.
+        This documents the exact failure mode the fix removes."""
+
+        scope = self._scope_dir()
+        state.atomic_write(
+            self.fixture.claude_config_dir / "settings.json",
+            strict_json.canonical_file_bytes(
+                {
+                    "availableModels": ["lead-probe-model"],
+                    "model": "lead-probe-model",
+                }
+            ),
+        )
+        try:
+            result = probe.run_scripted_delegation(
+                "cm-probe-marker",
+                scope_dir=scope,
+                trusted=self.trusted,
+                fixture=self.fixture,
+                environ=self.environ,
+                timeout=150,
+                evidence_name="real-delegation-fence-negative",
+                live_daemon_domain=None,
+            )
+        except ProbeError as exc:
+            self.assertIn("live daemon domain touched", str(exc))
+            print(f"fence negative control: fail-closed: {exc}")
+            return
+        request_models = [record.model for record in result.requests]
+        # Self-sufficient control (review N2): the forced delegation must
+        # actually happen, and its request must not carry the marker model.
+        self.assertEqual(result.classification, "accepted")
+        self.assertNotIn("probe-model", request_models)
+        self.assertIn("lead-probe-model", request_models)
+        print(
+            "fence negative control: subagent silently ran on the lead "
+            f"(models={sorted({m for m in request_models if m})})"
         )
 
     def test_real_manual_compaction_emits_metadata_hook(self) -> None:

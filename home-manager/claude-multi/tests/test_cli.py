@@ -5252,3 +5252,21 @@ class SessionsStopTests(CLITestCase):
             )
         self.assertIn("stop it first", output)
         self.assertIn("sessions stop", output)
+
+
+class SubagentModelRadarTests(CLITestCase):
+    """D39 radar: doctor flags a roster-flattening settings env override."""
+
+    def test_doctor_attention_on_user_settings_override(self) -> None:
+        home = Path(self.runtime.environ["HOME"])
+        settings = home / ".claude" / "settings.json"
+        settings.parent.mkdir(parents=True, exist_ok=True)
+        settings.write_text('{"env": {"CLAUDE_CODE_SUBAGENT_MODEL": "gpt-multi-sol-high"}}')
+        code, output = self.run_cli(["doctor"])
+        self.assertEqual(code, 0, output)
+        self.assertIn("CLAUDE_CODE_SUBAGENT_MODEL", output)
+        self.assertIn("flattens", output)
+
+    def test_no_attention_without_override(self) -> None:
+        code, output = self.run_cli(["doctor"])
+        self.assertNotIn("CLAUDE_CODE_SUBAGENT_MODEL", output)

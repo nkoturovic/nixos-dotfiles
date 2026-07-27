@@ -13,6 +13,7 @@ import copy
 import curses
 import errno
 import io
+import json
 import os
 import shutil
 import stat
@@ -3850,6 +3851,34 @@ def _handle_session_event(
     return 0
 
 
+def _subagent_model_override_paths(runtime: Runtime) -> list[str]:
+    """Settings files whose env block sets CLAUDE_CODE_SUBAGENT_MODEL.
+
+    Read-only audit (D19/D23 — upstream files are never written). That env
+    var sits at step 1 of the subagent model resolution chain, ahead of
+    agent frontmatter (SA L242-251): when set, it flattens every roster to
+    one model — silently. Pre-D39 the lead-only fence made a leak inert;
+    post-D39 it would silently re-create the incident.
+    """
+
+    home = runtime.environ.get("HOME", str(Path.home()))
+    candidates = (
+        Path(home) / ".claude" / "settings.json",
+        Path(runtime.cwd) / ".claude" / "settings.json",
+        Path(runtime.cwd) / ".claude" / "settings.local.json",
+    )
+    hits: list[str] = []
+    for path in candidates:
+        try:
+            doc = json.loads(path.read_text(encoding="utf-8"))
+        except (OSError, ValueError):
+            continue
+        env = doc.get("env") if isinstance(doc, dict) else None
+        if isinstance(env, dict) and env.get("CLAUDE_CODE_SUBAGENT_MODEL"):
+            hits.append(str(path))
+    return hits
+
+
 def _collect_doctor_reports(
     runtime: Runtime,
 ) -> tuple[list[str], list[str], list[str]]:
@@ -3913,6 +3942,18 @@ def _collect_doctor_reports(
     scope_info, scope_problems, scope_attention = _doctor_scope_report(runtime)
     info_lines.extend(scope_info)
     problems.extend(scope_problems)
+    # Radar for the last roster-flattening vector (D39): a
+    # CLAUDE_CODE_SUBAGENT_MODEL in user/project settings env overrides
+    # every agent's frontmatter model — silently, session-wide.
+    override_paths = _subagent_model_override_paths(runtime)
+    if override_paths:
+        scope_attention.append(
+            "CLAUDE_CODE_SUBAGENT_MODEL is set in "
+            + ", ".join(override_paths)
+            + " — it overrides every agent's frontmatter model and flattens "
+            "composition rosters to one model; remove it to keep "
+            "composition routing intact"
+        )
     if stale_override_attention is not None:
         scope_attention.append(stale_override_attention)
     repin = launch.repin_suggestion(runtime.catalog.docs["native-contract"])
