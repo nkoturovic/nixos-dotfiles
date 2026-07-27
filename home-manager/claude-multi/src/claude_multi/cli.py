@@ -1901,7 +1901,7 @@ class _QuickConfirmScreen:
                     messages = list(outcome.messages)
             except KeyboardInterrupt:
                 failed = True
-                messages = ["update interrupted; nothing was promoted (pin unchanged)"]
+                messages = ["update interrupted (Ctrl-C)"]
             except Exception as exc:
                 failed = True
                 messages = [f"update failed: {exc}"]
@@ -4429,6 +4429,7 @@ def _doctor_repair(runtime: Runtime, uuid: str, output_stream: TextIO) -> int:
     stable_id = sessions.managed_id(record)
     transition = _transition_module()
     try:
+        fork_converged = runtime.session_store.converge_pending_forks(stable_id)
         report = transition.converge(
             runtime.session_store.root,
             runtime.session_store,
@@ -4437,6 +4438,10 @@ def _doctor_repair(runtime: Runtime, uuid: str, output_stream: TextIO) -> int:
         )
     except transition.TransitionError as exc:
         raise CLIError(str(exc)) from exc
+    if fork_converged:
+        output_stream.write(
+            "cleared a fork marker the live runtime already resolved\n"
+        )
     for line in report:
         output_stream.write(f"{tui.visible_text(line)}\n")
     return 0

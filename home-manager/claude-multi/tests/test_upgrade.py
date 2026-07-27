@@ -7,6 +7,7 @@ import os
 import shutil
 import stat
 import subprocess
+import time
 import tempfile
 import unittest
 from pathlib import Path
@@ -256,3 +257,64 @@ class CurrentCleanupTests(UpgradeTestCase):
         hm = calls[-1]
         self.assertEqual(hm[:3], ["home-manager", "switch", "--flake"])
         self.assertEqual(hm[3], str(self.root / "repo") + "#kotur")
+
+
+class UpdateLockWaitNoteTests(unittest.TestCase):
+    """A contended update says so instead of sitting silent (review nit)."""
+
+    def test_waiting_note_emitted_when_lock_held(self) -> None:
+        import tempfile
+        from pathlib import Path
+
+        from claude_multi import state, upgrade as upgrade_mod
+
+        root = Path(tempfile.mkdtemp(prefix="claude-multi-lock-"))
+        self.addCleanup(shutil.rmtree, root, True)
+        override = root / "cfg" / "native-contract.json"
+        state.ensure_private_dir(override.parent)
+        blocker = state.FileLock(override)
+        blocker.acquire(blocking=True)
+        notes: list[str] = []
+        outcome_holder: list[object] = []
+
+        import threading
+
+        def _run() -> None:
+            outcome_holder.append(
+                upgrade_mod.run_upgrade(
+                    checkout_root=root / "checkout",
+                    native_contract=_MINIMAL_CONTRACT,
+                    override_path=override,
+                    today="2026-07-27",
+                    runner=_unused_runner,
+                    progress=notes.append,
+                )
+            )
+
+        worker = threading.Thread(target=_run)
+        worker.start()
+        try:
+            deadline = time.time() + 5
+            while not notes and time.time() < deadline:
+                time.sleep(0.01)
+            self.assertTrue(any("waiting" in note for note in notes))
+        finally:
+            blocker.release()
+            worker.join(timeout=10)
+        self.assertFalse(worker.is_alive())
+        self.assertEqual(outcome_holder[0].kind, "current")
+
+
+_MINIMAL_CONTRACT = {
+    "claude": {
+        "validated_version": "9.9.9",
+        "executable": {
+            "configured_path": "/nonexistent/claude",
+            "resolved_path": "/nonexistent/versions/9.9.9",
+        },
+    }
+}
+
+
+def _unused_runner(*args, **kwargs):  # pragma: no cover - never reached
+    raise AssertionError("runner must not run for the current path")

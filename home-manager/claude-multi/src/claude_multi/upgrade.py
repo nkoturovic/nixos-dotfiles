@@ -213,7 +213,9 @@ def run_upgrade(
 
     state.ensure_private_dir(override_path.parent)
     update_lock = state.FileLock(override_path)
-    update_lock.acquire(blocking=True)
+    if not update_lock.acquire(blocking=False):
+        _note("another claude-multi update is running; waiting for it…")
+        update_lock.acquire(blocking=True)
     try:
         return _run_upgrade_locked(
             checkout_root=checkout_root,

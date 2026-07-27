@@ -4715,3 +4715,35 @@ class UpdateProgressTests(CLITestCase):
         self.assertLess(
             text.index("evidence-gated re-pin"), text.index("active now")
         )
+
+
+class ReviewNitRegressionTests(CLITestCase):
+    """Cross-family review nits: single --repair converges fork markers too."""
+
+    def test_single_repair_clears_authority_holding_marker(self) -> None:
+        self.save_session(mode="durable", scope_generation=1)
+        record = self.runtime.session_store.reconcile_runtime(
+            FIXED_ID,
+            observed_runtime_id=OTHER_ID,
+            source="fork",
+            cwd=self.runtime.cwd,
+            now="2026-07-22T00:00:00Z",
+        )
+        stuck = {
+            **record,
+            "runtime_session_id": OTHER_ID,
+            "runtime_aliases": [
+                {
+                    "session_id": FIXED_ID,
+                    "source": "fork",
+                    "observed_at": "2026-07-22T00:01:00Z",
+                }
+            ],
+        }
+        self.runtime.session_store.save(stuck)
+        code, output = self.run_cli(["doctor", "--repair", FIXED_ID])
+        self.assertEqual(code, 0, output)
+        self.assertIn("cleared a fork marker", output)
+        self.assertEqual(
+            self.runtime.session_store.load(FIXED_ID)["pending_forks"], []
+        )
