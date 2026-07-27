@@ -1,4 +1,4 @@
-# SANITY — design assessment of claude-multi (2026-07-24, v2.3.0; addendum through v2.6.0)
+# SANITY — design assessment of claude-multi (2026-07-24, v2.3.0; addendum through v2.6.3)
 
 An independent-design review of the whole product: managed compositions,
 ordinary gateway mode, identity/lifecycle machinery, packaging, and the
@@ -6,6 +6,36 @@ standalone-Claude boundary. Each section poses the skeptic's question, gives
 the evidence, and states a verdict. Findings that needed action were acted on;
 the rest are named reservations, documented honestly.
 
+
+## Addendum (2026-07-27, v2.6.1 → v2.6.3)
+
+Two events closed the release arc, both validating the review model this
+assessment has been built on:
+
+- **The update flow failed its own gate — and the gate was the point.** The
+  first real candidate run (2.1.218→2.1.220) red-lit itself: promotion
+  changed the contract, then the suite's deliberate version pins failed
+  against it. The fail-closed restore worked perfectly (byte-identical,
+  twice) — the machinery did its job *including* the failure being
+  reportable and safe. The fix (D36: promotion syncs the pins in the same
+  transaction) was then proven end-to-end on the real candidate. Lesson
+  folded in: **flows that are only exercised through fakes are unverified
+  by definition** — the candidate path had 100% mocked coverage and zero
+  real runs. Real-run dogfooding is now part of the release evidence model.
+- **Two adversarial review rounds paid for themselves.** An 8-reviewer
+  fan-out found 25 real defects (fork credential revocation, token-path
+  divergence, the override-deletion downgrade, the card's missing bottom
+  reservation). The final gate then reviewed the *fixes* and caught four
+  more — including a promotion-ordering regression (lexical vs numeric
+  versions) introduced by one of the fixes, and a heal loop whose advice
+  couldn't execute. The two-round model (fan-out → fix → gate the fix
+  set) is now the documented release shape for high-risk changes; the
+  verdict chain (Revise → resolution → approve criteria) worked exactly
+  as designed.
+- **Assessment holds otherwise:** epoch discipline kept forks from ever
+  retargeting authority by itself; the simplicity budget survived (one
+  small command + one small mechanism per proven failure; dead code
+  deleted); the daemon boundary stayed read-only.
 
 ## Addendum (2026-07-27, v2.5.0 → v2.6.0)
 

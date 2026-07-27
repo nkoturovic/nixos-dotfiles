@@ -142,3 +142,27 @@ Evidence behind the checkpoint README claims. Verify before trusting.
    sandbox suite OK; package builds 2.6.2; `git diff --check` clean.
    Activated HM gen 105; doctor Ready, zero Attention; no scope-shape
    change (no repair-all needed); pin 2.1.220 verified, symlink-aligned.
+
+## v2.6.3 (same night, final gate resolved)
+
+The final gate's verdict was **Revise** — the fix set verified as correct
+and complete against all 35 findings — with four flip items, all resolved
+with regression tests:
+
+- **SF1 (should-fix):** schema-invalid overrides (valid JSON, loader-
+  rejected version shape) escaped the heal loop — kept as "not redundant"
+  while doctor said update would remove them. Now such versions count as
+  broken, and `runtime.broken_override_error` threads into `run_upgrade`
+  from all three call sites (`override_broken`) — the doctor→update heal
+  loop is proven end-to-end (test).
+- **SF2 (should-fix):** Ctrl-C messages claimed "nothing was promoted"
+  even in the post-override window; phase-neutral text at all three entry
+  points ("check `claude-multi doctor` for the effective pin state").
+- **N1:** details view admitted one line onto the reserved Status row and
+  its fixed rows were unbounded — both clamped (test).
+- **N2:** `_write_repo_file` refuses symlinked targets (test).
+
+**Evidence:** 1,323 host tests OK (2 provider-secret skips); package
+builds 2.6.3; `git diff --check` clean. Activated HM **gen 106**; doctor
+Ready, zero Attention; pin 2.1.220 verified, symlink-aligned. Commits:
+`1058133` (fix set) → `0314ba9` (gate resolution) → checkpoint commit.

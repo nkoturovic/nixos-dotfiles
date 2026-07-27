@@ -175,6 +175,23 @@ claude --session-id <uuid>            # or: --resume <uuid>
   exactly the fragile behavior that caused the incident).
 - Exact resume relies on native `--resume <uuid>` (SA L851; AV L104).
 
+**Since v2.6 (fork lifecycle, D32/D37):** a `fork`-sourced hook only appends
+to `pending_forks` (never retargets authority); a later non-fork hook that
+retargets authority ONTO a pending fork id clears that marker (reality
+resolved it). Genuine pending forks block resume/transition until adopted
+(`sessions link`) or discarded (`sessions resolve-fork`); **both decisions
+bump the parent's `launch_epoch`**, revoking the fork's baked hook
+credential (managed-id + epoch) so its later hooks cannot claim the parent
+(D37 — the still-running-parent trade-off is the relink-runtime precedent).
+The pending cap never evicts silently: the 17th distinct fork hook fails
+visibly. Resume flows converge resolved-by-reality markers at action
+paths; display paths (picker, doctor) keep them visible until acted on.
+
+**Since v2.6 (invalid contract override):** an override that fails the
+strict load (JSON/schema/secret scan) is never applied — the runtime
+degrades to the packaged baseline and doctor reports it as BLOCKED with
+the fix command; `claude-multi update` removes the broken file (D37).
+
 ## 6. Classification of every adjacent surface (Q5)
 
 | Surface | Behavior in final design |
@@ -206,6 +223,9 @@ claude --session-id <uuid>            # or: --resume <uuid>
    the current resume authority is Attention (lazy state —
    `--repair-all`/`converge_pending_forks` clears it), while a genuine
    pending fork is reported with the adopt/discard commands (D32).
+8. Contract source + override health: an invalid override is reported as
+   BLOCKED (packaged baseline in effect; `update` heals it); a
+   strictly-newer valid override is info with the override marker (D37).
 
 ## 8. Catalog/schema changes
 

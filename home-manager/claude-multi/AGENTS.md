@@ -32,7 +32,7 @@ pointed at it:
 
 Current default composition: **Opus 5 lead** (Sol preferred variants, Kimi
 alternates, opus5 native reviewer alternate); the trusted catalog pins Claude
-**2.1.218** as the verified binary.
+**2.1.220** as the verified binary.
 
 Launch argv (durable mode): `claude --session-id|--resume <runtime-id>
 --name cm:<comp>|cg:<model> --settings <scope>/settings.json --model <lead>
@@ -60,7 +60,10 @@ Two modes:
    contract is the reviewed baseline, and a strictly-newer operator override
    (`~/.config/claude-multi/native-contract.json`, written only by
    `claude-multi update` after its evidence gate) wins while newer — the
-   packaged bundle hash never reflects the override.
+   packaged bundle hash never reflects the override. An **invalid** override
+   is never applied: the runtime degrades to the packaged baseline and
+   doctor BLOCKs with the fix command (`claude-multi update` removes the
+   broken file); it never bricks the CLI (D37).
 2. **Two UUIDs, not one.** `managed_id` keys claude-multi state (record file,
    scope, pointer, locks). `runtime_session_id` is the authoritative native
    `--resume` target, reconciled from SessionStart hook metadata
@@ -74,9 +77,16 @@ Two modes:
    block resume/transition until the operator adopts
    (`sessions link`, which strips the parent's marker) or discards
    (`sessions resolve-fork`; metadata-only, transcript kept);
+   **both decisions bump the parent's `launch_epoch`, revoking the fork's
+   baked hook credential** so its later hooks cannot migrate the parent's
+   authority into the fork's lineage (D37; trade-off: a still-running
+   parent app reconciles on its next launcher resume — the relink-runtime
+   precedent). The cap never evicts silently: the 17th distinct fork hook
+   fails visibly. Resume flows converge resolved-by-reality markers at
+   action paths (plan/resume guards); display paths keep them visible.
    `doctor --repair-all` converges the stale-authority case; every
    fork-blocked message names the fork UUID + exact commands
-   (`sessions.pending_fork_message`, single source).
+   (`sessions.pending_fork_message`, single source, ordinary-aware).
 3. **Never embed volatile paths in scope content.** Package/store paths
    change on every rebuild → mass scope mismatch (the 2026-07-24 incident).
    Hooks invoke `<state>/bin/claude-multi-hook`, refreshed by every launcher
@@ -126,15 +136,15 @@ Two modes:
 | --- | --- | --- |
 | `state.py` | atomic writes, private dirs, FileLock | symlink-safe; `CommittedStateError`; lock fd `O_CLOEXEC` |
 | `strict_json.py` | strict JSON + canonical bytes | dup-key rejection, size limits; `canonical_file_bytes` (state), `pretty_file_bytes` (user-facing docs) |
-| `sessions.py` | schema-v3 records, store, pointers, locks, adoption, reconcile | `_normalize_legacy_record` is side-effect-free on read; `transition_record` (generation+1) vs `refresh_record_snapshot` (same composition, catalog drift absorbed) |
+| `sessions.py` | schema-v3 records, store, pointers, locks, adoption, reconcile | `_normalize_legacy_record` is side-effect-free on read; `transition_record` (generation+1) vs `refresh_record_snapshot` (same composition, catalog drift absorbed); fork lifecycle: `pending_fork_message` (single message source), `drop_resolved_pending_forks`/`converge_pending_forks`, `resolve_fork` + `link` epoch-bump revocation (D37), 17th-fork visible failure |
 | `composition.py` | resolve/snapshot compositions | scalar = min explicit `scalar_tokens`; capacity narrows to strictest provider bound; trigger = (capacity−20K)×90% |
 | `compiler.py` | pure launch plan (argv/env/lead prompt) | durable requires scope_dir **and** hook_command (fails closed); never PATH-fallbacks |
 | `scope.py` | scope plan/write/gate, hook + token shims | `resolve_hook_command`/`ensure_hook_shim`/`hook_shim_path`; shim chmod repaired unconditionally; `ensure_token_helper_command`/`gateway_token_shim_path` (apiKeyHelper); `CatalogMeta.gateway_base_url`; exact `cm-*` collision gate |
 | `launch.py` | verify→readiness→state→execve | full-hash binary check every launch; CAS cleanup; `precommitted` epoch rule for transition relaunches |
 | `transition.py` | diff, generation swap, converge | record loaded inside the lock; `converge()` = doctor repair (managed+ordinary, refresh+recompile); convert resolve failures to `TransitionError` |
-| `cli.py` | commands, TUI screens, Runtime, doctor | Runtime init refreshes both shims (`hook_command`, `token_helper_command`); report commands write to stdout (`_STDOUT_REPORT_COMMANDS`), interactive flows to the tty; the card carries the health strip (one gateway check per open) and the update badge (U/H actions); the sessions screen renders ⚠ fork / ● live (daemon pty-socket glob, best-effort) markers with the X resolve-fork action |
-| `upgrade.py` | evidence-gated re-pin (`update`) | detect → offline inspect → promote → suite → override; byte-exact restore on any failure; redundant overrides removed when the baseline catches up; whole flow serialized through a FileLock sibling of the override; `progress` callback emits per-phase lines |
-| `tui.py` | curses widget layer | every external string through `visible_text`; `read_key` does not re-merge Alt+chords (ncurses splits them by design); Esc is the only exit key; uniform col-2 margin; KeyBar wraps upward (≤2 rows), never clips — screens must reserve `KeyBar.rows(width)` above it or it overdraws the message row |
+| `cli.py` | commands, TUI screens, Runtime, doctor | Runtime init refreshes both shims and degrades a broken contract override to packaged + `broken_override_error` (doctor BLOCKs; never applied); report commands write to stdout, interactive flows to the tty; the card reserves the keybar+Status zone up front and carries the health strip + update badge; the sessions screen renders ⚠ fork / ● live markers with the X resolve-fork action and has a minimum-size floor; resume paths self-heal resolved-by-reality fork markers |
+| `upgrade.py` | evidence-gated re-pin (`update`) | detect (version-key ordered, invalid candidates skipped) → offline inspect → promote + version-pin sync (boundary-anchored) → suite → override; crash-atomic `_write_repo_file` for promotion AND restore; redundant override removed only when ≤ packaged baseline (`packaged_contract`, `override_broken`); `--activate` retries land the baseline; FileLock-serialized; `[N/M]` progress + heartbeat |
+| `tui.py` | curses widget layer | every external string through `visible_text`; `read_key` does not re-merge Alt+chords (ncurses splits them by design); Esc is the only exit key; uniform col-2 margin; KeyBar wraps upward (≤2 rows) and past that compacts middle bindings behind an ellipsis — the exit binding is unclippable; screens must reserve `KeyBar.rows(width)` above the bar |
 | `catalog.py` | trusted JSON load + validate | closed schemas; `version.json` single source of version |
 | `render.py` | gateway YAML | secrets resolve only at runtime into mode-0600 artifacts |
 | `proxy.py` | gateway process control | loopback only; token file 0600 |

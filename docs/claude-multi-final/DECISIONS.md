@@ -419,6 +419,15 @@ hardening set; every fix carries a regression test:
   instead of bricking every command — it is still never applied (D29),
   and `claude-multi update` now actually reaches the removal path that
   heals it.
+- **Final gate (2.6.3):** the closing cross-family verdict was Revise with
+  four items, all resolved: schema-invalid overrides (valid JSON, rejected
+  version shape) escaped the heal loop — they now count as broken and the
+  runtime's `broken_override_error` threads into `run_upgrade` from every
+  call site, so doctor's "update removes it" advice actually resolves
+  (SF1); interrupt messages were phase-inaccurate in the post-override
+  window — now phase-neutral at every entry point (SF2); the details view
+  admitted one line onto the reserved Status row and its fixed rows were
+  unbounded (N1); the repo-file writer refuses symlinked targets (N2).
 
 ## User decision summary (what you're approving by accepting this design)
 

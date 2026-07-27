@@ -64,6 +64,15 @@ the exact `$EDITOR` command — no second interactive implementation.
   the exit binding is always fully visible. A bar may occupy up to 2 rows;
   screens reserve `KeyBar.rows(width)` above the bar so the message row is
   never overdrawn (2.6.0, after the sessions keybar grew the X binding).
+  **Past 2 rows (2.6.2):** middle bindings compact behind an `…` ellipsis
+  on the top row and the exit binding always gets the bottom row — the
+  "exit never clips" contract holds at any width.
+- **Bottom-zone reservation is computed, never assumed (2.6.2):** screens
+  with a Status/message block above the keybar reserve it up front
+  (`bottom = height - bar_rows`); optional rows drop first at small
+  sizes, and the Status/BLOCKED badge plus the first error line survive
+  down to the floor. The sessions screen has a hard minimum-size floor
+  (below 14 rows / 44 cols it shows a resize note instead of overdrawing).
 - **Health surface on the card (2.4.1):** one loopback gateway check per
   card open (never per redraw) drives the `health` strip (gateway status +
   pin state, with an operator-override marker); when a newer Claude is

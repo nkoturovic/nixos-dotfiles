@@ -299,6 +299,11 @@ transcripts (always untouched).
   Use `claude-multi -r`.
 - **`doctor` says BLOCKED** — read the lines: each names the session and the
   fix (usually `claude-multi doctor --repair-all`). `Attention` is not damage.
+- **"`contract override is invalid and was IGNORED"`** — the operator pin file
+  (`~/.config/claude-multi/native-contract.json`) is corrupt; it is never
+  applied (the packaged baseline is in effect), and one command heals it:
+  `claude-multi update` (removes the broken file; re-run U afterwards if a
+  newer Claude is still waiting).
 - **Opus 4.8 vs Opus 5** — Opus 5 is the default lead and the canonical
   Opus default (`ANTHROPIC_DEFAULT_OPUS_MODEL`). Opus 4.8 stays in the
   catalog for existing sessions and Anthropic's own safety fallback; no
