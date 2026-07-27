@@ -11,8 +11,6 @@ below are inherited from the previous checkpoint and still binding.
   **successful model call** (roster intact was already observed; the
   2026-07-27 incident proved files ≠ routing). Record the observation in
   STATUS.md.
-- **Re-pin to Claude 2.1.220 when ready:** `claude-multi update` (or U on
-  the card) — now with live phase narration. Dogfoods D34.
 - **Opus 5 near-limit acceptance:** unchanged — when an Opus-5-led session
   approaches the 1M capacity, confirm reactive compaction at the bound,
   then promote `qualification` in `catalog/models.json` (Kimi waits on the
@@ -20,7 +18,7 @@ below are inherited from the previous checkpoint and still binding.
 
 ## Soon
 
-- **Same-context-family `/model` (candidate D36, parked).** Widening the
+- **Same-context-family `/model` (candidate D37, parked).** Widening the
   managed `/model` fence to all catalog models is rejected (compaction
   triggers are per-model — a smaller-context model behind a 1M trigger is a
   session killer). The narrow version — allowing models that share the

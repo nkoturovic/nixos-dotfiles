@@ -1,6 +1,6 @@
 # claude-multi — final architecture (active)
 
-Status: **2.6.0 activated** (2026-07-27, HM gen 103; Opus 5 default lead; fork lifecycle operable; durable gateway routing; doctor Ready).
+Status: **2.6.1 activated** (2026-07-27, HM gen 104; Opus 5 default lead; fork lifecycle operable; durable gateway routing; update flow proven live; Claude 2.1.220 pinned; doctor Ready).
 Owner: cm-lead (integration). Started: 2026-07-22.
 
 This folder is the **active** design/implementation package for the claude-multi

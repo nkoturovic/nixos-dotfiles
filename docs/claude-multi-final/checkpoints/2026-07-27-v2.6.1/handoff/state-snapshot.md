@@ -1,4 +1,4 @@
-# State snapshot — 2026-07-27 · v2.6.0
+# State snapshot — 2026-07-27 · v2.6.1
 
 Evidence behind the checkpoint README claims. Verify before trusting.
 
@@ -69,3 +69,49 @@ Evidence behind the checkpoint README claims. Verify before trusting.
 - The zombie fork process (`707e80d4`, pre-fix, env-scrubbed) may still be
   hosted by the daemon until the operator exits it — harmless (API calls
   fail in it), and its transcript is the live branch of `58c87cef`.
+
+## v2.6.1 (same day, evening): the update flow's first real candidate
+
+1. The operator ran `claude-multi update` for the 2.1.220 candidate — the
+   flow's candidate path had never run live before. It **failed its own
+   evidence gate**: promotion changed the contract, then the suite's
+   deliberate version pins (validated-version/SHA/path literals,
+   `inspected_at`, `catalog_version`) failed against the new contract
+   (7 failures). Fail-closed restore left the repo byte-identical — twice
+   (the operator's run and one reproduction).
+2. **D36 fix:** promotion now syncs those literals in the same transaction
+   (backup/restore included; the decoupled per-model `floors` minimums
+   untouched); one widget test made hermetic instead. Progress became
+   phase-numbered `[N/M]` with a 15s heartbeat during long subprocess
+   phases (plain lines — identical on TTY/pipe/captured streams).
+3. **Proven end-to-end:** the fixed flow ran against the real 2.1.220
+   candidate — literals synced, suite green (1,237), override written,
+   heartbeat lines observed live. HM gen 104 then landed the packaged
+   2.1.220 baseline; the redundant override was removed by the designed
+   cleanup. Doctor: Ready, zero Attention; pin 2.1.220 hash-verified,
+   symlink-aligned.
+
+## §flows — live flow verification (2.6.1, metadata-safe)
+
+- `sessions list`: markers render; ● correctly flags the daemon-hosted
+  fork session; `sessions show` clean on the cleared records.
+- resolve-fork error path: actionable message, exit 2.
+- `claude-multi -r <id> --print-launch` and `claude-gateway --model sol
+  --print-launch`: plans compile against the verified binary, correct
+  scope/model/name argv (no exec).
+- Transition `opus-sol → kimi-sol`: semantic diff correct (variant
+  add/remove, lead change, catalog-drift note); abort left the record
+  byte-untouched (verified composition + generation).
+- Adoption guard: a nonexistent UUID is refused with an actionable
+  message (help text corrected to match the metadata check).
+- `compose list/show`: 7 profiles, summary renders; `models` table ok.
+- `update`: full real run green (above); `update` again afterwards →
+  "nothing to re-pin" + redundant-override cleanup (idempotent).
+
+## Docs added this cycle
+
+- `STANDALONE.md`: plain-Claude machine setup (installer layout, HM-owned
+  integration, state/secrets map), the daemon model, native forks, the
+  update channel, which-tool-when, and the never-touch boundaries.
+- `USAGE.md`: composition-management section (all compose subcommands),
+  standalone pointers; validation claims verified against the code.

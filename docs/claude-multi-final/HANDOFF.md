@@ -56,21 +56,23 @@ untouched; `claude-gateway` is the ordinary non-composition entrypoint.
 
 ## Installed state (2026-07-27)
 
-- claude-multi **2.6.0** active (HM generation 103; rollback: gen 102/101).
+- claude-multi **2.6.1** active (HM generation 104; rollback: gen 103/102),
+  Claude pinned at **2.1.220** (hash-verified, symlink-aligned; the update
+  flow proved itself end-to-end against the real candidate).
   Fork lifecycle operable (⚠/● markers, X resolve, `sessions resolve-fork`),
   gateway routing durable across daemon takeovers (apiKeyHelper shim),
   updates narrate per phase and serialize through a lock.
 - **Opus 5 is the default lead** (default = opus5+sol+kimi; profiles
   `opus-sol`, `opus-kimi`, `fable`, `kimi-sol`, `qwen-sol`, `sol-direct`
   all live); gateway serves `claude-opus-5` and `claude-multi-opus-5`
-  (CLIProxy registry patched); binary pinned at 2.1.218 and symlink-matched.
-- `claude-multi doctor` → **Ready**; 17 durable sessions; one Attention
-  line for the 2.1.220 upstream release (re-pin via U / `update` when ready).
+  (CLIProxy registry patched); binary pinned at 2.1.220 and symlink-matched.
+- `claude-multi doctor` → **Ready, zero Attention lines**; 17 durable
+  sessions; flows re-verified live (checkpoint state-snapshot §flows).
 - Claude updates are routine: the card badge or doctor Attention appears →
   press **U** (or `claude-multi update`) → instant effect via the operator
   override (`--activate` for the baseline refresh).
 - Full evidence and census: the current checkpoint's
-  [`handoff/state-snapshot.md`](checkpoints/2026-07-27-v2.6.0/handoff/state-snapshot.md).
+  [`handoff/state-snapshot.md`](checkpoints/2026-07-27-v2.6.1/handoff/state-snapshot.md).
 
 ## Composition: qwen-sol
 
@@ -111,7 +113,7 @@ Token Plan `apps/anthropic`, bearer auth, key in
 
 ## Open items (as of 2026-07-27)
 
-Ordered in the current checkpoint: [`checkpoints/2026-07-27-v2.6.0/handoff/open-items.md`](checkpoints/2026-07-27-v2.6.0/handoff/open-items.md).
+Ordered in the current checkpoint: [`checkpoints/2026-07-27-v2.6.1/handoff/open-items.md`](checkpoints/2026-07-27-v2.6.1/handoff/open-items.md).
 
 ## Where things live
 
