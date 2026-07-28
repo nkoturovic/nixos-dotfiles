@@ -278,8 +278,22 @@ full): run with a disk-backed temp dir, e.g.
   as a newer launch and will reject the real session's hooks as stale** (this
   mistake has been made once — restore the record's epoch by editing the JSON
   if it happens).
+- **Wire-level routing truth (D39):** `journalctl --user -u cli-proxy-api
+  --since "2 hours ago" | grep selector.go` — every request's
+  `session=… auth=… model=…` binding. A `cm-*-sol-*` dispatch must produce
+  `model=gpt-multi-sol-*`; anything else means degraded dispatch (see D39).
+- **Process forensics (metadata only):** `ps -eo pid,etime,args | grep
+  "[c]laude.*<uuid>"` for launch binding; `/proc/<pid>/environ` by name/count
+  only (`grep -cE '^ANTHROPIC_(BASE_URL|AUTH_TOKEN)='`), never values.
 - `claude-multi-dev probe …` — dev-only disposable-fixture harness; loopback
-  fake provider; daemon-domain gate; live-domain tripwire.
+  fake provider; daemon-domain gate; live-domain tripwire. The delegation
+  probe asserts subagent wire models against the production-shaped fence
+  (D39 radar).
+- **Reusable skills (user-level, discovered as `~/.claude/skills/`):**
+  `model-routing-debug` (named-vs-actual verification incl. the degraded
+  playbook), `session-forensics` (metadata-only session inspection + safe
+  record surgery), `gateway-ops` (CLIProxy health, parity, restart rule,
+  journal patterns). Follow them before inventing ad-hoc procedures.
 
 ## 8. Known limitations / open items
 

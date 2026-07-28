@@ -31,6 +31,12 @@ untouched; `claude-gateway` is the ordinary non-composition entrypoint.
   unified picker (managed + native; **L** adopts, **C** filters by cwd,
   **X** resolves a fork; row markers **●** = live/background-owned,
   **⚠** = fork-blocked).
+- **Debug skills (reusable, in `~/.claude/skills/`):** `model-routing-debug`
+  (named-vs-actual verification: gateway selector journal, process argv,
+  scope fence, the degraded-dispatch playbook), `session-forensics`
+  (metadata-only session inspection, fork/● workflows, safe record
+  surgery), `gateway-ops` (health, config parity, restart rule, journal
+  patterns, new-model checklist). Use them before inventing ad-hoc steps.
 - Native forks (a session forked by reattaching to a background-owned
   session) block the parent's resume until decided: **X** in the picker,
   `sessions resolve-fork <parent> <fork>` to discard, or `sessions link
