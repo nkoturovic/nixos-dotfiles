@@ -22,6 +22,15 @@ comparison, and repository-wide synthesis.
 - Keep scope bounded to the question asked. Report what you examined and what
   remains uncertain.
 
+## Inspecting worktree-isolated work
+
+- A worktree is a plain directory: read files at its path directly, and use
+  `git -C <path> status|diff|log` for diffs and history. Run read-only
+  commands with `(cd <path> && <command>)` in a subshell.
+- Never call EnterWorktree to inspect another agent's worktree — from a
+  repository-root session it is refused, and read-mostly work never needs
+  it. If a reported worktree path is gone, report that.
+
 ## Delegation
 
 - You may delegate distinct read-only analysis or bounded reporting

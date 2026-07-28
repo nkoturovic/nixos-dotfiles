@@ -490,6 +490,57 @@ candidate open item if a wire-level mapping is ever wanted); doctor
 converge regenerates scopes only — the lead appendix is rewritten on
 every launch, which is the correct heal point.
 
+**D40 — Worktree review happens from the outside; EnterWorktree is never
+required (2.7.2).** Evidence (2026-07-28, operator-reported): a reviewer
+subagent dispatched to review another leg's worktree-isolated work failed
+with `Cannot enter worktree: the current working directory
+…/occams-agent-flow is the repository root, not an isolated worktree —
+switching is only available to sessions whose working directory is inside
+a worktree of this repository`. Root cause is a shape mismatch, not a
+bug in any claude-multi code: `roles.json` gives cm-implementer
+`isolation: "worktree"` while reviewers/analysts run at the repository
+root; when a read-mostly agent reaches for the native `EnterWorktree`
+tool to "enter" the implementer's worktree, the pinned binary (2.1.220)
+refuses root→worktree switching (newer harness documentation describes
+first-entry-from-launch-dir as allowed — the native tool's semantics
+drift between versions, so neither behavior may be relied upon). The
+decision is a contract fix in `catalog/prompts/`, no machinery: a
+worktree is a plain directory, and read-mostly agents never need to
+enter it — read files at its path directly, `git -C <path>
+status|diff|log` for the change, `(cd <path> && <command>)` for checks;
+cm-implementer now closes its report with the worktree path, branch,
+base ref, and committed-state (implementers do not commit unless told,
+so uncommitted work is the normal case) and leaves the worktree in
+place; cm-lead passes those coordinates when dispatching review or
+analysis, and integrates from its own root — committed work via the
+branch, uncommitted work via `git -C <path>` export after a
+`status --short` check (tracked-only pipeline; untracked files are
+copied by path or committed first).
+Rejected: permission denies on EnterWorktree (over-reach — blocks
+legitimate native flows and cannot distinguish intent); spawning
+reviewers with worktree isolation so they could hop (a wasted worktree
+per reviewer, previously-visited worktrees become non-writable, and
+hopping is only defined for worktrees under `.claude/worktrees/`);
+patching or wrapping the native tool (the binary is hash-verified
+upstream, out of bounds by doctrine). Catalog content changed, so
+catalog_version 8 / launcher 2.7.2; keyword pins in
+`tests/test_roles.py` lock the guidance in and the scope goldens were
+re-blessed. Heal semantics: every durable launch — fresh or resume —
+rewrites both the lead prompt file (static body + appendix, atomically)
+and the full durable scope from the installed catalog, so after
+installing 2.7.2 a plain resume picks up the new guidance with no
+converge; `doctor --repair-all` and transitions are additional
+convergence paths, useful for sessions that are never resumed.
+Already-running (live) sessions keep their old roster prompts until
+restarted — the failure mode is benign (the old refusal error) rather
+than corrupting. En
+passant: the sandbox derivation staged only the package tree, so the
+manifest-consistency file-existence test could never pass in the sandbox
+(pre-existing since the test's introduction); `tests/default.nix` now
+stages the repo-shaped layout — patch files copied next to the tree from
+the manifest itself (single source of truth), copies not symlinks
+because `Path.resolve()` derefs them, `stripHash` for store-path names.
+
 ## User decision summary (what you're approving by accepting this design)
 
 1. Selected agents become **real files** in a per-session scope; the failure

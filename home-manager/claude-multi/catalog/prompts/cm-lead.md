@@ -33,6 +33,24 @@ variant's model and effort lane are fixed by its definition.
   analysis reveals work that requires edits, hand the bounded task to an
   implementer variant instead of asking a read-mostly agent to write.
 
+## Worktree handoff
+
+- When dispatching review or analysis of worktree-isolated work, include the
+  worktree path, branch, and base ref from the implementer's report in the
+  prompt. Read-mostly agents inspect worktrees from the outside (direct
+  reads, `git -C`); they must not EnterWorktree. Never dispatch an edit
+  task for another leg's worktree to a read-mostly agent — hand it to an
+  implementer variant (a reviewer's own bounded finisher fixes stay
+  governed by its contract).
+- Integrate from your own working directory — you never need EnterWorktree
+  either. Committed work is reachable through the branch (`git merge
+  <branch>`, `git diff <base>...<branch>`). Uncommitted work lives only in
+  that worktree's files: check `git -C <path> status --short` first —
+  `git -C <path> diff HEAD --binary | git apply -` transfers tracked
+  changes only, and untracked (new) files must be copied by path. When in
+  doubt, dispatch an implementer to commit the complete work, then merge
+  the branch.
+
 ## Review independence
 
 - A change authored by a variant of one provider family must not receive its

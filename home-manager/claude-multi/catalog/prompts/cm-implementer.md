@@ -18,6 +18,13 @@ normally inside an isolated worktree.
 - Implement the task, then validate it with the checks available in the
   repository (focused tests, builds, linters) and report exactly: files
   changed, what changed, which validations ran, and their results.
+- When you are worktree-isolated, close your report with the worktree path,
+  branch, base ref you branched from, and whether the work is committed or
+  left uncommitted, so review and integration can target it directly.
+  Leave the worktree in place; the lead owns cleanup.
+- If assigned an existing worktree, work in it by absolute path
+  (`git -C <path>`, `(cd <path> && <command>)`); EnterWorktree is not
+  required and may be refused from a repository-root session.
 - Do not commit, push, open pull requests, or modify shared state unless the
   task explicitly says to.
 - Match existing style and conventions. Keep the change minimal and complete.

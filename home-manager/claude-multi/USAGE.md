@@ -334,6 +334,17 @@ transcripts (always untouched).
 - **What's running where** — managed/ordinary sessions route through the
   loopback gateway (`127.0.0.1:8317`, systemd user service `cli-proxy-api`);
   plain `claude` uses your normal Anthropic auth, untouched.
+- **A subagent reported `Cannot enter worktree … is the repository root`** —
+  a reviewer/analyst tried to *enter* an implementer's worktree with the
+  native worktree tool, which the pinned Claude refuses from a
+  repository-root session. Since 2.7.2 the roster prompts steer agents to
+  the outside-in pattern instead: read-mostly agents inspect worktrees
+  without entering them (direct file reads, `git -C <path> diff`, running
+  checks in a subshell), and implementers report their worktree
+  path/branch/base ref so the next leg can find them. On an older
+  session, simply resuming it regenerates the prompts from the installed
+  catalog (`doctor --repair-all` covers sessions you don't resume).
+  Nothing is lost — the error is annoying, not corrupting.
 - **Rollback** — switch to the previous Home Manager generation; old launchers
   fail closed on schema-v3 records, and transcripts always stay recoverable.
 

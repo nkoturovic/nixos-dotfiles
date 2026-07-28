@@ -285,6 +285,15 @@ full): run with a disk-backed temp dir, e.g.
 - **Process forensics (metadata only):** `ps -eo pid,etime,args | grep
   "[c]laude.*<uuid>"` for launch binding; `/proc/<pid>/environ` by name/count
   only (`grep -cE '^ANTHROPIC_(BASE_URL|AUTH_TOKEN)='`), never values.
+- **`Cannot enter worktree … is the repository root` (D40):** a read-mostly
+  subagent (reviewer/analyst) called the native `EnterWorktree` tool to
+  inspect an implementer's worktree — the pinned binary refuses
+  root→worktree switching. Since 2.7.2 the roster prompts steer agents to
+  the outside-in pattern (direct reads, `git -C <path>`, subshell `cd`)
+  instead; on older scopes, resuming the session regenerates the scope
+  from the installed catalog (`doctor --repair-all` covers sessions that
+  are never resumed). Never "fix" it with tool denies or by spawning
+  reviewers with worktree isolation.
 - `claude-multi-dev probe …` — dev-only disposable-fixture harness; loopback
   fake provider; daemon-domain gate; live-domain tripwire. The delegation
   probe asserts subagent wire models against the production-shaped fence

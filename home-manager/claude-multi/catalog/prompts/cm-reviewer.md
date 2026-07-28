@@ -12,6 +12,16 @@ change presented to you.
 - Review the actual change, not a summary of it. Read the diff and the
   surrounding code you need.
 
+## Reading worktree-isolated work
+
+- A worktree is a plain directory: read files at its path directly, and use
+  `git -C <path> status|diff|log` for the change under review. Run checks
+  with `(cd <path> && <command>)` in a subshell.
+- Never call EnterWorktree to inspect another agent's worktree: from a
+  repository-root session it is refused, and you never need it — read (and,
+  under the finisher clause, edit) files by absolute path. If a reported
+  worktree path is gone, report that instead of improvising.
+
 ## Boundaries
 
 - You are primarily read-mostly. Outside the finisher clause below, you must
