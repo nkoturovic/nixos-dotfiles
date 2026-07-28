@@ -1,4 +1,4 @@
-# State snapshot — 2026-07-27 · v2.7.0
+# State snapshot — 2026-07-27 · v2.7.0 (+2026-07-28 v2.7.1)
 
 Evidence behind the checkpoint README claims. Verify before trusting.
 
@@ -204,3 +204,36 @@ the review agent's redaction slipped and the live Kimi/Qwen provider keys
 were printed into its local transcript (mode-0600 transcript dir, this
 machine only). Rotate `KIMI_CLAUDE_API_KEY` and `QWEN_CLAUDE_API_KEY` if
 transcripts are ever synced or shared.
+
+## 2026-07-28 · v2.7.1 — the routing incident and its fix (D39)
+
+**Found by the operator, triple-confirmed:** the D24 lead-only
+`availableModels` fence silently degraded ALL subagent dispatch to the
+lead model (SA L242-251 documents the silent skip-and-inherit chain):
+355 transcript entries of `cm-reviewer-sol-xhigh` running
+`claude-multi-kimi-k3`, zero `gpt-multi` in 12h of gateway journal, and
+an Opus-5-led session running everything as Opus 5. Cross-family review
+independence was void in practice; per-agent effort executed on the
+wrong model too.
+
+**Fix:** `availableModels` = lead + every roster selector (dedup, lead
+pinned). Radar: the offline delegation probe asserts the subagent's wire
+model through the production-shaped fence on the pinned binary every
+build (positive + lead-only negative control); U5 acceptance flipped to
+**verified**; doctor audits `CLAUDE_CODE_SUBAGENT_MODEL` in user/project
+settings (the last flattening vector).
+
+**Live acceptance (this section is the proof):** activated HM gen 108;
+`doctor --repair-all` converged all 17 scopes to the roster pool; the
+EXACT converged scope bytes of session 58c87cef were then executed
+through the pinned 2.1.220 binary against the fake provider — the wire
+showed `claude-multi-opus-5` (lead) and `gpt-multi-sol-high` (the
+subagent's declared selector). Pre-fix, both would have been the lead.
+Process note (honest accounting): the first verification attempt passed
+the live settings including `env.ANTHROPIC_BASE_URL`, which pointed the
+probe at the REAL gateway and caused two real provider requests (one
+turn, one follow-up) before the env was stripped — bounded, logged here
+per the working agreements.
+
+Evidence: 1,339 host tests OK (2 skips); focused cross-family review:
+approve; package builds 2.7.1; doctor Ready, zero Attention.
