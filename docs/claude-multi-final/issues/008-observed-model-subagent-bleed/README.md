@@ -43,6 +43,30 @@ visible everywhere (card, doctor, gate).
 3. Whether the `compact` source specifically carries the compaction
    turn's model vs the session model.
 
+## Mechanism (verified from code, 2026-07-29)
+
+The shim's SessionStart handler (`cli.py:_handle_session_event`) reads
+`payload.model`; for managed sessions it reconciles only when the model
+equals the lead's wire/selector — anything else lands in
+`observed_model` (by design, to catch real `/model` switches). Claude
+Code reports the model **of the context the event fired in** — and at
+2.1.220 subagents fire their own lifecycle events (`hook_agent` is a
+known querySource). A compacting Sol subagent (the first D40 reviewer
+logged 277K tokens against Sol's 316,800 reactive trigger — it did
+compact) emits SessionStart(source=compact) with ITS model; the shim,
+invoked with the parent's `--managed-id`, attributes it to the parent
+record. Everything observed follows: only sessions with compacting
+subagents get flagged; the observed model is always a roster selector;
+source is always "compact".
+
+**Why the naive fix is wrong:** ignoring roster-selector models would
+also hide a REAL `/model` switch to a roster model (D39's documented
+escape hatch — backstopped by exactly this machinery). The fix must
+distinguish the EVENT CONTEXT (agent vs main session), not the model
+value — pending the payload-shape probe (does the compact payload carry
+an agent/context marker? Offline probe against the pinned binary can
+answer it).
+
 ## Interim
 
 Model-only repair-needed is benign and self-healing: the next launcher
