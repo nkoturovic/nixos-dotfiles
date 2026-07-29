@@ -583,7 +583,16 @@ corrupting the refusal text); relink guidance shell-quotes paths and
 points model-only drift at the launcher reconcile instead of a no-op
 bare relink; transcript-elsewhere decodes the real project path for an
 exact `--cwd`; enforcement moved ahead of the launch-callback seam;
-`direct --force` is placement-equivalent (SUPPRESS).
+`direct --force` is placement-equivalent (SUPPRESS). Hardening
+(per-issue re-review round): the card's embedded picker no longer
+treats ordinary records as managed (a KeyError crash — it branches to
+`prepare_direct` like the standalone picker); Stop & resume grants no
+force exemption — the mandatory gate re-evaluates liveness fresh at the
+launch boundary, so a stop racing a relaunch is caught rather than
+bypassed; stop precheck targets the exact runtime it will stop (a live
+historical alias no longer authorizes it); the ordinary model-only
+prepare error routes through the same helper; the implementer report
+distinguishes committed/uncommitted/mixed.
 
 **D42 — Recovery policy: watchdog retry pin, gateway retry rejected,
 resume-over-redispatch (2.8.0).** Evidence (2026-07-29, operator-reported
