@@ -66,7 +66,7 @@ untouched; `claude-gateway` is the ordinary non-composition entrypoint.
 
 ## Installed state (2026-07-29)
 
-- claude-multi **2.8.3** active (HM generation 113; rollback: gen 112/111),
+- claude-multi **2.8.4** active (HM generation 114; rollback: gen 113/112),
   Claude pinned at **2.1.220** (hash-verified, symlink-aligned).
   Resume gate live (D41): repair-needed records get one-keypress Repair &
   resume in the TUI, daemon-owned resumes gate with Stop & resume /
@@ -81,11 +81,12 @@ untouched; `claude-gateway` is the ordinary non-composition entrypoint.
   (CLIProxy registry patched); binary pinned at 2.1.220 and symlink-matched.
 - `claude-multi doctor` → **Ready** (all 18 durable scopes on catalog 11 + D44 shim guard;
   watchdog pin + roster prompts live; D43 radar in the suite).
-  Issue 008 resolved in 2.8.3 (D44): MANAGED compact events no longer
-  contribute model/cwd evidence (the production bleed case), and
-  marker-bearing agent-context events are ignored. Ordinary sessions
-  keep compact-model reconciliation — an unmarked compact bleed there
-  is the accepted residual (issues/008).
+  Sessions screen sorts by last used with the created age alongside
+  (2.8.4; width-tiered). Issue 008 resolved in 2.8.3 (D44): MANAGED
+  compact events no longer contribute model/cwd evidence (the
+  production bleed case), and marker-bearing agent-context events are
+  ignored. Ordinary sessions keep compact-model reconciliation — an
+  unmarked compact bleed there is the accepted residual (issues/008).
 - Claude updates are routine: the card badge or doctor Attention appears →
   press **U** (or `claude-multi update`) → instant effect via the operator
   override (`--activate` for the baseline refresh).
