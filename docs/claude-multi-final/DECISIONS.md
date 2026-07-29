@@ -692,6 +692,42 @@ behavioral branches (compact inadmissibility, no-clear of a legit flag,
 marker branch on synthetic shapes, ordinary preserved, resume still
 observed).
 
+**D45 — GLM-5.2 joins the qwen provider as a first-class model (2.9.0).**
+Zhipu's GLM-5.2 is served by the same Alibaba Token Plan endpoint as
+qwen3.8 (`apps/anthropic`, bearer `QWEN_CLAUDE_API_KEY`), so it lands as
+a `glm52` model under the existing `qwen` provider — no new provider,
+no new secret, no gateway topology change. Evidence: the HF model card
+(1M context; evaluation configurations up to 163,840 generated tokens —
+a serving-level output cap is not separately attested; text-only;
+`reasoning_effort` parameter) plus a user-approved canary against the
+production endpoint — HTTP 200 with a default-on thinking block for
+wire id `glm-5.2`. Catalog: wire
+model `glm-5.2`, selector `claude-multi-glm52-max[1m]`, capabilities
+lead+agents, single lane **max** (`agent_effort: max`) carrying the new
+`reasoning-effort-max` payload contract, which renders as a
+`reasoning_effort: "max"` payload override bound to the glm52 alias in
+the qwen `claude-api-key` section. Independence family is `alibaba`
+(same as qwen38): cross-family review requirements are unaffected —
+Sol/Kimi remain the cross reviewers for GLM-authored work. Context:
+1M attested per the opus5 pattern (`provider_tokens` 1,000,000,
+`validated_tokens` 200K floor, near-limit qualification text). No
+CLIProxy registry patch is needed: third-party aliases enumerate through
+`claude-api-key` sections, unlike the anthropic-registry opus-5 route.
+Minimum tested Claude floor is 2.1.216 (the qwen38 floor — glm52 needs
+nothing newer). User compositions `glm-sol` (GLM lead, Sol preferred,
+GLM alternates — the qwen-sol shape) and `kimi-sol-qwen-glm` (kimi lead;
+per role Sol preferred, then kimi-k3/glm52/qwen38 alternates) live in
+`~/.config/claude-multi/compositions/` (0600); they resolve once catalog
+12 is activated. **GLM/Qwen parity (operator):** glm52 and qwen38 carry
+byte-identical routing hints and are both non-preferred alternates, so
+neither is ranked — listing order is presentational only. When qwen3.8
+ships production (the D21 revision sequence), qwen38 moves ahead of
+glm52 as the preferred escalation. Pins: `test_catalog` (model set,
+alias split, floor),
+`test_render.test_glm52_alias_and_max_reasoning_override_rendered` +
+the re-blessed gateway golden (alias block + override, nothing else
+moved).
+
 ## User decision summary (what you're approving by accepting this design)
 
 1. Selected agents become **real files** in a per-session scope; the failure

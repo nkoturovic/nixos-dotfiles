@@ -52,6 +52,11 @@ ADAPTER_PAYLOAD_CONTRACTS: dict[str, dict[str, dict[str, Any]]] = {
             "protocol": "claude",
             "params": {"reasoning_effort": "xhigh"},
         },
+        "reasoning-effort-max": {
+            "kind": "override",
+            "protocol": "claude",
+            "params": {"reasoning_effort": "max"},
+        },
         "filter-thinking": {
             "kind": "filter",
             "protocol": "claude",

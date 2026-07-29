@@ -120,6 +120,22 @@ class DirectProviderLaneTests(unittest.TestCase):
         self.assertNotIn('alias: "claude-multi-qwen38-max[1m]"', block)
         self.assertIn("context-length: 983616", block)
 
+    def test_glm52_alias_and_max_reasoning_override_rendered(self) -> None:
+        yaml = _render().yaml
+        block = yaml.split('name: "glm-5.2"', 1)[1]
+        self.assertIn('alias: "claude-multi-glm52-max"', block)
+        self.assertNotIn('alias: "claude-multi-glm52-max[1m]"', block)
+        self.assertIn("context-length: 1000000", block)
+        self.assertIn('owned-by: "alibaba"', block)
+        override = (
+            '- models:\n'
+            '        - name: "claude-multi-glm52-max"\n'
+            '          protocol: "claude"\n'
+            '      params:\n'
+            '        reasoning_effort: "max"'
+        )
+        self.assertIn(override, yaml)
+
 
 class SecretBoundaryTests(unittest.TestCase):
     def test_missing_secret_omits_provider_atomically(self) -> None:

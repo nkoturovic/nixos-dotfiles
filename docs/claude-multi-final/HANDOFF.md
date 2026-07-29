@@ -20,7 +20,8 @@ untouched; `claude-gateway` is the ordinary non-composition entrypoint.
 ## Daily use
 
 - `claude-multi` → composition card → **Enter** to launch.
-  **Tab/P** cycles presets (`default`, `kimi-sol`, `qwen-sol`, `sol-direct`),
+  **Tab/P** cycles presets (e.g. `default`, `kimi-sol`, `qwen-sol`,
+  `glm-sol`, `sol-direct` — full table in USAGE.md),
   **W** toggles workflows native/off, **S** opens the sessions picker,
   **?** explains workflow guarantees, **E** edits the composition,
   **H** runs doctor in place, **U** appears when a Claude update is
@@ -47,7 +48,7 @@ untouched; `claude-gateway` is the ordinary non-composition entrypoint.
   `claude-multi sessions stop <uuid> [--yes]` — upstream `claude stop` via
   the verified binary (never a signal; conversation always kept). Refuses
   self-stops and non-live sessions. Transitions on a ● session warn first.
-- `claude-gateway [--model sol|qwen38|kimi-k3|fable|opus]` starts an ordinary
+- `claude-gateway [--model sol|qwen38|glm52|kimi-k3|fable|opus]` starts an ordinary
   gateway session with native `/model`; `-c`/`-r` continue it. Same-profile
   switching stays in-process, cross-profile switching is an explicit relaunch.
 - `claude-multi sessions transition <uuid> --composition <name>` changes a
@@ -66,7 +67,7 @@ untouched; `claude-gateway` is the ordinary non-composition entrypoint.
 
 ## Installed state (2026-07-29)
 
-- claude-multi **2.8.4** active (HM generation 114; rollback: gen 113/112),
+- claude-multi **2.9.0** active (HM generation 115; rollback: gen 114/113),
   Claude pinned at **2.1.220** (hash-verified, symlink-aligned).
   Resume gate live (D41): repair-needed records get one-keypress Repair &
   resume in the TUI, daemon-owned resumes gate with Stop & resume /
@@ -76,10 +77,16 @@ untouched; `claude-gateway` is the ordinary non-composition entrypoint.
   recover automatically — subagents and backgrounded turns no longer die
   waiting for a typed "continue".
 - **Opus 5 is the default lead** (default = opus5+sol+kimi; profiles
-  `opus-sol`, `opus-kimi`, `fable`, `kimi-sol`, `qwen-sol`, `sol-direct`
+  `opus-sol`, `opus-kimi`, `fable`, `kimi-sol`, `kimi-sol-qwen`,
+  `kimi-sol-qwen-glm`, `qwen-sol`, `glm-sol`, `sol-direct`
   all live); gateway serves `claude-opus-5` and `claude-multi-opus-5`
   (CLIProxy registry patched); binary pinned at 2.1.220 and symlink-matched.
-- `claude-multi doctor` → **Ready** (all 18 durable scopes on catalog 11 + D44 shim guard;
+- **GLM-5.2 live on the qwen provider** (2.9.0, D45): wire `glm-5.2` at the
+  Token Plan endpoint, selector `claude-multi-glm52-max[1m]`, lead+agents,
+  lane max with `reasoning_effort: "max"` — 1M context, alibaba family
+  (Sol/Kimi stay the cross-family reviewers). `glm-sol` = GLM lead;
+  `kimi-sol-qwen-glm` = Kimi lead with GLM/Qwen comparable alternates.
+- `claude-multi doctor` → **Ready** (all 18 durable scopes on catalog 12 + D44 shim guard;
   watchdog pin + roster prompts live; D43 radar in the suite).
   Sessions screen sorts by last used with the created age alongside
   (2.8.4; width-tiered). Issue 008 resolved in 2.8.3 (D44): MANAGED

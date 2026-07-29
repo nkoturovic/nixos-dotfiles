@@ -92,6 +92,12 @@ claude-api-key:
     cloak:
       mode: "never"
     models:
+      - name: "glm-5.2"
+        alias: "claude-multi-glm52-max"
+        display-name: "GLM-5.2"
+        owned-by: "alibaba"
+        context-length: 1000000
+        force-mapping: true
       - name: "qwen3.8-max-preview"
         alias: "claude-multi-qwen38-max"
         display-name: "Qwen3.8 Max · Preview"
@@ -122,6 +128,11 @@ payload:
           protocol: "claude"
       params:
         reasoning_effort: "xhigh"
+    - models:
+        - name: "claude-multi-glm52-max"
+          protocol: "claude"
+      params:
+        reasoning_effort: "max"
   filter:
     - models:
         - name: "claude-multi-kimi-k3"

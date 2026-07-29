@@ -32,7 +32,7 @@ claude-multi
 A card shows the composition (lead, team, policy, context). Then:
 
 - **Enter** — launch
-- **Tab / P** — cycle presets (`default` (Opus 5 + Sol + Kimi), `opus-sol` (Opus 5 + Sol), `opus-kimi` (Opus 5 + Kimi), `fable`, `kimi-sol`, `qwen-sol`, `sol-direct`)
+- **Tab / P** — cycle presets (`default` (Opus 5 + Sol + Kimi), `opus-sol` (Opus 5 + Sol), `opus-kimi` (Opus 5 + Kimi), `fable`, `kimi-sol`, `kimi-sol-qwen`, `kimi-sol-qwen-glm`, `qwen-sol`, `glm-sol`, `sol-direct`)
 - **W** — toggle workflows on/off
 - **E** — edit the composition (form editor; `?` explains each field)
 - **S** — open the sessions picker
@@ -62,7 +62,10 @@ on this machine (all creatable in seconds with `compose new` /
 | `opus-kimi` | **Opus 5** | Kimi K3 only | Opus lead with Kimi agents |
 | `fable` | Fable 5 | Sol preferred · Kimi alternates · opus reviewer | the previous default |
 | `kimi-sol` | Kimi K3 | Sol preferred · Kimi alternates | Kimi 1M lead work |
-| `qwen-sol` | Qwen3.8 Max (preview) | Sol preferred · Kimi alternates | Qwen lead work |
+| `kimi-sol-qwen` | Kimi K3 | Sol preferred · Kimi alternates · Qwen alternates | Kimi lead with a Qwen escape lane |
+| `kimi-sol-qwen-glm` | Kimi K3 | Sol preferred · Kimi · GLM-5.2 · Qwen alternates | Kimi lead, GLM and Qwen as comparable escalations |
+| `qwen-sol` | Qwen3.8 Max (preview) | Sol preferred · Qwen alternates | Qwen lead work |
+| `glm-sol` | GLM-5.2 | Sol preferred · GLM alternates | GLM 1M lead work (max reasoning) |
 | `sol-direct` | GPT 5.6 Sol | — | single-model direct sessions |
 
 Every profile keeps workflows native, worktree isolation on implementers,

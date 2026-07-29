@@ -69,7 +69,8 @@
       "independence_family": "alibaba",
       "passthrough_routes": [],
       "payload_contracts": [
-        "reasoning-effort-xhigh"
+        "reasoning-effort-xhigh",
+        "reasoning-effort-max"
       ],
       "support": "locally-validated-experimental",
       "support_note": "Third-party Claude-compatible route through the local gateway; locally validated experimental transport, not officially supported by Anthropic or Alibaba.",

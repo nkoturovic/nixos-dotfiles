@@ -317,6 +317,53 @@
       },
       "routing_note": "Main implementation and bounded-reasoning workhorse.",
       "wire_model": "gpt-5.6-sol"
+    },
+    "glm52": {
+      "capabilities": [
+        "lead",
+        "agents"
+      ],
+      "client_selector": "claude-multi-glm52-max[1m]",
+      "compatible_roles": [
+        "cm-lead",
+        "cm-analyst",
+        "cm-implementer",
+        "cm-reviewer"
+      ],
+      "context": {
+        "client_tokens": 1000000,
+        "declared_tokens": 1048576,
+        "ordinary_profile": "large",
+        "provider_tokens": 1000000,
+        "qualification": "HF-documented 1M context (zai-org/GLM-5.2, 1M-token window); canary-verified served at the Qwen Token Plan apps/anthropic path with wire id glm-5.2 and default-on thinking (2026-07-29, one bounded approved call). [1m] client selector with the compiler's 90% auto-compaction percentage of the 1M window; near-limit real-provider behavior unverified until a separately approved live acceptance.",
+        "scalar_tokens": null,
+        "validated_tokens": 200000
+      },
+      "default_lane": "max",
+      "display": "GLM-5.2",
+      "lanes": {
+        "max": {
+          "agent_effort": "max",
+          "client_selector": "claude-multi-glm52-max[1m]",
+          "proxy_effort_contract": "reasoning-effort-max"
+        }
+      },
+      "lead": {
+        "effort": "ultracode",
+        "env": {}
+      },
+      "minimum_tested": {
+        "claude_code": "2.1.216",
+        "cliproxyapi": "7.2.80"
+      },
+      "provider": "qwen",
+      "role_hints": {
+        "cm-analyst": "Use for broad architecture, security, or repository-wide synthesis.",
+        "cm-implementer": "Use when implementation requires broad context across many files.",
+        "cm-reviewer": "Use for architecture/plan validation, security review, and broad cross-cutting, complex, high-risk, or large-context changes."
+      },
+      "routing_note": "GLM-5.2 (Zhipu) flagship reasoning model; thinking default-on (canary-verified); reasoning_effort=max per HF docs. Served via the Qwen Token Plan (same apps/anthropic endpoint and key as qwen38).",
+      "wire_model": "glm-5.2"
     }
   },
   "version": 1
