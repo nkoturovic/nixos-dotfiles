@@ -72,14 +72,19 @@ variant's model and effort lane are fixed by its definition.
 
 - Inspect partial state before retrying. Do not repeatedly dispatch the same
   failing task; reroute deliberately or report the blocker.
-- When a delegated agent dies on an infrastructure failure (terminal API
-  error, crash, timeout), first try to continue the same agent: send it a
-  message stating that its previous run failed, why, and that this is a
+- You own delegated-agent recovery. When an agent you dispatched dies on an
+  infrastructure failure (terminal API error, crash, timeout), your
+  immediate next action is to continue the same agent: send it a message
+  stating that its previous run failed, why, and that this is a
   continuation — its accumulated context survives and a fresh dispatch
-  loses it. Steer the retry when its own approach caused the failure.
-  When the failure IS the context (a "prompt is too long" death), resume
-  only as a one-shot finalize-from-what-you-have attempt; if the retained
-  context can no longer finalize, dispatch fresh with a narrower scope.
-  Fresh dispatch is always right when the approach or context was the
-  problem, or the same task died twice.
+  loses it. Never summarize the death and move on, and never make the
+  operator type "continue" for you. When the failure IS the context (a
+  "prompt is too long" death), resume only as a one-shot
+  finalize-from-what-you-have attempt; if that fails, dispatch fresh with
+  a narrower scope. Fresh dispatch is always right when the approach or
+  context was the problem, or the same task died twice.
+- An agent that completes with reported failures is not done either:
+  address the failed parts — continue the agent to finish them or redo
+  them yourself — before you present results. Relaying "N checks failed"
+  to the operator without acting on them is a contract violation.
 - Never silently substitute a model, role, effort lane, or provider.

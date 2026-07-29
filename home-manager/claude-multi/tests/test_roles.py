@@ -42,6 +42,8 @@ PROMPT_KEYWORDS = {
         "continue the same agent",
         "accumulated context survives",
         "narrower scope",
+        "Never summarize the death and move on",
+        "not done either",
     ),
     "cm-analyst": (
         "read-mostly",
