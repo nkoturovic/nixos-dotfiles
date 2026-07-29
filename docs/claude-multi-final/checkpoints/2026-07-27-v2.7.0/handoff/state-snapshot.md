@@ -1,4 +1,4 @@
-# State snapshot — 2026-07-27 · v2.7.0 (+2026-07-28 v2.7.1)
+# State snapshot — 2026-07-27 · v2.7.0 (+2026-07-28 v2.7.1, +2026-07-29 v2.7.2)
 
 Evidence behind the checkpoint README claims. Verify before trusting.
 
@@ -237,3 +237,39 @@ per the working agreements.
 
 Evidence: 1,339 host tests OK (2 skips); focused cross-family review:
 approve; package builds 2.7.1; doctor Ready, zero Attention.
+
+## 2026-07-29 · v2.7.2 — the worktree-review contract (D40)
+
+**Found by the operator:** a reviewer subagent at a repository root tried
+to inspect an implementer's worktree via the native `EnterWorktree` tool
+and was refused ("…is the repository root, not an isolated worktree").
+The native tool's switching semantics drift between Claude versions, so
+the fix is a roster-prompt contract, not machinery: a worktree is a
+plain directory — read-mostly agents inspect from outside (direct reads,
+`git -C`, subshell `cd`) and never EnterWorktree; implementers report
+worktree path/branch/base ref + committed-state; the lead integrates
+from its own root with explicit committed/uncommitted/untracked
+handling. En passant: the sandbox derivation never staged the gateway
+patch files, so the manifest file-existence test could never pass there
+(pre-existing); it now stages the repo-shaped layout from the manifest.
+
+**Hardening (3 cross-family rounds, Sol xhigh):** caught an
+integration-ownership overstatement, the uncommitted-work gap (merge
+would have silently integrated nothing — implementers don't commit by
+default), the untracked-file gap (fixture-proven: `diff HEAD` omits new
+files), and a heal-semantics doc error (every durable launch rewrites
+the full scope — a plain resume heals; repair-all is only for sessions
+never resumed). Final verdict: approve.
+
+**Activation:** HM gen 109 (rollback 108/107); `doctor --repair-all`
+converged all 18 durable scopes to catalog 8; live scope verified
+6/6 roster files carry the new guidance, D39 fence + apiKeyHelper
+intact. Also repaired en passant: session 58c87cef had drifted
+repair-needed on 2026-07-28 17:40 UTC (a resume observed from an agent
+worktree cwd — its transcript never left the original project dir;
+evidence: single 35MB transcript, mtime 07-29 07:35) —
+`relink-runtime … --cwd <recorded project>` re-derived identity to
+authoritative (epoch 7). `claude-multi doctor` → **Ready**.
+
+Evidence: 1,339 host tests OK (2 skips); sandbox derivation green
+(builds claude-multi-2.7.2); keyword pins lock every guarantee.

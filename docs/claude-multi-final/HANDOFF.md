@@ -64,20 +64,25 @@ untouched; `claude-gateway` is the ordinary non-composition entrypoint.
   (never the transcript).
 - `--legacy` = old argv mode (compatibility hatch, not a durability answer).
 
-## Installed state (2026-07-27)
+## Installed state (2026-07-29)
 
-- claude-multi **2.7.0** active (HM generation 107; rollback: gen 106/105),
+- claude-multi **2.7.2** active (HM generation 109; rollback: gen 108/107),
   Claude pinned at **2.1.220** (hash-verified, symlink-aligned; the update
   flow proved itself end-to-end against the real candidate).
   Fork lifecycle operable (⚠/● markers, X resolve, `sessions resolve-fork`),
   gateway routing durable across daemon takeovers (apiKeyHelper shim),
-  updates narrate per phase and serialize through a lock.
+  updates narrate per phase and serialize through a lock. Roster prompts
+  teach outside-in worktree inspection (D40): read-mostly agents never
+  EnterWorktree, implementers report worktree coordinates + committed-state,
+  and the lead's integration rule distinguishes committed/uncommitted/
+  untracked work.
 - **Opus 5 is the default lead** (default = opus5+sol+kimi; profiles
   `opus-sol`, `opus-kimi`, `fable`, `kimi-sol`, `qwen-sol`, `sol-direct`
   all live); gateway serves `claude-opus-5` and `claude-multi-opus-5`
   (CLIProxy registry patched); binary pinned at 2.1.220 and symlink-matched.
-- `claude-multi doctor` → **Ready, zero Attention lines**; 17 durable
-  sessions; flows re-verified live (checkpoint state-snapshot §flows).
+- `claude-multi doctor` → **Ready**; 18 durable sessions converged to
+  catalog 8 on activation (`doctor --repair-all`); flows re-verified live
+  (checkpoint state-snapshot §flows).
 - Claude updates are routine: the card badge or doctor Attention appears →
   press **U** (or `claude-multi update`) → instant effect via the operator
   override (`--activate` for the baseline refresh).

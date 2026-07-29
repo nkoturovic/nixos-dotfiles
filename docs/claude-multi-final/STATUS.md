@@ -630,3 +630,4 @@ workflow `model` override (gpt-multi-sol-xhigh) since cm-* types are gone.
 | + | v2.6.3 final gate resolution | **done** | gate Revise→approve: SF1/SF2/N1/N2 resolved; 1,323 tests OK; gen 106 |
 | + | v2.7.0 sessions stop (lifecycle action) | **done** | upstream `claude stop` via verified binary; CLI + TUI E; transition live warning |
 | + | v2.7.1 subagent routing fix (D39) | **done, activated gen 108** | availableModels = lead + roster; wire-model probe guard; live acceptance: converged scope dispatched opus-5 lead + gpt-multi-sol-high subagent through the pinned binary |
+| + | v2.7.2 worktree review contract (D40) | **done, activated gen 109** | roster prompts teach outside-in worktree inspection (never EnterWorktree); implementer reports coordinates + committed-state; lead integration covers committed/uncommitted/untracked; sandbox manifest-staging fix; Sol review 3 rounds → approve; 1,339 tests OK; doctor Ready (18 scopes converged) |
