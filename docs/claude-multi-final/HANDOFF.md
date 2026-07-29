@@ -66,23 +66,25 @@ untouched; `claude-gateway` is the ordinary non-composition entrypoint.
 
 ## Installed state (2026-07-29)
 
-- claude-multi **2.7.2** active (HM generation 109; rollback: gen 108/107),
-  Claude pinned at **2.1.220** (hash-verified, symlink-aligned; the update
-  flow proved itself end-to-end against the real candidate).
-  Fork lifecycle operable (⚠/● markers, X resolve, `sessions resolve-fork`),
-  gateway routing durable across daemon takeovers (apiKeyHelper shim),
-  updates narrate per phase and serialize through a lock. Roster prompts
-  teach outside-in worktree inspection (D40): read-mostly agents never
-  EnterWorktree, implementers report worktree coordinates + committed-state,
-  and the lead's integration rule distinguishes committed/uncommitted/
-  untracked work.
+- claude-multi **2.8.0** active (HM generation 110; rollback: gen 109/108),
+  Claude pinned at **2.1.220** (hash-verified, symlink-aligned).
+  Resume gate live (D41): repair-needed records get one-keypress Repair &
+  resume in the TUI, daemon-owned resumes gate with Stop & resume /
+  Resume anyway / Cancel, missing transcripts are named before exec —
+  never a bare native error. Managed sessions pin watchdog retry
+  (`CLAUDE_CODE_RETRY_WATCHDOG=1`, D42): transient upstream errors
+  recover automatically — subagents and backgrounded turns no longer die
+  waiting for a typed "continue".
 - **Opus 5 is the default lead** (default = opus5+sol+kimi; profiles
   `opus-sol`, `opus-kimi`, `fable`, `kimi-sol`, `qwen-sol`, `sol-direct`
   all live); gateway serves `claude-opus-5` and `claude-multi-opus-5`
   (CLIProxy registry patched); binary pinned at 2.1.220 and symlink-matched.
-- `claude-multi doctor` → **Ready**; 18 durable sessions converged to
-  catalog 8 on activation (`doctor --repair-all`); flows re-verified live
-  (checkpoint state-snapshot §flows).
+- `claude-multi doctor` → **Ready** after `--repair-all` converged all
+  18 durable scopes to catalog 9 (watchdog pin + roster prompt updates).
+  Known open item: heavy-subagent sessions may show a model-only
+  repair-needed flag from a subagent-model attribution at compaction —
+  benign, self-heals on next launcher resume (issue 008, mechanism under
+  investigation).
 - Claude updates are routine: the card badge or doctor Attention appears →
   press **U** (or `claude-multi update`) → instant effect via the operator
   override (`--activate` for the baseline refresh).

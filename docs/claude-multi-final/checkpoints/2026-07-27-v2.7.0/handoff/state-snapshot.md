@@ -1,4 +1,4 @@
-# State snapshot — 2026-07-27 · v2.7.0 (+2026-07-28 v2.7.1, +2026-07-29 v2.7.2)
+# State snapshot — 2026-07-27 · v2.7.0 (+2026-07-28 v2.7.1, +2026-07-29 v2.7.2, +2026-07-29 v2.8.0)
 
 Evidence behind the checkpoint README claims. Verify before trusting.
 
@@ -273,3 +273,44 @@ authoritative (epoch 7). `claude-multi doctor` → **Ready**.
 
 Evidence: 1,339 host tests OK (2 skips); sandbox derivation green
 (builds claude-multi-2.7.2); keyword pins lock every guarantee.
+
+## 2026-07-29 · v2.8.0 — resume operability + recovery policy (D41/D42)
+
+**Found by the operator, investigated by 7 agents + 2 adversarial
+verifiers (34/34 claims confirmed):** repair-needed guidance that could
+not run as printed; daemon-owned resumes unguarded into the native
+fork-on-ramp; "No conversation found" passing through bare; and an
+"API Error: An error occurred while processing" that turned out to be
+an upstream 500 surviving the client's 10 retries (not rate limiting —
+zero 429/529 in 12h of journal; the "Sol agent" attribution was a UI
+line merge — the window's traffic was all Kimi).
+
+**What shipped:** `sessions.relink_message` (single actionable source,
+ordinary-aware, shell-quoted) at every surface; bare relink clears
+cwd-drift; the resume gate (`_evaluate_resume_gate` pure + mandatory at
+`Runtime.perform`) with TUI modals (Repair / Stop & resume / Resume
+anyway / Cancel), `--force` threaded identically through TUI/line/
+noninteractive, transcript checks outranking liveness, fail-closed slug
+decoding, one-keypress card repair that unblocks a blocked record; the
+watchdog retry pin (managed scopes only); the lead contract's
+resume-over-redispatch (proven live: three reviewer deaths continued,
+never redispatched).
+
+**Review:** two full cross-family rounds (both Sol xhigh: revise →
+approve) + a per-issue round of 7 bounded reviewers (001 approve,
+002/003/004/005/007 revise→fixed, 006 approve). Caught and fixed en
+route: card-picker ordinary-record KeyError crash, stop→force TOCTOU,
+alias-vs-target liveness mismatch, wrap-corrupted commands, ambiguous
+slug decode, ordinary scope watchdog leak, and a pre-existing sandbox
+staging gap. **1,380 tests OK; sandbox green.**
+
+**Activation:** HM gen 110 (rollback 109/108); `doctor --repair-all`
+converged all 18 durable scopes to catalog 9; live scope verified
+(watchdog pin 1, D39 fence + apiKeyHelper intact, new roster prompts).
+`doctor` → Ready. Open item found AT activation: one session (the
+lead's own) flagged model-only repair-needed after a compaction
+following dozens of Sol-reviewer dispatches — the observed model is
+exactly the reviewer's selector, suggesting hooks in agent contexts
+attribute a subagent's model to the session record (issue 008;
+benign, self-heals on next launcher resume; mechanism under
+investigation).
