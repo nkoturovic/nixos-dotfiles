@@ -2051,7 +2051,7 @@ class _QuickConfirmScreen:
 
     # -- sessions picker ----------------------------------------------------
 
-    def _open_sessions(self, win: Any) -> tuple[str, Any] | None:
+    def _open_sessions(self, win: Any) -> tuple | None:
         """Open the sessions picker in place; None means stay on the card.
 
         Resume maps to ("perform", PreparedLaunch, decision) so the outer
