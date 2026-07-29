@@ -1,56 +1,77 @@
-# Open items — 2026-07-27 · v2.6.0
+# Open items — 2026-07-29 · v2.8.3
 
 Ordered. Each entry names its context and done-criteria. The standing rules
 below are inherited from the previous checkpoint and still binding.
 
-## Now
+## Now (operator decisions, not code)
 
-- **U1 takeover proof, routing level (acceptance L2).** D33 made gateway
-  routing durable (apiKeyHelper + base URL in compiled settings). The
-  remaining proof: observe one post-takeover managed session make a
-  **successful model call** (roster intact was already observed; the
-  2026-07-27 incident proved files ≠ routing). Record the observation in
-  STATUS.md.
-- **Opus 5 near-limit acceptance:** unchanged — when an Opus-5-led session
-  approaches the 1M capacity, confirm reactive compaction at the bound,
-  then promote `qualification` in `catalog/models.json` (Kimi waits on the
-  same shape).
+- **5ee2f942 (issue 006):** transcript verifiably gone from every project
+  dir; the 2.8.0 resume gate names the state before exec. Choose: restore
+  from a backup (then `claude-multi -r` works — the record is healthy) or
+  `claude-multi sessions forget 5ee2f942-a367-4e96-a113-72eb4ecbd84c`.
+- **Key rotation (hygiene):** a reviewer transcript once echoed
+  `KIMI_CLAUDE_API_KEY`/`QWEN_CLAUDE_API_KEY` locally. Same exposure as
+  `~/.config/secrets/claude.env` itself — rotate only if transcripts are
+  ever synced/shared, then `claude-multi-proxy init` + restart the gateway.
 
-## Soon
+## Soon (world-triggered acceptances)
 
-- **Same-context-family `/model` (candidate D37, parked).** Widening the
-  managed `/model` fence to all catalog models is rejected (compaction
-  triggers are per-model — a smaller-context model behind a 1M trigger is a
-  session killer). The narrow version — allowing models that share the
-  lead's exact context profile, with reconcile absorbing the switch into
-  the record — is safe-in-principle but touches composition identity
-  (record name vs actual lead). Only pick this up with a demonstrated
-  need; `sessions transition` is the supported path until then.
-- **Qwen preview → production:** unchanged (DECISIONS D21 pipeline).
-- **Push `feature/term-only`:** 20+ local commits, nothing pushed — backup
-  hygiene; needs the operator's explicit go.
+- **U1 takeover proof, routing level (L2).** First post-2.6.x daemon
+  takeover of a managed session making a **successful model call** via the
+  apiKeyHelper path (roster intact was observed; calls not yet formally
+  accepted). Record the observation in STATUS.md.
+- **Opus 5 near-limit acceptance:** when an Opus-5-led session approaches
+  the 1M capacity, confirm reactive compaction at the bound, then promote
+  `qualification` in `catalog/models.json` (Kimi waits on the same shape).
+- **Qwen preview → production:** unchanged (DECISIONS D21 pipeline) when
+  `qwen3.8-max` ships.
 
 ## Watch (accepted reservations — act only if they start paying rent)
 
+- **Ordinary unmarked-compact bleed (D44 residual):** ordinary sessions
+  could still take a subagent model/cwd via an unmarked compact event; no
+  discriminator exists at 2.1.220 and ordinary compact-model is
+  load-bearing. Documented in issues/008. Act if it is ever observed.
+- **Issue 005 (conditional isolation):** implementer variants cannot spawn
+  from a non-repo session cwd (harness); mitigation is lead-contract
+  guidance. Machinery (record-time isolation decision) only if the manual
+  fallback starts hurting in practice.
+- **Issue 007 (subagent context exhaustion):** recovery = resume-with-steer
+  (D43 contract, live-proven). A harness-level fix is upstream's; the
+  question whether subagents compact at all is open — the D44 fixture
+  reproduction never produced one.
+- **Lead-slot lane support:** ultracode lead keeps the sol-high wire
+  contract (effort mapping). Candidate only if wire-level lead effort
+  mapping is ever wanted.
+- **Same-context-family `/model` (parked):** only with a demonstrated need;
+  `sessions transition` is the supported path.
+- **Two live-session prompt lags:** sessions resumed before 2.8.1–2.8.3
+  carry older lead prompts until their next resume (self-healing; nothing
+  to do).
 - `cli.py` module size; `probe.py` weight; wide-char TUI cell math;
-  hook-delivery invisibility (hooks are metadata-only by design).
-- Daemon pty-socket scan for the ● marker is a native-internals heuristic
-  (D35) — if upstream moves the socket layout the marker silently degrades
-  to absent; that is the designed fallback, not a bug.
-- Machine health (operator-owned, not the project's): `/tmp` tmpfs pressure
-  + full swap caused a host-suite EDQUOT once; run the suite with a
-  disk-backed `TMPDIR` on this box (AGENTS.md §4 documents the var).
+  hook-delivery invisibility (metadata-only by design); the daemon
+  pty-socket ● marker is a native-internals heuristic (degrades to absent,
+  never wrong); one PTY test flake seen once, never reproduced.
 
-## Standing rules (inherited, binding)
+## Done this cycle (D40–D44, all activated)
 
-1. No real-provider calls without explicit user approval, per call.
-2. Never touch the live Claude daemon/supervisor; never read user
-   transcripts; never delete anything under `~/.claude` or a
-   transcript-bearing root. Rollback never deletes state.
+- D40 outside-in worktree review contract (2.7.2, gen 109)
+- D41 resume operability: actionable relink + bare-relink semantics +
+  resume gate with TUI modals (2.8.0, gen 110)
+- D42 recovery policy: watchdog retry pin + resume-over-redispatch (2.8.0)
+- D43 subagent recovery: probe-bounded two-layer, 5-consecutive rule,
+  SubagentStop radar (2.8.2, gen 112)
+- D44 identity evidence admissibility: managed compact events + agent
+  contexts no longer pollute the record (2.8.3, gen 113)
+
+## Standing rules (inherited, still binding)
+
+1. No real-provider calls without explicit operator approval, per call.
+2. Never touch the live daemon/supervisor; never read transcripts; never
+   delete anything under `~/.claude` or a transcript-bearing root.
 3. Tests before claims: full discovery + package build + sandbox suite.
-4. Coherent commits on `feature/term-only`; no push without approval;
-   Home Manager activation needs user approval.
-5. One batched cross-family review at meaningful boundaries (Sol reviews
-   Kimi-authored work and vice versa).
+4. Coherent commits on `feature/term-only`; push and Home Manager
+   activation need the operator's explicit approval.
+5. One batched cross-family review at meaningful boundaries; no loops.
 6. Simplicity budget: no new mode/schema/daemon/state without a
-   demonstrated failure case. Prefer deletion over addition.
+   demonstrated failure case.
