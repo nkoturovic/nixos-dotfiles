@@ -380,6 +380,12 @@ def _lifecycle_settings(
         "CLAUDE_MULTI_LAUNCH_EPOCH": str(launch_epoch),
         # Compatibility for scopes created before the identity split.
         "CLAUDE_MULTI_SESSION_ID": managed_id,
+        # Managed sessions own their recovery policy (issue 004, doctrine #8):
+        # watchdog mode raises the transient-retry budget so a subagent or a
+        # backgrounded turn never dies waiting for a human to type "continue"
+        # (binary-verified at 2.1.220: 300 retries, no 60s retry-after abort).
+        # Mid-stream-after-content errors stay unrecoverable at this pin.
+        "CLAUDE_CODE_RETRY_WATCHDOG": "1",
     }
     if gateway_base_url:
         env["ANTHROPIC_BASE_URL"] = gateway_base_url

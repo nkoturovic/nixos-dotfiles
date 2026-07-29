@@ -1311,3 +1311,58 @@ class PendingForkCapTests(SessionTestCase):
         message = sessions.pending_fork_message(ordinary)
         self.assertIn("--model MODEL", message)
         self.assertNotIn("--composition", message)
+
+
+class RelinkGuidanceTests(SessionTestCase):
+    """Issue 002: actionable repair-needed guidance + bare-relink semantics."""
+
+    def _repair_needed_record(self) -> dict:
+        record = _record(self.snapshot)
+        record["identity_state"] = sessions.IDENTITY_REPAIR_NEEDED
+        record["observed_cwd"] = "/wrong/project"
+        return record
+
+    def test_bare_relink_clears_observed_cwd_and_restores_authority(self) -> None:
+        record = self._repair_needed_record()
+        self.store.save(record)
+        epoch_before = record.get("launch_epoch", 0)
+        updated = self.store.relink_runtime(FIXED_ID, observed_runtime_id=FIXED_ID)
+        self.assertNotIn("observed_cwd", updated)
+        self.assertEqual(
+            updated["identity_state"], sessions.IDENTITY_AUTHORITATIVE
+        )
+        self.assertEqual(updated["launch_epoch"], epoch_before + 1)
+        self.assertEqual(updated["cwd"], "/project/path")
+
+    def test_bare_relink_preserves_observed_model(self) -> None:
+        record = self._repair_needed_record()
+        record["observed_model"] = "gpt-multi-sol-high"
+        self.store.save(record)
+        updated = self.store.relink_runtime(FIXED_ID, observed_runtime_id=FIXED_ID)
+        self.assertNotIn("observed_cwd", updated)
+        self.assertEqual(updated["observed_model"], "gpt-multi-sol-high")
+        # Model evidence alone still means repair-needed (the
+        # allow-model-relaunch path owns that resolution).
+        self.assertEqual(
+            updated["identity_state"], sessions.IDENTITY_REPAIR_NEEDED
+        )
+
+    def test_relink_message_with_observed_cwd_names_both_commands(self) -> None:
+        record = self._repair_needed_record()
+        message = sessions.relink_message(record)
+        base = f"claude-multi sessions relink-runtime {FIXED_ID} {FIXED_ID}"
+        self.assertIn(f"`{base} --cwd /project/path`", message)
+        self.assertIn(f"`{base} --cwd /wrong/project`", message)
+        self.assertIn("common case", message)
+        self.assertIn("re-homed", message)
+
+    def test_relink_message_without_observed_cwd_is_bare_command(self) -> None:
+        record = _record(self.snapshot)
+        record["identity_state"] = sessions.IDENTITY_REPAIR_NEEDED
+        record["observed_model"] = "gpt-multi-sol-high"
+        message = sessions.relink_message(record)
+        self.assertIn(
+            f"`claude-multi sessions relink-runtime {FIXED_ID} {FIXED_ID}`",
+            message,
+        )
+        self.assertNotIn("--cwd", message)

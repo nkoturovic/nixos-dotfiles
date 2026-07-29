@@ -129,8 +129,12 @@ Two modes:
    delegation probe guards the wire model against the production-shaped
    fence every build). A manual `/model` switch away from the lead is
    backstopped by the identity machinery (observed-model → repair-needed),
-   never hidden. Ordinary mode respects user settings except the
-   context-safe profile fence.
+   never hidden. `CLAUDE_CODE_RETRY_WATCHDOG=1` is pinned in the durable
+   settings env (D42): managed sessions auto-recover transient upstream
+   errors instead of dying for lack of a typed "continue" (mid-stream-
+   after-content errors remain unrecoverable at 2.1.220 — documented).
+   Ordinary mode respects user settings except the context-safe profile
+   fence.
 9. **Simplicity budget.** No new mode/schema/daemon/state without a
    demonstrated failure case. Prefer deletion over addition.
 10. **Upstream `claude` is never configured or hijacked.** D19/D23: no global
@@ -294,6 +298,15 @@ full): run with a disk-backed temp dir, e.g.
   from the installed catalog (`doctor --repair-all` covers sessions that
   are never resumed). Never "fix" it with tool denies or by spawning
   reviewers with worktree isolation.
+- **Resume gate (D41):** every resume is pre-checked by
+  `_evaluate_resume_gate` (pure, metadata-only, no locks) with
+  `Runtime.perform` as the mandatory backstop: repair-needed → the exact
+  `relink-runtime` command (bare relink re-asserts the recorded cwd);
+  ● daemon-owned → stop-first guidance (`-r --force` bypasses ONLY that
+  branch; TUI modal offers Stop & resume / Resume anyway / Cancel);
+  transcript missing/elsewhere → restore-or-forget / relink-`--cwd`
+  guidance. Precommitted transition relaunches are exempt. Rows mark
+  repair-needed with `!` next to ●/⚠.
 - `claude-multi-dev probe …` — dev-only disposable-fixture harness; loopback
   fake provider; daemon-domain gate; live-domain tripwire. The delegation
   probe asserts subagent wire models against the production-shaped fence

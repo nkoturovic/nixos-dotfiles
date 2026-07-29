@@ -33,6 +33,11 @@ PROMPT_KEYWORDS = {
         "Uncommitted work lives only",
         "untracked",
         "git apply -",
+        "Worktree-isolated dispatch requires",
+        "fail at creation",
+        "git worktree add",
+        "continue the same agent",
+        "accumulated context survives",
     ),
     "cm-analyst": (
         "read-mostly",

@@ -415,12 +415,7 @@ class Runtime:
                 raise CLIError(pending_fork_message(prior_record))
             if identity_state == sessions.IDENTITY_REPAIR_NEEDED:
                 if "observed_cwd" in prior_record or "observed_model" not in prior_record:
-                    raise CLIError(
-                        f"session {launch_id} has unresolved runtime/CWD identity; "
-                        "repair it with `claude-multi sessions relink-runtime "
-                        f"{launch_id} {sessions.runtime_session_id(prior_record)} "
-                        "[--cwd PATH]` before resuming"
-                    )
+                    raise CLIError(sessions.relink_message(prior_record))
                 model_relaunch = True
             session_action = compiler.build_resume(
                 launch_id, sessions.runtime_session_id(prior_record)
@@ -569,12 +564,7 @@ class Runtime:
                 raise CLIError(pending_fork_message(prior))
             if identity_state == sessions.IDENTITY_REPAIR_NEEDED:
                 if "observed_cwd" in prior or "observed_model" not in prior:
-                    raise CLIError(
-                        f"session {stable_id} has unresolved runtime/CWD identity; "
-                        "repair it with `claude-multi sessions relink-runtime "
-                        f"{stable_id} {sessions.runtime_session_id(prior)} "
-                        "[--cwd PATH]` before resuming"
-                    )
+                    raise CLIError(sessions.relink_message(prior))
                 if model_id is None:
                     raise CLIError(
                         f"session {stable_id} observed an unsafe model/profile change; "
@@ -644,9 +634,12 @@ class Runtime:
             ),
         )
 
-    def perform(self, prepared: PreparedLaunch) -> Any:
+    def perform(
+        self, prepared: PreparedLaunch, *, resume_decision: str | None = None
+    ) -> Any:
         if self.launch_callback is not None:
             return self.launch_callback(prepared)
+        self._enforce_resume_gate(prepared, resume_decision)
         return launch.perform_launch(
             prepared.result,
             record=prepared.record,
@@ -666,6 +659,39 @@ class Runtime:
             ),
             precommitted=prepared.precommitted,
         )
+
+    def _enforce_resume_gate(
+        self, prepared: PreparedLaunch, resume_decision: str | None
+    ) -> None:
+        """Mandatory resume-gate backstop for every real launch (issue 003).
+
+        Interactive surfaces present the gate as a modal and thread the
+        operator's decision; noninteractive paths get the actionable
+        refusal here. `force` bypasses ONLY the daemon-owned branch (the
+        liveness signal is heuristic); repair-needed and transcript
+        problems are never bypassed. Precommitted transition relaunches
+        are exempt: the transition flow already warns on live sessions
+        and the operator confirmed there (review A3 nuance).
+        """
+
+        action = prepared.result.session_action
+        if action.kind != "resume" or not prepared.record:
+            return
+        if prepared.precommitted:
+            return
+        gate = _evaluate_resume_gate(
+            self, prepared.record, live_prefixes=self._live_prefixes()
+        )
+        if gate.kind == "ok":
+            return
+        if gate.kind == "daemon-owned" and resume_decision == "force":
+            return
+        raise CLIError(_resume_gate_refusal(gate))
+
+    def _live_prefixes(self) -> frozenset[str]:
+        """Liveness scan seam (tests inject here, never at machine state)."""
+
+        return _live_background_prefixes()
 
 
 def default_asset_root() -> Path:
@@ -691,6 +717,7 @@ def build_parser() -> argparse.ArgumentParser:
     session_group = parser.add_mutually_exclusive_group()
     session_group.add_argument("-c", "--continue", dest="continue_last", action="store_true", help="continue the last managed session in this directory")
     session_group.add_argument("-r", "--resume", nargs="?", const="", metavar="UUID", help="resume a managed session (exact UUID or name; no value opens the sessions picker)")
+    parser.add_argument("--force", action="store_true", help="resume despite a background-liveness marker (only bypasses the heuristic ● check; identity/transcript guards still apply)")
     parser.add_argument("--line", action="store_true", help="force the line-based UI (no full-screen curses interface)")
     parser.add_argument("--no-color", action="store_true", help="disable all color output (the NO_COLOR environment variable is also honored)")
     parser.add_argument("--legacy", action="store_true", help="launch with the pre-durable argv form (compatibility hatch; agents may vanish on supervisor restart)")
@@ -702,6 +729,7 @@ def build_parser() -> argparse.ArgumentParser:
         "direct", help="launch an ordinary gateway session without a composition"
     )
     direct_parser.add_argument("--model", dest="direct_model")
+    direct_parser.add_argument("--force", action="store_true", help="resume despite a background-liveness marker (only bypasses the heuristic ● check)")
     direct_parser.add_argument("--print-launch", action="store_true")
     direct_identity = direct_parser.add_mutually_exclusive_group()
     direct_identity.add_argument(
@@ -957,10 +985,7 @@ def build_quick_plan(
         elif identity_state == sessions.IDENTITY_REPAIR_NEEDED and (
             "observed_cwd" in record or "observed_model" not in record
         ):
-            errors.append(
-                f"session {stable_id} has unresolved runtime/CWD identity; repair "
-                "it with `claude-multi sessions relink-runtime` before resuming"
-            )
+            errors.append(sessions.relink_message(record))
     resolved = None
     try:
         resolved = runtime.resolve_document(document)
@@ -2032,6 +2057,7 @@ class _QuickConfirmScreen:
             return None
         if result[0] == "resume":
             record = result[1]
+            decision = result[2] if len(result) > 2 else None
             plan = managed_plan(self.runtime, record)
             if not plan.ready:
                 self.plan.errors.extend(plan.errors)
@@ -2043,7 +2069,7 @@ class _QuickConfirmScreen:
                 session_id=sessions.managed_id(record),
                 legacy_requested=self.plan.legacy_requested,
             )
-            return ("perform", prepared)
+            return ("perform", prepared, decision)
         if result[0] == "transition":
             return result
         return None
@@ -2165,6 +2191,26 @@ class _QuickConfirmScreen:
                     return None
                 continue
             if key.kind == "enter" and self.plan.ready:
+                decision: str | None = None
+                if self.plan.record is not None and self.plan.action == "resume":
+                    gate = _evaluate_resume_gate(self.runtime, self.plan.record)
+                    if gate.kind != "ok":
+                        try:
+                            resolved_gate = _run_resume_gate_modal(
+                                self.runtime,
+                                self.plan.record,
+                                gate,
+                                win,
+                                self.palette,
+                                background=self._draw,
+                            )
+                        except (CLIError, sessions.SessionError) as exc:
+                            self.plan.errors.append(str(exc))
+                            continue
+                        if resolved_gate is None:
+                            continue
+                        _, record, decision = resolved_gate
+                        self.plan.record = record
                 try:
                     prepared = self.runtime.prepare(
                         self.plan.document,
@@ -2178,7 +2224,7 @@ class _QuickConfirmScreen:
                 except (ValueError, CLIError) as exc:
                     self.plan.errors.append(str(exc))
                     continue
-                return ("perform", prepared)
+                return ("perform", prepared, decision)
 
 
 def _curses_quick_confirm(
@@ -2225,8 +2271,9 @@ def _curses_quick_confirm(
             interactive=True,
             no_color=no_color,
         )
-    _action, prepared = result
-    return runtime.perform(prepared)
+    _action, prepared, *rest = result
+    decision = rest[0] if rest else None
+    return runtime.perform(prepared, resume_decision=decision)
 
 
 def quick_confirm(
@@ -2241,6 +2288,7 @@ def quick_confirm(
     update_hint: tuple[str, str] | None = None,
     gateway_problem: str | None = None,
     gateway_checked: bool = False,
+    resume_decision: str | None = None,
 ) -> Any:
     if not force_line and tui.streams_curses_capable(input_stream, output_stream):
         try:
@@ -2267,6 +2315,7 @@ def quick_confirm(
         passthrough=passthrough,
         no_color=no_color,
         update_hint=update_hint,
+        resume_decision=resume_decision,
     )
 
 
@@ -2279,6 +2328,7 @@ def _line_quick_confirm(
     passthrough: list[str],
     no_color: bool = False,
     update_hint: tuple[str, str] | None = None,
+    resume_decision: str | None = None,
 ) -> Any:
     details = False
     while True:
@@ -2425,7 +2475,7 @@ def _line_quick_confirm(
             except (ValueError, CLIError) as exc:
                 plan.errors.append(str(exc))
                 continue
-            return runtime.perform(prepared)
+            return runtime.perform(prepared, resume_decision=resume_decision)
 
 
 def _session_record_scan(
@@ -3029,6 +3079,24 @@ class _SessionsScreen:
                         "(exact commands: sessions show)"
                     )
                     continue
+                gate = _evaluate_resume_gate(self.runtime, record)
+                if gate.kind != "ok":
+                    try:
+                        resolved = _run_resume_gate_modal(
+                            self.runtime,
+                            record,
+                            gate,
+                            win,
+                            self.palette,
+                            background=self._draw,
+                        )
+                    except (CLIError, sessions.SessionError) as exc:
+                        self.message = str(exc)
+                        continue
+                    if resolved is None:
+                        self.message = "Resume cancelled."
+                        continue
+                    return resolved
                 lines: list[str] = []
                 if record["mode"] != "durable":
                     lines = LEGACY_RESUME_NOTE.split("; ")
@@ -3225,6 +3293,7 @@ def _sessions_list_tui(
         return 0
     if result[0] == "resume":
         record = result[1]
+        decision = result[2] if len(result) > 2 else None
         if record["session_type"] == sessions.SESSION_TYPE_ORDINARY:
             prepared = runtime.prepare_direct(
                 action="resume",
@@ -3232,7 +3301,7 @@ def _sessions_list_tui(
                 passthrough=passthrough,
                 session_id=sessions.managed_id(record),
             )
-            return runtime.perform(prepared)
+            return runtime.perform(prepared, resume_decision=decision)
         plan = managed_plan(runtime, record)
         if not plan.ready:
             output_stream.write(render_quick_confirm(runtime, plan, width=_stream_width(output_stream)))
@@ -3249,7 +3318,7 @@ def _sessions_list_tui(
             session_id=sessions.managed_id(record),
             legacy_requested=legacy_requested,
         )
-        return runtime.perform(prepared)
+        return runtime.perform(prepared, resume_decision=decision)
     if result[0] == "transition":
         _, record, name = result
         namespace = argparse.Namespace(
@@ -3354,13 +3423,18 @@ def _native_is_live(item: dict[str, Any], prefixes: frozenset[str]) -> bool:
 
 
 def _record_state_marker(record: dict[str, Any], prefixes: frozenset[str]) -> str:
-    """Compact row prefix: ● live (background-owned) · ⚠ fork-blocked."""
+    """Compact row prefix: ● live (background-owned) · ⚠ fork-blocked · ! repair-needed."""
 
     marker = ""
     if _record_is_live(record, prefixes):
         marker += "● "
     if record.get("pending_forks"):
         marker += "⚠ "
+    identity_state = record.get("identity_state", sessions.IDENTITY_UNVERIFIED)
+    if identity_state == sessions.IDENTITY_REPAIR_NEEDED and (
+        "observed_cwd" in record or "observed_model" not in record
+    ):
+        marker += "! "
     return marker
 
 
@@ -3382,6 +3456,183 @@ def _record_target_label(record: dict[str, Any]) -> str:
     return f"cm:{record['composition_name']}"
 
 
+# -- resume gate (issue 003) -------------------------------------------------
+#
+# One pure evaluator consumed by every resume surface: the sessions picker,
+# the quick-confirm card, line mode, and Runtime.perform (mandatory
+# backstop). The gate is metadata-only, takes no locks, and never mutates —
+# stop/relink stay explicit operator-confirmed actions in the UI adapters.
+
+
+@dataclass(frozen=True)
+class ResumeGate:
+    """Action-needed state for a resume target, or kind "ok"."""
+
+    kind: str  # "ok" | "repair-needed" | "daemon-owned" | "transcript-elsewhere" | "transcript-missing"
+    title: str
+    lines: tuple[str, ...]
+    actions: tuple[tuple[str, str], ...]  # (value, label); Cancel/Esc always exists
+
+
+def _resume_transcript_status(
+    runtime: Runtime, record: dict[str, Any]
+) -> tuple[str, str]:
+    """Metadata-only: is the runtime transcript where the record points?
+
+    Returns ("present", path) | ("elsewhere", slug-dirs) | ("missing", path).
+    Never opens a transcript; filename checks only.
+    """
+
+    runtime_id = sessions.runtime_session_id(record)
+    home = Path(runtime.environ.get("HOME") or Path.home())
+    expected = (
+        home
+        / ".claude"
+        / "projects"
+        / _native_project_slug(record["cwd"])
+        / f"{runtime_id}.jsonl"
+    )
+    if expected.exists():
+        return ("present", str(expected))
+    found = _slugs_for_session(runtime, runtime_id)
+    if found:
+        return ("elsewhere", ", ".join(found))
+    return ("missing", str(expected))
+
+
+def _evaluate_resume_gate(
+    runtime: Runtime,
+    record: dict[str, Any],
+    *,
+    live_prefixes: frozenset[str] | None = None,
+) -> ResumeGate:
+    """Pure resume-gate evaluation; re-scans liveness unless injected."""
+
+    stable_id = sessions.managed_id(record)
+    identity_state = record.get("identity_state", sessions.IDENTITY_UNVERIFIED)
+    if identity_state == sessions.IDENTITY_REPAIR_NEEDED and (
+        "observed_cwd" in record or "observed_model" not in record
+    ):
+        return ResumeGate(
+            kind="repair-needed",
+            title="Session needs identity repair",
+            lines=tuple(
+                textwrap.wrap(sessions.relink_message(record), width=60)
+            ),
+            actions=(("repair-resume", "Repair & resume"),),
+        )
+    prefixes = (
+        live_prefixes if live_prefixes is not None else _live_background_prefixes()
+    )
+    if _record_is_live(record, prefixes):
+        runtime_id = sessions.runtime_session_id(record)
+        text = (
+            f"session {stable_id} is live in the background (●). Resuming a "
+            "background-owned session natively either fails or forks it — "
+            "the fork path is what caused the original incident. The "
+            "supported route is to stop it first "
+            f"(`claude-multi sessions stop {stable_id}`), then resume. The "
+            "marker is a best-effort heuristic — if you are sure it is "
+            "stale, Resume anyway."
+        )
+        return ResumeGate(
+            kind="daemon-owned",
+            title="Session is live in the background",
+            lines=tuple(textwrap.wrap(text, width=60)),
+            actions=(
+                ("stop-resume", "Stop & resume"),
+                ("force", "Resume anyway"),
+            ),
+        )
+    status, detail = _resume_transcript_status(runtime, record)
+    if status == "elsewhere":
+        runtime_id = sessions.runtime_session_id(record)
+        text = (
+            f"the transcript for runtime {runtime_id} was not found under "
+            f"the recorded project dir ({record['cwd']}), but a file with "
+            f"the same name exists in: {detail}. If the session was "
+            "intentionally re-homed, repair the record with "
+            f"`claude-multi sessions relink-runtime {stable_id} {runtime_id} "
+            "--cwd <that project directory>`; otherwise resume from the "
+            "recorded dir after moving the transcript back."
+        )
+        return ResumeGate(
+            kind="transcript-elsewhere",
+            title="Transcript found in a different project",
+            lines=tuple(textwrap.wrap(text, width=60)),
+            actions=(),
+        )
+    if status == "missing":
+        text = (
+            f"no transcript file exists for runtime "
+            f"{sessions.runtime_session_id(record)} anywhere under "
+            "~/.claude/projects (expected at "
+            f"{detail}). Resume cannot work — Claude resumes from that "
+            "file, and claude-multi never deletes transcripts. Restore it "
+            "from a backup if one exists; otherwise forget the record with "
+            f"`claude-multi sessions forget {stable_id}`."
+        )
+        return ResumeGate(
+            kind="transcript-missing",
+            title="Transcript not found",
+            lines=tuple(textwrap.wrap(text, width=60)),
+            actions=(),
+        )
+    return ResumeGate(kind="ok", title="", lines=(), actions=())
+
+
+def _resume_gate_refusal(gate: ResumeGate) -> str:
+    """Text-mode backstop text for a non-ok gate (perform enforcement)."""
+
+    return gate.title + " — " + " ".join(gate.lines)
+
+
+def _run_resume_gate_modal(
+    runtime: Runtime,
+    record: dict[str, Any],
+    gate: ResumeGate,
+    win: Any,
+    palette: Any,
+    *,
+    background: Any = None,
+) -> tuple[str, dict[str, Any], str | None] | None:
+    """Present a non-ok resume gate as a Modal and resolve the choice.
+
+    Returns ("resume", record, decision) when the operator resolved the
+    gate (decision is "force" only for the daemon-owned bypass), or None
+    when cancelled/failed (the caller stays on its screen). Stop and
+    repair go through the existing store/stop machinery — never manual
+    record edits.
+    """
+
+    buttons = [(label, value) for value, label in gate.actions]
+    buttons.append(("Cancel", None))
+    choice = tui.Modal(
+        gate.title, list(gate.lines), buttons=tuple(buttons)
+    ).run(win, palette, background=background)
+    if choice is None:
+        return None
+    stable_id = sessions.managed_id(record)
+    runtime_id = sessions.runtime_session_id(record)
+    if choice == "repair-resume":
+        runtime.session_store.relink_runtime(
+            stable_id, observed_runtime_id=runtime_id
+        )
+        return ("resume", runtime.session_store.load(stable_id), None)
+    if choice == "stop-resume":
+        refusal = _stop_precheck(runtime, record)
+        if refusal is not None:
+            raise CLIError(refusal)
+        error = _stop_runtime(runtime, runtime_id)
+        if error is not None:
+            raise CLIError(f"stop failed: {error}")
+        return ("resume", record, "force")
+    if choice == "force":
+        return ("resume", record, "force")
+    return None
+
+
+
 def _record_mode_label(record: dict[str, Any]) -> str:
     """UX §4 mode column: durable with generation, or legacy."""
 
@@ -3398,6 +3649,14 @@ def _record_actions_label(record: dict[str, Any]) -> str:
             "[x] resolve fork (resume blocked until then) [f]orget · fork UUID "
             "and exact commands: `claude-multi sessions show "
             f"{sessions.managed_id(record)}`"
+        )
+    identity_state = record.get("identity_state", sessions.IDENTITY_UNVERIFIED)
+    if identity_state == sessions.IDENTITY_REPAIR_NEEDED and (
+        "observed_cwd" in record or "observed_model" not in record
+    ):
+        return (
+            "repair needed (resume blocked) · exact command: "
+            "`claude-multi sessions show " f"{sessions.managed_id(record)}`"
         )
     if record["session_type"] == sessions.SESSION_TYPE_ORDINARY:
         return "[r]esume [f]orget · cross-profile model changes relaunch explicitly"
@@ -4020,7 +4279,10 @@ def handle_command(
         if args.print_launch:
             _print_launch_plan(prepared, output_stream)
             return 0
-        return runtime.perform(prepared)
+        return runtime.perform(
+            prepared,
+            resume_decision="force" if getattr(args, "force", False) else None,
+        )
 
     if args.command == "compose":
         command = args.compose_command
@@ -4099,6 +4361,8 @@ def handle_command(
                 output_stream.write(
                     sessions.pending_fork_message(record) + "\n"
                 )
+            elif record.get("identity_state") == sessions.IDENTITY_REPAIR_NEEDED:
+                output_stream.write(sessions.relink_message(record) + "\n")
             output_stream.write(strict_json.canonical_file_bytes(record).decode("utf-8"))
             return 0
         if command == "forget":
@@ -4605,6 +4869,8 @@ def _doctor_scope_report(runtime: Runtime) -> tuple[list[str], list[str], list[s
                     f"session {sessions.managed_id(record)} identity is "
                     f"{state_label}; {sessions.pending_fork_message(record)}"
                 )
+            elif state_label == sessions.IDENTITY_REPAIR_NEEDED:
+                problems.append(sessions.relink_message(record))
             else:
                 problems.append(
                     f"session {sessions.managed_id(record)} identity is "
@@ -5138,7 +5404,7 @@ def main(
                 session_id=sessions.managed_id(plan.record) if plan.record else None,
                 legacy_requested=plan.legacy_requested,
             )
-            return runtime.perform(prepared)
+            return runtime.perform(prepared, resume_decision="force" if args.force else None)
 
         update_hint = launch.repin_hint(runtime.catalog.docs["native-contract"])
         gateway_problem: str | None = None
@@ -5162,6 +5428,7 @@ def main(
             update_hint=update_hint,
             gateway_problem=gateway_problem,
             gateway_checked=gateway_checked,
+            resume_decision="force" if args.force else None,
         )
     except (CLIError, sessions.SessionError, state.StateError, catalog.CatalogError, compiler.CompilerError, composition.CompositionError, launch.LaunchError) as exc:
         output.write(f"claude-multi: {tui.visible_message(exc)}\n")

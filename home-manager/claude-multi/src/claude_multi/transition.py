@@ -485,9 +485,7 @@ def execute(
             and "observed_cwd" not in current
         )
         if identity_state == sessions.IDENTITY_REPAIR_NEEDED and not model_repair:
-            raise TransitionError(
-                "session runtime/CWD identity needs repair before transition"
-            )
+            raise TransitionError(sessions.relink_message(current))
         committed_record = sessions.carry_lifecycle_state(plan.new_record, current)
         if model_repair:
             committed_record.pop("observed_model", None)

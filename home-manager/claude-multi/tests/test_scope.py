@@ -809,6 +809,21 @@ class GatewayRoutingDurabilityTests(unittest.TestCase):
         self.assertNotIn("ANTHROPIC_AUTH_TOKEN", settings["env"])
         self.assertNotIn("ANTHROPIC_API_KEY", settings["env"])
 
+    def test_managed_scope_pins_retry_watchdog(self) -> None:
+        # Issue 004: managed sessions own their recovery policy — watchdog
+        # mode keeps subagents and backgrounded turns from dying on
+        # transient upstream errors (binary-verified at 2.1.220).
+        bundle, resolved = _resolved()
+        plan = scope.compile_scope(
+            resolved,
+            bundle.docs["roles"]["roles"],
+            bundle.prompt_bodies,
+            scope.catalog_meta_from_docs(bundle.docs),
+            managed_id=FIXED_SESSION,
+            hook_command="/state/bin/claude-multi-hook",
+        )
+        self.assertEqual(plan.settings["env"]["CLAUDE_CODE_RETRY_WATCHDOG"], "1")
+
     def test_managed_scope_without_helper_omits_both_keys(self) -> None:
         bundle, resolved = _resolved()
         plan = scope.compile_scope(

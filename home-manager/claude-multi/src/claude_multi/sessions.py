@@ -185,6 +185,34 @@ def pending_fork_message(record: dict[str, Any]) -> str:
     )
 
 
+def relink_message(record: dict[str, Any]) -> str:
+    """Actionable repair-needed language: the exact relink command.
+
+    Every resume/transition guard, the card, the sessions list, and doctor
+    use this so the operator never sees a bare command name that cannot
+    run as printed (issue 002).
+    """
+
+    stable_id = managed_id(record)
+    runtime_id = runtime_session_id(record)
+    base = f"claude-multi sessions relink-runtime {stable_id} {runtime_id}"
+    observed_cwd = record.get("observed_cwd")
+    if not observed_cwd:
+        return (
+            f"session {stable_id} identity is repair-needed (runtime/model "
+            f"evidence conflicts with the record); repair it with `{base}`"
+        )
+    recorded_cwd = record.get("cwd", "?")
+    return (
+        f"session {stable_id} identity is repair-needed (a resume was "
+        f"observed from {observed_cwd}, conflicting with the recorded "
+        f"project dir {recorded_cwd}); repair it with `{base} --cwd "
+        f"{recorded_cwd}` to keep the recorded dir (the common case), or "
+        f"`{base} --cwd {observed_cwd}` only if the session was "
+        f"intentionally re-homed there"
+    )
+
+
 def make_record(
     *,
     managed_id: str | None = None,
@@ -907,9 +935,15 @@ class SessionStore:
                 "launch_epoch": current.get("launch_epoch", 0) + 1,
                 "mutation_token": new_mutation_token(),
             }
+            # A relink always re-asserts the runtime's home directory: an
+            # explicit --cwd re-homes, a bare relink re-asserts the recorded
+            # cwd — either way the stale observed_cwd evidence is resolved
+            # by the operator's assertion (issue 002). A wrong bare assert
+            # degrades to a native "No conversation found", which the
+            # resume gate pre-detects; observed_model is untouched.
             if cwd is not None:
                 repaired["cwd"] = cwd
-                repaired.pop("observed_cwd", None)
+            repaired.pop("observed_cwd", None)
             updated = reconcile_runtime_record(
                 repaired,
                 observed_runtime_id=observed_runtime_id,

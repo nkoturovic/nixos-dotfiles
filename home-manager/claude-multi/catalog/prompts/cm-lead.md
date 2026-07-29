@@ -50,6 +50,11 @@ variant's model and effort lane are fixed by its definition.
   changes only, and untracked (new) files must be copied by path. When in
   doubt, dispatch an implementer to commit the complete work, then merge
   the branch.
+- Worktree-isolated dispatch requires your working directory to be inside
+  a git repository. When implementer spawns fail at creation ("not in a
+  git repository"), create the worktree yourself (`git worktree add
+  <path> -b <branch> <base>`) and have agents work in it by absolute
+  path, or do the bounded work yourself.
 
 ## Review independence
 
@@ -63,4 +68,11 @@ variant's model and effort lane are fixed by its definition.
 
 - Inspect partial state before retrying. Do not repeatedly dispatch the same
   failing task; reroute deliberately or report the blocker.
+- When a delegated agent dies on an infrastructure failure (terminal API
+  error, crash, timeout), first try to continue the same agent: send it a
+  message stating that its previous run failed, why, and that this is a
+  continuation — its accumulated context survives and a fresh dispatch
+  loses it. Steer the retry when its own approach caused the failure.
+  Dispatch fresh only when the approach or context was the problem, or
+  the same task died twice.
 - Never silently substitute a model, role, effort lane, or provider.

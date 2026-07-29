@@ -594,7 +594,7 @@ class SessionsAndTransitionPTYTests(unittest.TestCase):
 import sys
 from pathlib import Path
 from claude_multi import composition, sessions, scope as scope_mod
-from claude_multi.cli import Runtime, main
+from claude_multi.cli import Runtime, main, _native_project_slug
 root = Path({str(CATALOG_ROOT)!r})
 base = Path({temp!r})
 env = {{'HOME': str(base/'home'), 'XDG_CONFIG_HOME': str(base/'config'), 'XDG_STATE_HOME': str(base/'state'), 'CLAUDE_MULTI_SECRET_ENV': {str(secret_file)!r}}}
@@ -616,6 +616,9 @@ record = sessions.make_record(
     scope_generation=2,
 )
 runtime.session_store.save(record)
+transcript = base/'home'/'.claude'/'projects'/_native_project_slug(runtime.cwd)/('11111111-1111-4111-8111-111111111111' + '.jsonl')
+transcript.parent.mkdir(parents=True, exist_ok=True)
+transcript.touch()
 plan = scope_mod.compile_scope(
     resolved,
     runtime.catalog.docs['roles']['roles'],

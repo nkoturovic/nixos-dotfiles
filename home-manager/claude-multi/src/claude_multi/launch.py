@@ -727,10 +727,7 @@ def perform_launch(
                 and "observed_model" in current
                 and "observed_cwd" not in current
             ):
-                raise LaunchError(
-                    f"session {stable_id} needs runtime/CWD repair before launch; "
-                    "use `claude-multi sessions relink-runtime`"
-                )
+                raise LaunchError(sessions.relink_message(current))
 
             committed_record = sessions.carry_lifecycle_state(record, current)
             if current["session_type"] == sessions.SESSION_TYPE_ORDINARY:

@@ -93,6 +93,17 @@ class CLITestCase(unittest.TestCase):
         )
         self.runtime.session_store.save(record)
         self.runtime.session_store.update_last(self.runtime.cwd, session_id)
+        # Fixture transcript so the resume gate sees "present" by default
+        # (metadata-only existence; gate tests delete/relocate explicitly).
+        transcript = (
+            Path(self.runtime.environ["HOME"])
+            / ".claude"
+            / "projects"
+            / cli._native_project_slug(self.runtime.cwd)
+            / f"{session_id}.jsonl"
+        )
+        transcript.parent.mkdir(parents=True, exist_ok=True)
+        transcript.touch()
         return record
 
 
@@ -2378,9 +2389,10 @@ class QuickConfirmTuiScreenTests(CLITestCase):
     def test_enter_returns_perform_intent(self) -> None:
         result, _win = self._run(self._plan(), ["\n"])
         self.assertIsNotNone(result)
-        action, prepared = result
+        action, prepared, *rest = result
         self.assertEqual(action, "perform")
         self.assertEqual(prepared.result.session_action.kind, "fresh")
+        self.assertEqual(rest, [None])  # no gate decision for a fresh launch
         self.assertEqual(self.launches, [])  # perform happens after teardown
 
     def test_details_toggle_shows_availability(self) -> None:
@@ -5270,3 +5282,214 @@ class SubagentModelRadarTests(CLITestCase):
     def test_no_attention_without_override(self) -> None:
         code, output = self.run_cli(["doctor"])
         self.assertNotIn("CLAUDE_CODE_SUBAGENT_MODEL", output)
+
+
+class ResumeGateTests(CLITestCase):
+    """Issue 003: the resume gate — pure evaluation, perform backstop, modal flow."""
+
+    def _gate(self, record, prefixes=frozenset()):
+        return cli._evaluate_resume_gate(
+            self.runtime, record, live_prefixes=prefixes
+        )
+
+    def _transcript(self, record):
+        return (
+            Path(self.runtime.environ["HOME"])
+            / ".claude"
+            / "projects"
+            / cli._native_project_slug(record["cwd"])
+            / f"{sessions.runtime_session_id(record)}.jsonl"
+        )
+
+    def _bare_runtime(self):
+        return cli.Runtime(
+            asset_root=CATALOG_ROOT,
+            environ=self.runtime.environ,
+            cwd=self.runtime.cwd,
+            launch_callback=None,
+            doctor_callback=lambda _runtime: [],
+        )
+
+    def _prepared(self, record, *, kind="resume", precommitted=False):
+        import types
+
+        action = (
+            cli.compiler.build_resume(
+                sessions.managed_id(record), sessions.runtime_session_id(record)
+            )
+            if kind == "resume"
+            else cli.compiler.build_fresh(sessions.managed_id(record))
+        )
+        result = types.SimpleNamespace(session_action=action)
+        return cli.PreparedLaunch(
+            result, record, None, {}, precommitted=precommitted
+        )
+
+    # -- evaluator branches --------------------------------------------------
+
+    def test_gate_ok_for_healthy_record(self) -> None:
+        record = self.save_session(mode="durable", scope_generation=1)
+        self.assertEqual(self._gate(record).kind, "ok")
+
+    def test_gate_repair_needed_carries_relink_message(self) -> None:
+        record = self.save_session(mode="durable", scope_generation=1)
+        record["identity_state"] = sessions.IDENTITY_REPAIR_NEEDED
+        record["observed_cwd"] = "/wrong/project"
+        self.runtime.session_store.save(record)
+        gate = self._gate(record)
+        self.assertEqual(gate.kind, "repair-needed")
+        text = " ".join(gate.lines)
+        self.assertIn("relink-runtime", text)
+        self.assertIn(FIXED_ID, text)
+        self.assertIn("--cwd /wrong/project", text)
+        self.assertIn(("repair-resume", "Repair & resume"), gate.actions)
+        self.assertTrue(all(len(line) <= 60 for line in gate.lines))
+
+    def test_gate_daemon_owned_offers_stop_and_force(self) -> None:
+        record = self.save_session(mode="durable", scope_generation=1)
+        gate = self._gate(record, prefixes=frozenset({FIXED_ID}))
+        self.assertEqual(gate.kind, "daemon-owned")
+        text = " ".join(gate.lines)
+        self.assertIn(f"sessions stop {FIXED_ID}", text)
+        self.assertIn("best-effort heuristic", text)
+        values = [value for value, _label in gate.actions]
+        self.assertEqual(values, ["stop-resume", "force"])
+
+    def test_gate_transcript_missing_guides_restore_or_forget(self) -> None:
+        record = self.save_session(mode="durable", scope_generation=1)
+        self._transcript(record).unlink()
+        gate = self._gate(record)
+        self.assertEqual(gate.kind, "transcript-missing")
+        text = " ".join(gate.lines)
+        self.assertIn("never deletes transcripts", text)
+        self.assertIn(f"sessions forget {FIXED_ID}", text)
+        self.assertEqual(gate.actions, ())
+
+    def test_gate_transcript_elsewhere_points_at_relink_cwd(self) -> None:
+        record = self.save_session(mode="durable", scope_generation=1)
+        stray = self._transcript(record)
+        other_dir = stray.parent.parent / "-other-project"
+        other_dir.mkdir(parents=True)
+        stray.rename(other_dir / stray.name)
+        gate = self._gate(record)
+        self.assertEqual(gate.kind, "transcript-elsewhere")
+        text = " ".join(gate.lines)
+        self.assertIn("-other-project", text)
+        self.assertIn("relink-runtime", text)
+
+    # -- perform backstop ----------------------------------------------------
+
+    def test_perform_refuses_daemon_owned_without_decision(self) -> None:
+        record = self.save_session(mode="durable", scope_generation=1)
+        runtime = self._bare_runtime()
+        with mock.patch.object(
+            runtime, "_live_prefixes", return_value=frozenset({FIXED_ID})
+        ):
+            with self.assertRaises(cli.CLIError) as raised:
+                runtime.perform(self._prepared(record))
+        self.assertIn(f"sessions stop {FIXED_ID}", str(raised.exception))
+
+    def test_perform_force_bypasses_daemon_owned_only(self) -> None:
+        record = self.save_session(mode="durable", scope_generation=1)
+        runtime = self._bare_runtime()
+        with mock.patch.object(
+            cli.launch, "perform_launch", return_value=0
+        ) as perform_launch:
+            with mock.patch.object(
+                runtime, "_live_prefixes", return_value=frozenset({FIXED_ID})
+            ):
+                code = runtime.perform(
+                    self._prepared(record), resume_decision="force"
+                )
+        self.assertEqual(code, 0)
+        self.assertTrue(perform_launch.called)
+
+    def test_perform_never_bypasses_transcript_missing(self) -> None:
+        record = self.save_session(mode="durable", scope_generation=1)
+        self._transcript(record).unlink()
+        runtime = self._bare_runtime()
+        with self.assertRaises(cli.CLIError) as raised:
+            runtime.perform(self._prepared(record), resume_decision="force")
+        self.assertIn("Transcript not found", str(raised.exception))
+
+    def test_perform_exempts_precommitted_transitions(self) -> None:
+        record = self.save_session(mode="durable", scope_generation=1)
+        runtime = self._bare_runtime()
+        with mock.patch.object(cli.launch, "perform_launch", return_value=0):
+            with mock.patch.object(
+                runtime, "_live_prefixes", return_value=frozenset({FIXED_ID})
+            ):
+                code = runtime.perform(self._prepared(record, precommitted=True))
+        self.assertEqual(code, 0)
+
+    def test_perform_ignores_fresh_actions(self) -> None:
+        record = self.save_session(mode="durable", scope_generation=1)
+        self._transcript(record).unlink()
+        runtime = self._bare_runtime()
+        with mock.patch.object(cli.launch, "perform_launch", return_value=0):
+            code = runtime.perform(self._prepared(record, kind="fresh"))
+        self.assertEqual(code, 0)
+
+    # -- picker modal flow ---------------------------------------------------
+
+    def _run_picker(self, keys):
+        from test_tui import FakeWindow
+
+        screen = cli._SessionsScreen(self.runtime, palette=tui.MONO_PALETTE)
+        win = FakeWindow(keys)
+        return screen.run(win), win
+
+    def test_picker_repair_and_resume_repairs_identity(self) -> None:
+        record = self.save_session(mode="durable", scope_generation=1)
+        record["identity_state"] = sessions.IDENTITY_REPAIR_NEEDED
+        record["observed_cwd"] = "/wrong/project"
+        self.runtime.session_store.save(record)
+        result, win = self._run_picker(["r", "\n"])
+        self.assertIsNotNone(result)
+        self.assertEqual(result[0], "resume")
+        self.assertIsNone(result[2] if len(result) > 2 else None)
+        repaired = self.runtime.session_store.load(FIXED_ID)
+        self.assertNotIn("observed_cwd", repaired)
+        self.assertEqual(
+            repaired["identity_state"], sessions.IDENTITY_AUTHORITATIVE
+        )
+
+    def test_picker_gate_cancel_keeps_record_untouched(self) -> None:
+        record = self.save_session(mode="durable", scope_generation=1)
+        record["identity_state"] = sessions.IDENTITY_REPAIR_NEEDED
+        record["observed_cwd"] = "/wrong/project"
+        self.runtime.session_store.save(record)
+        before = self.runtime.session_store.read_record_bytes(FIXED_ID)
+        result, win = self._run_picker(["r", "\x1b", "\x1b"])
+        self.assertIsNone(result)
+        self.assertEqual(self.runtime.session_store.read_record_bytes(FIXED_ID), before)
+
+    def test_picker_marker_shows_repair_glyph(self) -> None:
+        record = self.save_session(mode="durable", scope_generation=1)
+        record["identity_state"] = sessions.IDENTITY_REPAIR_NEEDED
+        record["observed_cwd"] = "/wrong/project"
+        self.runtime.session_store.save(record)
+        _result, win = self._run_picker(["\x1b"])
+        self.assertIn("! ", win.text())
+
+    # -- text-mode surfaces --------------------------------------------------
+
+    def test_sessions_show_prepends_relink_message(self) -> None:
+        record = self.save_session(mode="durable", scope_generation=1)
+        record["identity_state"] = sessions.IDENTITY_REPAIR_NEEDED
+        record["observed_cwd"] = "/wrong/project"
+        self.runtime.session_store.save(record)
+        code, output = self.run_cli(["sessions", "show", FIXED_ID])
+        self.assertEqual(code, 0)
+        first_line = output.splitlines()[0]
+        self.assertIn("relink-runtime", first_line)
+        self.assertIn("--cwd /wrong/project", output)
+
+    def test_actions_label_marks_repair_needed_row(self) -> None:
+        record = self.save_session(mode="durable", scope_generation=1)
+        record["identity_state"] = sessions.IDENTITY_REPAIR_NEEDED
+        record["observed_cwd"] = "/wrong/project"
+        self.runtime.session_store.save(record)
+        label = cli._record_actions_label(record)
+        self.assertIn("repair needed (resume blocked)", label)
+        self.assertNotIn("[t]ransition", label)

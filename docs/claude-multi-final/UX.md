@@ -114,8 +114,16 @@ sessions
 
 - Row markers (2.6.0): **●** live — the session is owned by the background
   daemon right now (reattaching from a Claude menu forks natively); **⚠**
-  fork-blocked — a native fork awaits an adopt/discard decision. Native
+  fork-blocked — a native fork awaits an adopt/discard decision; **!**
+  (2.8.0) — identity repair needed (R shows the repair popup). Native
   rows may show `(fork of <parent>)`.
+- `resume` runs the **resume gate** (2.8.0): action-needed states show a
+  Modal instead of a later native error — repair-needed → **Repair &
+  resume** (runs the exact relink, keeps the recorded dir) / Cancel; ●
+  live → **Stop & resume** / **Resume anyway** (heuristic escape) /
+  Cancel; transcript missing → restore-or-forget guidance / Cancel. Text
+  mode prints the exact commands; `-r --force` bypasses only the ●
+  branch.
 - `transition` opens the semantic diff view (TRANSITIONS §3) and asks for
   explicit confirmation that **the target process has exited** before
   anything is mutated; from inside the target session it prints the diff and

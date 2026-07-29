@@ -541,6 +541,72 @@ stages the repo-shaped layout — patch files copied next to the tree from
 the manifest itself (single source of truth), copies not symlinks
 because `Path.resolve()` derefs them, `stripHash` for store-path names.
 
+**D41 — Resume operability: actionable repair guidance, honest relink
+semantics, and a pre-exec resume gate (2.8.0).** Evidence (2026-07-29,
+operator-reported, 21-claim investigator+verifier confirmed): the
+repair-needed BLOCKED card suggested a bare `claude-multi sessions
+relink-runtime` that could not run as printed (missing both UUIDs) and
+could not clear the state anyway (`observed_cwd` only popped under
+`--cwd` — an untested, undocumented edge); daemon-owned (●) resumes were
+completely unguarded and exec'd straight into upstream's bg refusal,
+whose own advice (`claude agents` / `--fork-session`) is the fork
+incident's on-ramp; "No conversation found" surfaced bare although the
+transcript path is deterministic from record data. The fix has three
+parts. (1) `sessions.relink_message(record)` — a single actionable
+message source mirroring `pending_fork_message` (real UUIDs; both
+`--cwd` choices labeled: keep the recorded dir, or the observed dir only
+when intentionally re-homed), consumed by the card, both prepare guards,
+the in-lock launch guard, the transition guard, the sessions list, the
+row actions hint, `sessions show`, and doctor. (2) Bare `relink-runtime`
+now also clears `observed_cwd` (the operator re-asserts the recorded cwd
+by running it; `observed_model` is untouched and keeps model-only repair
+on the allow-model-relaunch path). (3) A pure `_evaluate_resume_gate`
+(metadata-only, no locks, no mutations) with `Runtime.perform` as the
+single mandatory enforcement point: repair-needed → actionable refusal;
+daemon-owned → modal offering **Stop & resume** (D38 machinery) /
+**Resume anyway** (heuristic escape) / **Cancel**, with `-r --force` as
+the text-mode bypass for that branch only; transcript-missing/elsewhere
+→ pre-detected guidance instead of upstream's bare error (restore from
+backup, or `sessions forget`; relink `--cwd` when found elsewhere).
+Precommitted transition relaunches are exempt (the transition flow
+already warns on live sessions — verifier nuance); interactive adapters
+resolve before prepare and thread the decision; the liveness heuristic
+stays a gate-with-choices, never a hard block; `--print-launch` stays a
+pure diagnostic. Rows now mark repair-needed sessions `!` alongside ●/⚠.
+
+**D42 — Recovery policy: watchdog retry pin, gateway retry rejected,
+resume-over-redispatch (2.8.0).** Evidence (2026-07-29, operator-reported
+"API Error: An error occurred while processing"; journal + binary +
+source verified): zero 429/529 and zero incident-window non-2xx in 12h
+of gateway journal; the error string is absent from the client binary
+(it is the upstream 500 api_error body) and from the journal (CLIProxy
+does not log upstream bodies); the incident window's wire traffic was
+all-Kimi (the "Sol agent" attribution was a UI line merge). The pinned
+client retries 10× (429 conditional, 408/409/401/5xx/connection) with
+≤32s backoff, aborts terminally when a wait exceeds 60s, and never
+retries mid-stream-after-content (finalizes partial). Subagents carry
+the full retry budget (agent:* querySources are protected from the
+background 529-drop). Decision: managed scopes pin
+`CLAUDE_CODE_RETRY_WATCHDOG=1` in the durable settings env (doctrine #8
+— the D33-proven channel that survives daemon env scrubbing): 300
+transient retries, no 60s abort, ~5min cap — a subagent or backgrounded
+turn no longer dies waiting for a human to type "continue".
+**Rejected:** gateway `request-retry` at 7.2.80 — one credential per
+provider means rotation has nothing to rotate to; it would re-hit the
+same upstream the client already retries (the "hardcoded cooldown"
+argument was itself refuted by the verifier — the correct rationale is
+topology). **Unfixable at this pin:** mid-stream-after-content errors
+have no retry path anywhere — documented, not fake-fixed. The lead
+contract gains the operator's recovery rule: a delegated agent that dies
+on infrastructure failure is first *continued* (message: it failed, why,
+this is a continuation — its context survives), steered when its
+approach caused it; fresh dispatch only when the approach/context was
+the problem or it died twice. En passant: worktree-isolated dispatch is
+impossible from a non-repo session cwd (harness spawn-time creation;
+verified distinct from D40) — the lead contract documents the manual
+`git worktree add` fallback; conditional isolation stays a parked
+candidate (issue 005).
+
 ## User decision summary (what you're approving by accepting this design)
 
 1. Selected agents become **real files** in a per-session scope; the failure

@@ -833,6 +833,23 @@ class ExecuteRelaunchTests(TransitionTestCase):
         self.assertFalse(self._prev().exists())
         self.assertFalse(self._staging().exists())
 
+    def test_repair_needed_transition_guard_carries_exact_relink_command(self) -> None:
+        # Issue 002: same single message source as the launch guard.
+        self._make_session()
+        current = self.store.load(FIXED_ID)
+        current["identity_state"] = sessions.IDENTITY_REPAIR_NEEDED
+        current["observed_cwd"] = "/wrong/project"
+        self.store.save(current)
+        plan = self._prepare(_lead_to_kimi)
+        before = self.store.read_record_bytes(FIXED_ID)
+        with self.assertRaises(TransitionError) as raised:
+            transition.execute(plan, confirm_exited=True, environ={})
+        message = str(raised.exception)
+        base = f"claude-multi sessions relink-runtime {FIXED_ID} {FIXED_ID}"
+        self.assertIn(f"`{base} --cwd {current['cwd']}`", message)
+        self.assertIn(f"`{base} --cwd /wrong/project`", message)
+        self.assertEqual(self.store.read_record_bytes(FIXED_ID), before)
+
     def test_restore_with_matching_expected_bytes_restores(self) -> None:
         _, _, old_plan = self._make_session()
         prior_bytes = self.store.read_record_bytes(FIXED_ID)

@@ -83,6 +83,25 @@ Resume re-opens the **same transcript** with the **same composition** — the
 recorded intent is re-compiled fresh, so repairs and catalog updates apply
 automatically.
 
+**The resume gate (2.8.0).** Every resume is checked before launch, and the
+TUI shows a popup when something needs a decision — never a dead-end native
+error:
+
+- **Identity repair needed** (`!` row marker): offers **Repair & resume**
+  (one keypress runs the exact `relink-runtime` repair, keeping the recorded
+  project dir) or Cancel. In text mode you get the full copy-paste command.
+- **Live in the background** (`●` row marker): resuming a daemon-owned
+  session natively forks it — the incident shape. Offers **Stop & resume**
+  (stops it through upstream's own `claude stop`, then resumes), **Resume
+  anyway** (the marker is a heuristic; choose this if you know it is stale),
+  or **Cancel**. Text mode prints the exact stop command;
+  `claude-multi -r <uuid> --force` bypasses only this check.
+- **Transcript missing**: resume can never work without the file — the gate
+  says so and offers the way out (restore a backup, or
+  `claude-multi sessions forget <uuid>`; transcripts are never deleted by
+  claude-multi). Found under a different project dir → the exact
+  `relink-runtime --cwd` command for the intentional re-home case.
+
 ### The sessions screen (`claude-multi -r` or **S**)
 
 Managed sessions on top, plain-Claude (native) sessions below. Keys:
@@ -94,8 +113,10 @@ Managed sessions on top, plain-Claude (native) sessions below. Keys:
 Row markers: **●** — the session is live right now, owned by the background
 daemon (reattaching to it from a Claude menu forks natively; exit it first or
 resume after it exits) · **⚠** — fork-blocked: a native fork awaits your
-adopt/discard decision (press **X**; resume is blocked until then). Native rows
-marked `(fork)` are forks of a managed session.
+adopt/discard decision (press **X**; resume is blocked until then) · **!** —
+identity repair needed (press **R** for the repair popup; the exact command is
+in `sessions show`). Native rows marked `(fork)` are forks of a managed
+session.
 
 **Ending a live session safely:** **E** on a ● row (or `claude-multi sessions
 stop <uuid> [--yes]`) stops the background process with upstream's own
@@ -334,6 +355,17 @@ transcripts (always untouched).
 - **What's running where** — managed/ordinary sessions route through the
   loopback gateway (`127.0.0.1:8317`, systemd user service `cli-proxy-api`);
   plain `claude` uses your normal Anthropic auth, untouched.
+- **"API Error: An error occurred while processing"** — that text is the
+  *upstream's* 500 body, shown after the client's retries run out (the
+  pinned client retries transient errors 10× by itself). Since 2.8.0,
+  managed sessions pin watchdog retry mode (`CLAUDE_CODE_RETRY_WATCHDOG`):
+  ~300 transient retries with no 60s abort, so a background turn or a
+  subagent keeps recovering instead of dying until you type "continue".
+  What remains: an upstream error that persists for minutes, and
+  mid-stream failures after content started — neither is retryable by
+  anyone; the lead continues a dead subagent by messaging it (its context
+  survives). Ordinary `claude-gateway` sessions are unpinned — export the
+  same variable yourself if you want it there.
 - **A subagent reported `Cannot enter worktree … is the repository root`** —
   a reviewer/analyst tried to *enter* an implementer's worktree with the
   native worktree tool, which the pinned Claude refuses from a

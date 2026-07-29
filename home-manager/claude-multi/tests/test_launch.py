@@ -1812,6 +1812,23 @@ class LifecycleCleanupTests(LaunchTestCase):
         self.assertIn("sessions link", message)
         self.assertEqual(self.store.read_record_bytes(FIXED_ID), before)
 
+    def test_repair_needed_launch_guard_carries_exact_relink_command(self) -> None:
+        # Issue 002: the in-lock guard must render the runnable command —
+        # both UUIDs and the --cwd guidance — not a bare command name.
+        current = self._durable_prior()
+        current["identity_state"] = sessions.IDENTITY_REPAIR_NEEDED
+        current["observed_cwd"] = "/wrong/project"
+        self.store.save(current)
+        result = self._compile_durable_resume(self.resolved, self.snapshot)
+        before = self.store.read_record_bytes(FIXED_ID)
+        with self.assertRaises(launch.LaunchError) as raised:
+            self._perform(result, current, lambda *_args: "EXECUTED")
+        message = str(raised.exception)
+        base = f"claude-multi sessions relink-runtime {FIXED_ID} {FIXED_ID}"
+        self.assertIn(f"`{base} --cwd {self.project}`", message)
+        self.assertIn(f"`{base} --cwd /wrong/project`", message)
+        self.assertEqual(self.store.read_record_bytes(FIXED_ID), before)
+
     def test_execve_oserror_resume_cleanup_noops_when_newer_record_committed(self) -> None:
         # L2: the failing launch restores only while the record is exactly
         # what it wrote; a newer commit owns the record AND the scope.
