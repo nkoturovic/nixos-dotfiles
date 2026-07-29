@@ -660,6 +660,38 @@ version starts firing SubagentStop on API-error deaths, the test fails
 and the mechanical continue-hook becomes viable (recorded as U10,
 verified, in the native contract).
 
+**D44 — Lifecycle model/cwd evidence is admissible only from the main
+session (2.8.3).** Evidence (issues 008 + the original observed_cwd
+drift incident): a subagent-context SessionStart event can carry the
+parent's session_id with a SUBAGENT's model (and, for a worktree
+implementer, its worktree cwd), and the shim attributed both to the
+parent record, marking healthy sessions repair-needed. The 2.1.220
+compact payload carries **no agent-context marker** (probe-verified
+shape: `cwd`, `hook_event_name`, `session_id`, `source`,
+`transcript_path`), so markers alone cannot fix it. The rule: for
+**managed** sessions — the production bleed case — compact events are
+model/cwd-inadmissible unconditionally (a managed model change is a
+transition whose start event reports the model; anything else is
+re-observed at the next start/resume — the flag self-heals, observed
+live). `agent_id` / `agent_transcript_path` / `/subagents/` markers are
+also honored as defense-in-depth for any payload shape that carries
+them. Ordinary sessions keep compact-model reconciliation — that is
+their in-session `/model` tracking path. **Accepted residual
+(documented):** an ordinary session's subagent (a project agent with a
+different model) could in principle bleed through an unmarked compact
+event the same way; there is no discriminator at this pin, ordinary
+compact-model is load-bearing, and no such case has been observed —
+flagged in issues/008 rather than "fixed". A genuine native `/model`
+switch in a managed session is now noticed at the next start/resume
+event rather than at the next compact — delayed, never lost. A
+fixture reproduction of a subagent compaction was attempted and did not
+produce one (possibly subagents do not compact at 2.1.220 — consistent
+with issue 007); the managed rule does not depend on that question.
+`SubagentModelBleedTests` + `SubagentModelBleedOrdinaryTests` pin the
+behavioral branches (compact inadmissibility, no-clear of a legit flag,
+marker branch on synthetic shapes, ordinary preserved, resume still
+observed).
+
 ## User decision summary (what you're approving by accepting this design)
 
 1. Selected agents become **real files** in a per-session scope; the failure

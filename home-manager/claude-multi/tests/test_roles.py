@@ -47,6 +47,7 @@ PROMPT_KEYWORDS = {
         "5 consecutive deaths",
         "counter resets",
         "stop it with TaskStop",
+        "not a failure — never",
     ),
     "cm-analyst": (
         "read-mostly",

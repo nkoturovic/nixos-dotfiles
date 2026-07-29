@@ -18,10 +18,10 @@ Status values: `open` (reported, not yet root-caused) · `investigating` ·
 | # | Issue | Status | Release |
 |---|-------|--------|---------|
 | 001 | [EnterWorktree refusal on cross-worktree review](001-enterworktree-cross-review-refusal/) | resolved | 2.7.2 (gen 109) |
-| 002 | [Unactionable repair-needed guidance + relink semantics](002-relink-guidance-unactionable/) | in release | 2.8.0 (D41) |
-| 003 | [Resume blockers: daemon-owned + no-conversation + TUI gate](003-resume-blockers-gate/) | in release | 2.8.0 (D41) |
-| 004 | [API Error "An error occurred while processing"](004-api-error-processing/) | in release | 2.8.0 (D42) |
+| 002 | [Unactionable repair-needed guidance + relink semantics](002-relink-guidance-unactionable/) | resolved | 2.8.0 (D41, gen 110) |
+| 003 | [Resume blockers: daemon-owned + no-conversation + TUI gate](003-resume-blockers-gate/) | resolved | 2.8.0 (D41, gen 110) |
+| 004 | [API Error "An error occurred while processing"](004-api-error-processing/) | resolved | 2.8.0–2.8.2 (D42/D43) |
 | 005 | [Worktree-isolated dispatch unavailable outside git repos](005-worktree-dispatch-nonrepo-cwd/) | open (mitigation shipped 2.8.0) | — |
 | 006 | [5ee2f942 transcript genuinely missing](006-5ee2f942-transcript-missing/) | open | — |
 | 007 | [Subagent "Prompt is too long" (context exhaustion)](007-subagent-context-exhaustion/) | open (recovery shipped 2.8.0) | — |
-| 008 | [observed_model bleed: compact event attributes a subagent's model](008-observed-model-subagent-bleed/) | open | — |
+| 008 | [observed_model bleed: compact event attributes a subagent's model](008-observed-model-subagent-bleed/) | resolved | 2.8.3 (D44) |

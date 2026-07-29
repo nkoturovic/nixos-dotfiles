@@ -4154,6 +4154,29 @@ def _handle_session_event(
         if model is not None and not isinstance(model, str):
             raise CLIError("hook model must be a string when present")
         current = runtime.session_store.load(stable_id)
+        # D44: model/cwd evidence is admissible only from the main session.
+        # The 2.1.220 compact payload carries no agent-context marker
+        # (probe-verified shape: cwd/hook_event_name/session_id/source/
+        # transcript_path), so for MANAGED sessions — the production bleed
+        # case — compact events are inadmissible unconditionally; a managed
+        # model change is a transition (its start event reports the model)
+        # or is re-observed at the next start/resume. Ordinary sessions
+        # keep compact-model reconciliation (their in-session /model
+        # tracking path); an unmarked compact bleed there is the accepted
+        # residual documented in D44. agent_id/agent_transcript_path/
+        # /subagents/ markers are honored as defense-in-depth for any
+        # payload shape that carries them.
+        transcript_path = payload.get("transcript_path")
+        agent_context = bool(
+            payload.get("agent_id")
+            or payload.get("agent_transcript_path")
+        ) or (isinstance(transcript_path, str) and "/subagents/" in transcript_path)
+        if agent_context or (
+            source == "compact"
+            and current["session_type"] == sessions.SESSION_TYPE_MANAGED
+        ):
+            cwd = None
+            model = None
         reconciled_model = model
         reconciled_profile: str | None = None
         if model and current["session_type"] == sessions.SESSION_TYPE_ORDINARY:

@@ -5844,3 +5844,144 @@ class ResumeGateRound4Tests(CLITestCase):
             refusal = cli._stop_precheck(self.runtime, record)
         self.assertIsNotNone(refusal)
         self.assertIn("not live in the background", refusal)
+
+
+class SubagentModelBleedTests(CLITestCase):
+    """D44: model/cwd evidence from subagent contexts and compact events is
+    inadmissible; start/resume events stay authoritative."""
+
+    def _event(self, **fields):
+        payload = {
+            "hook_event_name": "SessionStart",
+            "session_id": FIXED_ID,
+            "cwd": self.runtime.cwd,
+        }
+        payload.update(fields)
+        return strict_json.canonical_bytes(payload).decode("utf-8")
+
+    def test_compact_model_is_not_observed(self) -> None:
+        self.save_session(mode="durable", scope_generation=1)
+        code, _output = self.run_cli(
+            ["session-event", "start", "--managed-id", FIXED_ID],
+            self._event(source="compact", model="gpt-multi-sol-xhigh"),
+        )
+        self.assertEqual(code, 0)
+        record = self.runtime.session_store.load(FIXED_ID)
+        self.assertNotIn("observed_model", record)
+        self.assertNotEqual(
+            record["identity_state"], sessions.IDENTITY_REPAIR_NEEDED
+        )
+
+    def test_compact_does_not_clear_a_legit_observed_model(self) -> None:
+        self.save_session(mode="durable", scope_generation=1)
+        record = self.runtime.session_store.load(FIXED_ID)
+        record["identity_state"] = sessions.IDENTITY_REPAIR_NEEDED
+        record["observed_model"] = "gpt-multi-sol-high"
+        self.runtime.session_store.save(record)
+        code, _output = self.run_cli(
+            ["session-event", "start", "--managed-id", FIXED_ID],
+            self._event(source="compact", model="gpt-multi-sol-xhigh"),
+        )
+        self.assertEqual(code, 0)
+        record = self.runtime.session_store.load(FIXED_ID)
+        self.assertEqual(record["observed_model"], "gpt-multi-sol-high")
+
+    def test_agent_context_markers_suppress_model_and_cwd(self) -> None:
+        # Defense-in-depth on SYNTHETIC shapes (the 2.1.220 compact payload
+        # carries no markers — D44). source="resume" is used so the
+        # managed-compact blanket cannot mask the marker branch itself:
+        # each marker alone must suppress BOTH model and cwd evidence.
+        self.save_session(mode="durable", scope_generation=1)
+        worktree = "/home/user/repo/.claude/worktrees/agent-abc123"
+        markers = (
+            {"agent_id": "agent-abc123"},
+            {"agent_transcript_path": "/proj/x/subagents/agent-abc123.jsonl"},
+            {"transcript_path": "/proj/x/subagents/agent-abc123.jsonl"},
+        )
+        for marker in markers:
+            with self.subTest(marker=next(iter(marker))):
+                record = self.runtime.session_store.load(FIXED_ID)
+                for key in ("observed_model", "observed_cwd"):
+                    record.pop(key, None)
+                self.runtime.session_store.save(record)
+                code, _output = self.run_cli(
+                    ["session-event", "start", "--managed-id", FIXED_ID],
+                    self._event(
+                        source="resume",
+                        cwd=worktree,
+                        model="gpt-multi-sol-xhigh",
+                        **marker,
+                    ),
+                )
+                self.assertEqual(code, 0)
+                record = self.runtime.session_store.load(FIXED_ID)
+                self.assertNotIn("observed_model", record)
+                self.assertNotIn("observed_cwd", record)
+
+    def test_resume_model_still_observed(self) -> None:
+        self.save_session(mode="durable", scope_generation=1)
+        code, _output = self.run_cli(
+            ["session-event", "start", "--managed-id", FIXED_ID],
+            self._event(source="resume", model="gpt-multi-sol-high"),
+        )
+        self.assertEqual(code, 0)
+        record = self.runtime.session_store.load(FIXED_ID)
+        self.assertEqual(record["observed_model"], "gpt-multi-sol-high")
+        self.assertEqual(record["identity_state"], sessions.IDENTITY_REPAIR_NEEDED)
+
+
+class SubagentModelBleedOrdinaryTests(CLITestCase):
+    """D44 ordinary-side: compact reconciliation stays, agent context ignored."""
+
+    def _ordinary(self):
+        record = sessions.make_ordinary_record(
+            managed_id=FIXED_ID,
+            runtime_session_id=FIXED_ID,
+            cwd=self.runtime.cwd,
+            model="qwen38",
+            context_profile="large",
+            catalog_version=self.runtime.catalog_version,
+            catalog_hash=self.runtime.catalog.bundle_sha256,
+            launcher_version=self.runtime.launcher_version,
+        )
+        self.runtime.session_store.save(record)
+        return record
+
+    def test_ordinary_compact_still_reconciles_model(self) -> None:
+        self._ordinary()
+        payload = strict_json.canonical_bytes(
+            {
+                "hook_event_name": "SessionStart",
+                "session_id": FIXED_ID,
+                "source": "compact",
+                "cwd": self.runtime.cwd,
+                "model": "claude-fable-5[1m]",
+            }
+        ).decode("utf-8")
+        code, _output = self.run_cli(
+            ["session-event", "start", "--managed-id", FIXED_ID], payload
+        )
+        self.assertEqual(code, 0)
+        updated = self.runtime.session_store.load(FIXED_ID)
+        self.assertEqual(updated["ordinary_model"], "fable")
+
+    def test_ordinary_agent_context_event_ignored(self) -> None:
+        # Same defense-in-depth note as the managed marker test: synthetic
+        # shape; the compact payload carries no such field at 2.1.220.
+        self._ordinary()
+        payload = strict_json.canonical_bytes(
+            {
+                "hook_event_name": "SessionStart",
+                "session_id": FIXED_ID,
+                "source": "compact",
+                "cwd": self.runtime.cwd,
+                "model": "claude-fable-5[1m]",
+                "agent_transcript_path": "/proj/x/subagents/agent-abc.jsonl",
+            }
+        ).decode("utf-8")
+        code, _output = self.run_cli(
+            ["session-event", "start", "--managed-id", FIXED_ID], payload
+        )
+        self.assertEqual(code, 0)
+        updated = self.runtime.session_store.load(FIXED_ID)
+        self.assertEqual(updated["ordinary_model"], "qwen38")
