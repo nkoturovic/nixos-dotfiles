@@ -55,9 +55,13 @@ claude-multi is used.
 - Sessions list marks repair-needed rows (extends ●/⚠ markers).
 - Lock doctrine preserved: gate is pure metadata, no locks, pre-lock.
 
+## Hardening rounds (two cross-family reviewers)
+
+Round 1 (Sol xhigh): gate order (transcript outranks liveness), precommitted narrowed to daemon-only, ordinary scope leak, wrap corrupting commands, quoting/model-only guidance gaps, enforcement before callback, ordinary combined flow, force placement. Round 2/3 (both reviewers, resumed after API/stream deaths per the D42 rule): fail-closed slug ambiguity, non-file transcripts, target-only liveness + stop-rescan, --force threaded through all interactive paths, transient gate notices (no plan poisoning), card repair modal end-to-end, ordinary relink message, docs precision. Final verdicts: approve (both).
+
 ## Verification
 
 1,361 tests OK (15 new ResumeGateTests: evaluator branches, perform
 backstop incl. force/precommitted/fresh exemptions, picker modal flow,
 markers, text surfaces); PTY-verified modal rendering; sandbox green;
-cross-family review (pending at log time).
+two cross-family reviews → both approve; 1,377 tests OK.

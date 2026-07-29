@@ -46,8 +46,12 @@ repairing it manually: only `relink-runtime <uuid> <runtime_uuid> --cwd
   sessions list, doctor).
 - Tests: bare-clears-cwd, model preserved, message content, guard texts.
 
+## Hardening rounds (two cross-family reviewers)
+
+Round 1 (Sol xhigh): gate order (transcript outranks liveness), precommitted narrowed to daemon-only, ordinary scope leak, wrap corrupting commands, quoting/model-only guidance gaps, enforcement before callback, ordinary combined flow, force placement. Round 2/3 (both reviewers, resumed after API/stream deaths per the D42 rule): fail-closed slug ambiguity, non-file transcripts, target-only liveness + stop-rescan, --force threaded through all interactive paths, transient gate notices (no plan poisoning), card repair modal end-to-end, ordinary relink message, docs precision. Final verdicts: approve (both).
+
 ## Verification
 
 1,361 tests OK (incl. new RelinkGuidanceTests: bare-clears-cwd, model
 preserved, message content, launch/transition guard texts); sandbox
-derivation green; cross-family review (pending at log time).
+derivation green; two cross-family reviews → both approve; 1,377 tests OK.
