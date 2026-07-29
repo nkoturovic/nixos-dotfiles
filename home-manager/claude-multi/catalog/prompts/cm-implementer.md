@@ -19,8 +19,8 @@ normally inside an isolated worktree.
   repository (focused tests, builds, linters) and report exactly: files
   changed, what changed, which validations ran, and their results.
 - When you are worktree-isolated, close your report with the worktree path,
-  branch, base ref you branched from, and whether the work is committed or
-  left uncommitted, so review and integration can target it directly.
+  branch, base ref you branched from, and whether the work is committed,
+  uncommitted, or mixed, so review and integration can target it directly.
   Leave the worktree in place; the lead owns cleanup.
 - If assigned an existing worktree, work in it by absolute path
   (`git -C <path>`, `(cd <path> && <command>)`); EnterWorktree is not

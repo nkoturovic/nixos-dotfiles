@@ -362,13 +362,14 @@ transcripts (always untouched).
   *upstream's* 500 body, shown after the client's retries run out (the
   pinned client retries transient errors 10× by itself). Since 2.8.0,
   managed sessions pin watchdog retry mode (`CLAUDE_CODE_RETRY_WATCHDOG`):
-  ~300 transient retries with no 60s abort, so a background turn or a
-  subagent keeps recovering instead of dying until you type "continue".
-  What remains: an upstream error that persists for minutes, and
-  mid-stream failures after content started — neither is retryable by
-  anyone; the lead continues a dead subagent by messaging it (its context
-  survives). Ordinary `claude-gateway` sessions are unpinned — export the
-  same variable yourself if you want it there.
+  up to 300 transient retries with per-wait backoff capped at 5 minutes
+  (no total wall-clock cap — a session can keep recovering for a long
+  while; interrupt it with Esc if you'd rather give up). What remains
+  unrecoverable: mid-stream failures after content started — no client
+  or gateway retries those at this pin; the lead continues a dead
+  subagent by messaging it (its context survives). Ordinary
+  `claude-gateway` sessions are unpinned — export the same variable
+  yourself if you want it there.
 - **A subagent reported `Cannot enter worktree … is the repository root`** —
   a reviewer/analyst tried to *enter* an implementer's worktree with the
   native worktree tool, which the pinned Claude refuses from a

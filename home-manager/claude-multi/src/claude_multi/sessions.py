@@ -207,8 +207,9 @@ def relink_message(record: dict[str, Any]) -> str:
                     f"session {stable_id} identity is repair-needed (observed "
                     f"model {observed_model} differs from the recorded "
                     f"{recorded}); relaunch explicitly with `claude-gateway -r "
-                    f"{stable_id} --model {recorded}` to reconcile, or relink "
-                    f"only if the runtime UUID itself changed: `{base}`"
+                    f"{stable_id} --model {shlex.quote(recorded)}` to "
+                    f"reconcile, or relink only if the runtime UUID itself "
+                    f"changed: `{base}`"
                 )
             recorded_model = (
                 record.get("snapshot", {})

@@ -4221,7 +4221,10 @@ class SessionEventAndDirectModeTests(CLITestCase):
         )
         record["observed_model"] = "gpt-multi-sol-high"
         self.runtime.session_store.save(record)
-        with self.assertRaisesRegex(cli.CLIError, "explicitly relaunch"):
+        with self.assertRaisesRegex(
+            cli.CLIError,
+            r"claude-gateway -r " + FIXED_ID + r" --model qwen38",
+        ):
             self.runtime.prepare_direct(
                 action="resume", model_id=None, passthrough=[], session_id=FIXED_ID
             )
@@ -5733,3 +5736,111 @@ class ResumeGateRound3Tests(CLITestCase):
         self.assertNotIn("observed_cwd", repaired)
         self.assertIsNotNone(result)
         self.assertEqual(result[0], "perform")
+
+
+class ResumeGateRound4Tests(CLITestCase):
+    """Per-issue re-review fixes: ordinary embedded picker, no-force stop,
+    target-only precheck."""
+
+    def _bare_runtime(self):
+        return cli.Runtime(
+            asset_root=CATALOG_ROOT,
+            environ=self.runtime.environ,
+            cwd=self.runtime.cwd,
+            launch_callback=None,
+            doctor_callback=lambda _runtime: [],
+        )
+
+    def _prepared(self, record, *, precommitted=False):
+        import types
+
+        action = cli.compiler.build_resume(
+            sessions.managed_id(record), sessions.runtime_session_id(record)
+        )
+        result = types.SimpleNamespace(session_action=action)
+        return cli.PreparedLaunch(
+            result, record, None, {}, precommitted=precommitted
+        )
+
+    def _ordinary(self, **overrides):
+        record = sessions.make_ordinary_record(
+            managed_id=FIXED_ID,
+            runtime_session_id=FIXED_ID,
+            cwd=self.runtime.cwd,
+            model="qwen38",
+            context_profile="large",
+            catalog_version=self.runtime.catalog_version,
+            catalog_hash=self.runtime.catalog.bundle_sha256,
+            launcher_version=self.runtime.launcher_version,
+        )
+        for key, value in overrides.items():
+            record[key] = value
+        self.runtime.session_store.save(record)
+        self._write_transcript(sessions.runtime_session_id(record))
+        return record
+
+    def test_embedded_picker_resume_handles_ordinary_record(self) -> None:
+        record = self._ordinary()
+        plan = cli.build_quick_plan(
+            self.runtime,
+            self.runtime.compositions.load("default"),
+            action="fresh",
+            source="t",
+        )
+        screen = cli._QuickConfirmScreen(
+            self.runtime, plan, passthrough=[], palette=tui.MONO_PALETTE
+        )
+
+        class FakeSessions:
+            def __init__(self, runtime, *, palette, resume_decision=None):
+                pass
+
+            def run(self, win):
+                return ("resume", record)
+
+        original = cli._SessionsScreen
+        cli._SessionsScreen = FakeSessions
+        try:
+            outcome = screen._open_sessions(None)
+        finally:
+            cli._SessionsScreen = original
+        self.assertIsNotNone(outcome)
+        self.assertEqual(outcome[0], "perform")
+        self.assertEqual(
+            outcome[1].result.session_action.kind, "resume"
+        )
+
+    def test_stop_resume_does_not_bypass_final_gate(self) -> None:
+        record = self.save_session(mode="durable", scope_generation=1)
+        runtime = self._bare_runtime()
+        prepared = self._prepared(record)
+        with mock.patch.object(cli.launch, "perform_launch", return_value=0):
+            # Decision None: a target that is live again at the boundary
+            # is refused (no stale force exemption after stop & resume).
+            with mock.patch.object(
+                runtime, "_live_prefixes", return_value=frozenset({FIXED_ID})
+            ):
+                with self.assertRaises(cli.CLIError) as raised:
+                    runtime.perform(prepared, resume_decision=None)
+        self.assertIn("live in the background", str(raised.exception))
+
+    def test_stop_precheck_requires_target_liveness_not_alias(self) -> None:
+        record = self.save_session(mode="durable", scope_generation=1)
+        record["runtime_session_id"] = OTHER_ID
+        record["runtime_aliases"] = [
+            {
+                "session_id": FIXED_ID,
+                "source": "fork",
+                "observed_at": "2026-07-22T00:00:00Z",
+            }
+        ]
+        self.runtime.session_store.save(record)
+        # Only the historical alias (FIXED_ID) is live; the current runtime
+        # (OTHER_ID) is not — stop must refuse rather than target a
+        # non-live identity.
+        with mock.patch.object(
+            cli, "_live_background_prefixes", return_value=frozenset({FIXED_ID})
+        ):
+            refusal = cli._stop_precheck(self.runtime, record)
+        self.assertIsNotNone(refusal)
+        self.assertIn("not live in the background", refusal)

@@ -38,3 +38,25 @@ deletion. Noted honestly; no evidence distinguishes them.
 Restore from backup if one exists; otherwise
 `claude-multi sessions forget 5ee2f942-a367-4e96-a113-72eb4ecbd84c`
 once the gate makes the state visible.
+
+## Verification round (2026-07-29, second review — approve)
+
+- Record metadata re-confirmed (cwd, runtime==managed, authoritative,
+  end/other, last_seen 05:50:57Z); transcript confirmed absent across
+  all nine project directories.
+- The 2.8.0 gate refuses pre-exec with the exact guidance (exit 2).
+- **Why-narrowing attempt (metadata-only, inconclusive):** four other
+  records share the `end/other` pattern and still have transcripts, so
+  the pattern doesn't explain the loss; lifecycle hooks demonstrably
+  worked for this record at some point (authoritative + later End).
+  Metadata cannot distinguish crash-before-first-write from later
+  external deletion; an early isolated hook failure can't be excluded.
+- **Disclosure (bounded probe):** an initial bare-`claude-multi` probe
+  hit the INSTALLED 2.7.2 profile binary (its PYTHONPATH override), not
+  the checkout — and the pre-gate 2.7.2 launcher committed the resume
+  (record epoch advanced to 17) before native exec failed "No
+  conversation found". This is exactly the mutate-then-fail shape the
+  2.8.0 gate prevents (refuse before mutation). Record remains healthy
+  and consistent; no transcript was created. Lesson for live smokes:
+  from the checkout use `PYTHONPATH=src ./bin/claude-multi` (or
+  `python3 bin/claude-multi`), never a bare `claude-multi`.

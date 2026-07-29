@@ -567,11 +567,9 @@ class Runtime:
                 if "observed_cwd" in prior or "observed_model" not in prior:
                     raise CLIError(sessions.relink_message(prior))
                 if model_id is None:
-                    raise CLIError(
-                        f"session {stable_id} observed an unsafe model/profile change; "
-                        "explicitly relaunch it with `claude-gateway -r "
-                        f"{stable_id} --model {prior['ordinary_model']}`"
-                    )
+                    # Single message source (002 review): the ordinary-aware
+                    # helper names the same explicit relaunch.
+                    raise CLIError(sessions.relink_message(prior))
                 model_relaunch = True
             runtime_id = sessions.runtime_session_id(prior)
             selected_model = model_id or prior["ordinary_model"]
@@ -2072,6 +2070,21 @@ class _QuickConfirmScreen:
         if result[0] == "resume":
             record = result[1]
             decision = result[2] if len(result) > 2 else None
+            if record["session_type"] == sessions.SESSION_TYPE_ORDINARY:
+                # Ordinary records have no composition plan; mirror the
+                # standalone picker's branch (review must-fix: managed_plan
+                # on an ordinary record raised KeyError).
+                prepared = self.runtime.prepare_direct(
+                    action="resume",
+                    model_id=(
+                        record.get("ordinary_model")
+                        if "observed_model" in record
+                        else None
+                    ),
+                    passthrough=self.passthrough,
+                    session_id=sessions.managed_id(record),
+                )
+                return ("perform", prepared, decision)
             plan = managed_plan(self.runtime, record)
             if not plan.ready:
                 self.plan.errors.extend(plan.errors)
@@ -3470,12 +3483,21 @@ def _stop_runtime(
 
 
 def _stop_precheck(runtime: Runtime, record: dict[str, Any]) -> str | None:
-    """Shared stop guards; a refusal message, or None when stop is possible."""
+    """Shared stop guards; a refusal message, or None when stop is possible.
+
+    Liveness is checked for the exact resume target that `claude stop`
+    will be invoked for (the current runtime id). A live historical alias
+    is a different native session — out of this command's scope (review:
+    precheck and stop must target the same identity).
+    """
 
     stable_id = sessions.managed_id(record)
     if runtime.environ.get("CLAUDE_MULTI_MANAGED_ID") == stable_id:
         return "refusing to stop the session you are running inside"
-    if not _record_is_live(record, _live_background_prefixes()):
+    runtime_id = sessions.runtime_session_id(record)
+    if not any(
+        runtime_id.startswith(prefix) for prefix in _live_background_prefixes()
+    ):
         return (
             "not live in the background — nothing to stop (if it is attached "
             "in a terminal, exit it there)"
@@ -3735,7 +3757,10 @@ def _run_resume_gate_modal(
                 "stop issued but the session still shows live — give it a "
                 "moment and retry"
             )
-        return ("resume", record, "force")
+        # No force exemption: the mandatory gate re-evaluates fresh at the
+        # launch boundary — a stop that raced a relaunch is caught there
+        # instead of being bypassed by a stale decision (review must-fix).
+        return ("resume", record, None)
     if choice == "force":
         return ("resume", record, "force")
     return None

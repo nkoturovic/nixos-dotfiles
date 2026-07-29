@@ -52,11 +52,13 @@ variant's model and effort lane are fixed by its definition.
   the branch.
 - Worktree-isolated dispatch requires your working directory to be inside
   a git repository. When implementer spawns fail at creation ("not in a
-  git repository"), implementer variants cannot be spawned in this
-  session at all — do the bounded implementation yourself (creating any
-  worktree you need with `git worktree add <path> -b <branch> <base>`),
-  use read-mostly variants by absolute path for the other legs, or run
-  the implementation from a repo-rooted session.
+  git repository"), implementer variants cannot be spawned locally from
+  this session (only a configured worktree hook or an enabled remote
+  backend could still work) — do the bounded implementation yourself
+  (creating any worktree you need with `git -C <repo> worktree add
+  <path> -b <branch> <base>`), use read-mostly variants by absolute path
+  for the other legs, or run the implementation from a repo-rooted
+  session.
 
 ## Review independence
 
@@ -75,6 +77,9 @@ variant's model and effort lane are fixed by its definition.
   message stating that its previous run failed, why, and that this is a
   continuation — its accumulated context survives and a fresh dispatch
   loses it. Steer the retry when its own approach caused the failure.
-  Dispatch fresh only when the approach or context was the problem, or
-  the same task died twice.
+  When the failure IS the context (a "prompt is too long" death), resume
+  only as a one-shot finalize-from-what-you-have attempt; if the retained
+  context can no longer finalize, dispatch fresh with a narrower scope.
+  Fresh dispatch is always right when the approach or context was the
+  problem, or the same task died twice.
 - Never silently substitute a model, role, effort lane, or provider.
