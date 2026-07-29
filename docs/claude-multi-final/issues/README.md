@@ -23,3 +23,4 @@ Status values: `open` (reported, not yet root-caused) · `investigating` ·
 | 004 | [API Error "An error occurred while processing"](004-api-error-processing/) | in release | 2.8.0 (D42) |
 | 005 | [Worktree-isolated dispatch unavailable outside git repos](005-worktree-dispatch-nonrepo-cwd/) | open (mitigation shipped 2.8.0) | — |
 | 006 | [5ee2f942 transcript genuinely missing](006-5ee2f942-transcript-missing/) | open | — |
+| 007 | [Subagent "Prompt is too long" (context exhaustion)](007-subagent-context-exhaustion/) | open (recovery shipped 2.8.0) | — |

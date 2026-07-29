@@ -201,6 +201,15 @@ def relink_message(record: dict[str, Any]) -> str:
     if not observed_cwd:
         observed_model = record.get("observed_model")
         if observed_model:
+            if record["session_type"] == SESSION_TYPE_ORDINARY:
+                recorded = record.get("ordinary_model", "the recorded model")
+                return (
+                    f"session {stable_id} identity is repair-needed (observed "
+                    f"model {observed_model} differs from the recorded "
+                    f"{recorded}); relaunch explicitly with `claude-gateway -r "
+                    f"{stable_id} --model {recorded}` to reconcile, or relink "
+                    f"only if the runtime UUID itself changed: `{base}`"
+                )
             recorded_model = (
                 record.get("snapshot", {})
                 .get("lead", {})

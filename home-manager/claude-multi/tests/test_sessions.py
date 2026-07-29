@@ -1381,3 +1381,37 @@ class RelinkGuidanceTests(SessionTestCase):
         message = sessions.relink_message(record)
         self.assertIn("--cwd '/project/with space'", message)
         self.assertIn("--cwd /wrong/project", message)
+
+
+class RelinkMessageOrdinaryTests(SessionTestCase):
+    """Ordinary-aware repair guidance (second-review finding)."""
+
+    def _ordinary_repair_record(self) -> dict:
+        return sessions.make_ordinary_record(
+            managed_id=FIXED_ID,
+            runtime_session_id=FIXED_ID,
+            cwd="/project/path",
+            model="qwen38",
+            context_profile="large",
+            catalog_version=1,
+            catalog_hash="sha256:" + "0" * 64,
+            launcher_version="2.2.0",
+            identity_state=sessions.IDENTITY_REPAIR_NEEDED,
+        )
+
+    def test_ordinary_model_only_message_names_gateway_relaunch(self) -> None:
+        record = self._ordinary_repair_record()
+        record["observed_model"] = "gpt-multi-sol-high"
+        message = sessions.relink_message(record)
+        self.assertIn("observed model gpt-multi-sol-high", message)
+        self.assertIn(
+            f"`claude-gateway -r {FIXED_ID} --model qwen38`", message
+        )
+        self.assertNotIn("the recorded model", message)
+        self.assertNotIn("`claude-multi -r", message)
+
+    def test_ordinary_model_only_message_falls_back_without_snapshot(self) -> None:
+        record = self._ordinary_repair_record()
+        record["observed_model"] = "unexpected-selector"
+        message = sessions.relink_message(record)
+        self.assertIn("differs from the recorded qwen38", message)
