@@ -43,9 +43,10 @@ process start.
 
 Two modes:
 
-- **Managed composition** (`claude-multi`): generated `cm-*` roster, strict
-  lead-model fence (`availableModels` = lead only), compiled policy denies,
-  cm-lead prompt, composition transitions as the only lead change.
+- **Managed composition** (`claude-multi`): generated `cm-*` roster, roster-
+  shaped model fence (`availableModels` = lead + every roster selector, lead
+  pinned — D39), compiled policy denies, cm-lead prompt, composition
+  transitions as the only lead change.
 - **Ordinary gateway** (`claude-gateway` / `claude-multi direct`): no
   generated agents or composition policy; a context-compatible model profile
   in `availableModels`; native `/model` inside the profile; cross-profile
