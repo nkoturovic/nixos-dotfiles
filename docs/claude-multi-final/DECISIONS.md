@@ -600,8 +600,11 @@ the full retry budget (agent:* querySources are protected from the
 background 529-drop). Decision: managed scopes pin
 `CLAUDE_CODE_RETRY_WATCHDOG=1` in the durable settings env (doctrine #8
 — the D33-proven channel that survives daemon env scrubbing): 300
-transient retries, no 60s abort, ~5min cap — a subagent or backgrounded
-turn no longer dies waiting for a human to type "continue".
+transient retries with per-wait backoff capped at 5 minutes (429
+Retry-After waits bounded at 6 hours; there is no total-duration cap —
+the honest shape), no 60s retry-after abort — a subagent or
+backgrounded turn no longer dies waiting for a human to type
+"continue".
 **Rejected:** gateway `request-retry` at 7.2.80 — one credential per
 provider means rotation has nothing to rotate to; it would re-hit the
 same upstream the client already retries (the "hardcoded cooldown"

@@ -671,8 +671,8 @@ class Runtime:
         refusal here. `force` bypasses ONLY the daemon-owned branch (the
         liveness signal is heuristic); repair-needed and transcript
         problems are never bypassed. Precommitted transition relaunches
-        are exempt: the transition flow already warns on live sessions
-        and the operator confirmed there (review A3 nuance).
+        skip ONLY the daemon-owned branch too (their flow already warns
+        on live sessions); identity and transcript damage still refuse.
         """
 
         action = prepared.result.session_action
@@ -1627,6 +1627,7 @@ class _QuickConfirmScreen:
         hint_detector: Any | None = None,
         tty_in: Any | None = None,
         tty_out: Any | None = None,
+        resume_decision: str | None = None,
     ):
         self.runtime = runtime
         self.plan = plan
@@ -1638,6 +1639,8 @@ class _QuickConfirmScreen:
         self.gateway_checked = gateway_checked
         self.gateway_check = gateway_check
         self.upgrade_runner = upgrade_runner
+        self.resume_decision = resume_decision
+        self.gate_notice: str | None = None
         self.hint_detector = (
             hint_detector if hint_detector is not None else launch.repin_hint
         )
@@ -1803,6 +1806,7 @@ class _QuickConfirmScreen:
         errors = [
             *plan.errors,
             *([plan.passthrough_error] if plan.passthrough_error else []),
+            *([self.gate_notice] if self.gate_notice else []),
         ]
         for error in errors:
             wrapped = textwrap.wrap(
@@ -2050,14 +2054,19 @@ class _QuickConfirmScreen:
     def _open_sessions(self, win: Any) -> tuple[str, Any] | None:
         """Open the sessions picker in place; None means stay on the card.
 
-        Resume maps to ("perform", PreparedLaunch) so the outer launcher
-        tears down curses before exec, exactly like Enter. A transition
-        request returns ("transition", record, composition_name) for the
-        caller to run after teardown. The picker's ``legacy_requested`` flag
+        Resume maps to ("perform", PreparedLaunch, decision) so the outer
+        launcher tears down curses before exec, exactly like Enter. A
+        transition request returns ("transition", record, composition_name)
+        for the caller to run after teardown. The picker's
+        ``legacy_requested`` flag
         follows the originating plan.
         """
 
-        result = _SessionsScreen(self.runtime, palette=self.palette).run(win)
+        result = _SessionsScreen(
+            self.runtime,
+            palette=self.palette,
+            resume_decision=self.resume_decision,
+        ).run(win)
         if result is None:
             return None
         if result[0] == "resume":
@@ -2121,7 +2130,7 @@ class _QuickConfirmScreen:
 
     # -- main loop -----------------------------------------------------------
 
-    def run(self, win: Any) -> tuple[str, PreparedLaunch] | None:
+    def run(self, win: Any) -> tuple[str, PreparedLaunch, str | None] | None:
         tui.hide_cursor()
         while True:
             validate_quick_passthrough(self.runtime, self.plan, self.passthrough)
@@ -2190,16 +2199,11 @@ class _QuickConfirmScreen:
                 key.kind == "enter" and not self.plan.ready
             ):
                 if self.plan.record is not None:
-                    self._recorded_only_modal(win)
-                    continue
-                if self._edit(win) == "exit":
-                    return None
-                continue
-            if key.kind == "enter" and self.plan.ready:
-                decision: str | None = None
-                if self.plan.record is not None and self.plan.action == "resume":
+                    # A repair-needed record blocks the plan; offer the same
+                    # one-keypress repair the picker does instead of only
+                    # naming the command (TUI-first, issue 002).
                     gate = _evaluate_resume_gate(self.runtime, self.plan.record)
-                    if gate.kind != "ok":
+                    if gate.kind == "repair-needed":
                         try:
                             resolved_gate = _run_resume_gate_modal(
                                 self.runtime,
@@ -2210,7 +2214,41 @@ class _QuickConfirmScreen:
                                 background=self._draw,
                             )
                         except (CLIError, sessions.SessionError) as exc:
-                            self.plan.errors.append(str(exc))
+                            self.gate_notice = str(exc)
+                            continue
+                        if resolved_gate is None:
+                            continue
+                        _, record, _decision = resolved_gate
+                        self.plan = managed_plan(self.runtime, record)
+                        self.gate_notice = None
+                        continue
+                    self._recorded_only_modal(win)
+                    continue
+                if self._edit(win) == "exit":
+                    return None
+                continue
+            if key.kind == "enter" and self.plan.ready:
+                decision: str | None = self.resume_decision
+                self.gate_notice = None
+                if self.plan.record is not None and self.plan.action == "resume":
+                    gate = _evaluate_resume_gate(self.runtime, self.plan.record)
+                    if gate.kind != "ok" and not (
+                        gate.kind == "daemon-owned" and decision == "force"
+                    ):
+                        try:
+                            resolved_gate = _run_resume_gate_modal(
+                                self.runtime,
+                                self.plan.record,
+                                gate,
+                                win,
+                                self.palette,
+                                background=self._draw,
+                            )
+                        except (CLIError, sessions.SessionError) as exc:
+                            # Transient notice, never plan.errors: the plan
+                            # stays ready and the action can be retried
+                            # (review should-fix 5).
+                            self.gate_notice = str(exc)
                             continue
                         if resolved_gate is None:
                             continue
@@ -2243,6 +2281,7 @@ def _curses_quick_confirm(
     update_hint: tuple[str, str] | None = None,
     gateway_problem: str | None = None,
     gateway_checked: bool = False,
+    resume_decision: str | None = None,
 ) -> Any:
     palette = tui.detect_palette(
         no_color=no_color, tty_in=input_stream, tty_out=output_stream
@@ -2255,6 +2294,7 @@ def _curses_quick_confirm(
         update_hint=update_hint,
         gateway_problem=gateway_problem,
         gateway_checked=gateway_checked,
+        resume_decision=resume_decision,
     )
     result = tui.run_curses_on_streams(
         screen.run, input_stream, output_stream, palette=palette
@@ -2307,6 +2347,7 @@ def quick_confirm(
                 update_hint=update_hint,
                 gateway_problem=gateway_problem,
                 gateway_checked=gateway_checked,
+                resume_decision=resume_decision,
             )
         except KeyboardInterrupt:
             return 0
@@ -2710,9 +2751,16 @@ class _SessionsScreen:
     CLI to execute after curses teardown; forget/adopt run inline.
     """
 
-    def __init__(self, runtime: Runtime, *, palette: tui.Palette):
+    def __init__(
+        self,
+        runtime: Runtime,
+        *,
+        palette: tui.Palette,
+        resume_decision: str | None = None,
+    ):
         self.runtime = runtime
         self.palette = palette
+        self.resume_decision = resume_decision
         self.section = "managed"
         self.selected = 0
         self.message = ""
@@ -3085,6 +3133,8 @@ class _SessionsScreen:
                     )
                     continue
                 gate = _evaluate_resume_gate(self.runtime, record)
+                if gate.kind == "daemon-owned" and self.resume_decision == "force":
+                    return ("resume", record, "force")
                 if gate.kind != "ok":
                     try:
                         resolved = _run_resume_gate_modal(
@@ -3278,6 +3328,7 @@ def _sessions_list_tui(
     no_color: bool,
     passthrough: list[str] | None = None,
     legacy_requested: bool = False,
+    resume_decision: str | None = None,
 ) -> int:
     """Interactive sessions screen; actions reuse the command flows verbatim.
 
@@ -3290,7 +3341,9 @@ def _sessions_list_tui(
     palette = tui.detect_palette(
         no_color=no_color, tty_in=input_stream, tty_out=output_stream
     )
-    screen = _SessionsScreen(runtime, palette=palette)
+    screen = _SessionsScreen(
+        runtime, palette=palette, resume_decision=resume_decision
+    )
     result = tui.run_curses_on_streams(
         screen.run, input_stream, output_stream, palette=palette
     )
@@ -3508,12 +3561,16 @@ def _resume_transcript_status(
     if expected.is_file():
         return ("present", str(expected), True)
     found = _slugs_for_session(runtime, runtime_id)
+    decoded: set[str] = set()
     for slug in found:
-        # Best-effort decode back to the real project path so the guidance
-        # can name an exact --cwd (review must-fix 5c).
+        # Best-effort decode back to real project paths. Slugs are NOT
+        # injective ("a-b/c" and "a/b-c" collide), so only a single
+        # surviving candidate counts as exact — anything else falls back
+        # to slug-level guidance (review must-fix: ambiguous decode).
         for candidate in _decode_project_slug_candidates(slug):
-            if candidate.is_dir():
-                return ("elsewhere", str(candidate), True)
+            decoded.add(str(candidate))
+    if len(decoded) == 1:
+        return ("elsewhere", decoded.pop(), True)
     if found:
         return ("elsewhere", ", ".join(found), False)
     return ("missing", str(expected), True)
@@ -3589,7 +3646,14 @@ def _evaluate_resume_gate(
     prefixes = (
         live_prefixes if live_prefixes is not None else _live_background_prefixes()
     )
-    if _record_is_live(record, prefixes):
+    # The resume conflict is only the RESUME TARGET being live (native
+    # resume of the same UUID forks/refuses). A live historical alias is
+    # an older branch — its hooks are stale-epoch-rejected, and resuming
+    # the current runtime does not conflict with it (review: alias-aware
+    # liveness must not gate). The ● row marker intentionally stays
+    # lineage-broad for display.
+    runtime_id = sessions.runtime_session_id(record)
+    if any(runtime_id.startswith(prefix) for prefix in prefixes):
         text = (
             f"session {stable_id} is live in the background (●). Resuming a "
             "background-owned session natively either fails or forks it — "
@@ -3661,6 +3725,16 @@ def _run_resume_gate_modal(
         error = _stop_runtime(runtime, runtime_id)
         if error is not None:
             raise CLIError(f"stop failed: {error}")
+        # Rescan before granting the bypass: if the target still shows
+        # live, ask for a retry instead of forcing into a fork (review).
+        if any(
+            runtime_id.startswith(prefix)
+            for prefix in _live_background_prefixes()
+        ):
+            raise CLIError(
+                "stop issued but the session still shows live — give it a "
+                "moment and retry"
+            )
         return ("resume", record, "force")
     if choice == "force":
         return ("resume", record, "force")
@@ -4383,6 +4457,9 @@ def handle_command(
                         input_stream=input_stream,
                         output_stream=output_stream,
                         no_color=no_color,
+                        resume_decision=(
+                            "force" if getattr(args, "force", False) else None
+                        ),
                     )
                 except KeyboardInterrupt:
                     return 0
@@ -5366,6 +5443,7 @@ def main(
                         output_stream=tty_output,
                         no_color=args.no_color,
                         passthrough=passthrough,
+                        resume_decision="force" if args.force else None,
                         legacy_requested=args.legacy,
                     )
                 except KeyboardInterrupt:
@@ -5535,9 +5613,12 @@ def _slugs_for_session(runtime: Runtime, session_id: str) -> tuple[str, ...]:
         for project_dir in projects.iterdir():
             if not project_dir.is_dir():
                 continue
-            if (project_dir / f"{session_id}.jsonl").exists():
+            if (project_dir / f"{session_id}.jsonl").is_file():
                 found.add(project_dir.name)
     except OSError:
+        # An unreadable projects root is indistinguishable from "no
+        # transcripts" at metadata level — treated as missing (the
+        # conservative guidance either way).
         return ()
     return tuple(sorted(found))
 

@@ -52,9 +52,11 @@ variant's model and effort lane are fixed by its definition.
   the branch.
 - Worktree-isolated dispatch requires your working directory to be inside
   a git repository. When implementer spawns fail at creation ("not in a
-  git repository"), create the worktree yourself (`git worktree add
-  <path> -b <branch> <base>`) and have agents work in it by absolute
-  path, or do the bounded work yourself.
+  git repository"), implementer variants cannot be spawned in this
+  session at all — do the bounded implementation yourself (creating any
+  worktree you need with `git worktree add <path> -b <branch> <base>`),
+  use read-mostly variants by absolute path for the other legs, or run
+  the implementation from a repo-rooted session.
 
 ## Review independence
 

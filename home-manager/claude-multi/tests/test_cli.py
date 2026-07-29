@@ -3328,7 +3328,7 @@ class QuickConfirmSessionsKeyTests(CLITestCase):
         screen = cli._QuickConfirmScreen(self.runtime, plan, passthrough=[], palette=palette)
 
         class FakeSessions:
-            def __init__(self, runtime, *, palette):
+            def __init__(self, runtime, *, palette, resume_decision=None):
                 pass
 
             def run(self, win):
@@ -3349,7 +3349,7 @@ class QuickConfirmSessionsKeyTests(CLITestCase):
         screen = cli._QuickConfirmScreen(self.runtime, plan, passthrough=[], palette=palette)
 
         class FakeSessions:
-            def __init__(self, runtime, *, palette):
+            def __init__(self, runtime, *, palette, resume_decision=None):
                 pass
 
             def run(self, win):
@@ -3544,7 +3544,7 @@ class PickerIntentThreadingTests(CLITestCase):
         performed = []
 
         class FakeScreen:
-            def __init__(self, runtime, *, palette):
+            def __init__(self, runtime, *, palette, resume_decision=None):
                 pass
 
             def run(self, win):
@@ -5598,3 +5598,138 @@ class ResumeGateReviewFixTests(CLITestCase):
             session_id=FIXED_ID,
         )
         self.assertTrue(prepared.model_relaunch)
+
+
+class ResumeGateRound3Tests(CLITestCase):
+    """Second-review hardening: ambiguity, non-files, force threading, notices."""
+
+    def _prepared(self, record, *, precommitted=False):
+        import types
+
+        action = cli.compiler.build_resume(
+            sessions.managed_id(record), sessions.runtime_session_id(record)
+        )
+        result = types.SimpleNamespace(session_action=action)
+        return cli.PreparedLaunch(
+            result, record, None, {}, precommitted=precommitted
+        )
+
+    def _bare_runtime(self):
+        return cli.Runtime(
+            asset_root=CATALOG_ROOT,
+            environ=self.runtime.environ,
+            cwd=self.runtime.cwd,
+            launch_callback=None,
+            doctor_callback=lambda _runtime: [],
+        )
+
+    def _transcript(self, record):
+        return (
+            Path(self.runtime.environ["HOME"])
+            / ".claude"
+            / "projects"
+            / cli._native_project_slug(record["cwd"])
+            / f"{sessions.runtime_session_id(record)}.jsonl"
+        )
+
+    def test_precommitted_still_refuses_transcript_missing(self) -> None:
+        record = self.save_session(mode="durable", scope_generation=1)
+        self._transcript(record).unlink()
+        runtime = self._bare_runtime()
+        with self.assertRaises(cli.CLIError) as raised:
+            runtime.perform(self._prepared(record, precommitted=True))
+        self.assertIn("Transcript not found", str(raised.exception))
+
+    def test_ambiguous_slug_decode_falls_back_to_slug_guidance(self) -> None:
+        record = self.save_session(mode="durable", scope_generation=1)
+        home = Path(self.runtime.environ["HOME"])
+        # Two real paths whose slugs collide: "a-b/c" and "a/b-c".
+        for real in (home / "a-b" / "c", home / "a" / "b-c"):
+            real.mkdir(parents=True)
+        stray = self._transcript(record)
+        slug_dir = stray.parent.parent / cli._native_project_slug(home / "a-b" / "c")
+        self.assertEqual(
+            slug_dir, stray.parent.parent / cli._native_project_slug(home / "a" / "b-c")
+        )
+        slug_dir.mkdir(parents=True)
+        stray.rename(slug_dir / stray.name)
+        gate = cli._evaluate_resume_gate(self.runtime, record)
+        self.assertEqual(gate.kind, "transcript-elsewhere")
+        text = " ".join(gate.lines)
+        # No exact --cwd command when the decode is ambiguous.
+        self.assertNotIn(str(home / "a-b" / "c"), text)
+        self.assertIn("<that project directory>", text)
+
+    def test_directory_named_like_transcript_is_not_a_transcript(self) -> None:
+        record = self.save_session(mode="durable", scope_generation=1)
+        stray = self._transcript(record)
+        stray.unlink()
+        (stray.parent / f"{FIXED_ID}.jsonl").mkdir()
+        gate = cli._evaluate_resume_gate(self.runtime, record)
+        self.assertEqual(gate.kind, "transcript-missing")
+
+    def test_picker_force_skips_daemon_modal(self) -> None:
+        from test_tui import FakeWindow
+
+        record = self.save_session(mode="durable", scope_generation=1)
+        screen = cli._SessionsScreen(
+            self.runtime, palette=tui.MONO_PALETTE, resume_decision="force"
+        )
+        with mock.patch.object(
+            cli, "_live_background_prefixes", return_value=frozenset({FIXED_ID})
+        ):
+            result = screen.run(FakeWindow(["r"]))
+        self.assertIsNotNone(result)
+        self.assertEqual(result[0], "resume")
+        self.assertEqual(result[2], "force")
+
+    def test_gate_notice_does_not_poison_the_plan(self) -> None:
+        from test_tui import FakeWindow
+
+        record = self.save_session(mode="durable", scope_generation=1)
+        record["identity_state"] = sessions.IDENTITY_REPAIR_NEEDED
+        record["observed_cwd"] = "/wrong/project"
+        record["runtime_session_id"] = OTHER_ID
+        self.runtime.session_store.save(record)
+        self._write_transcript(OTHER_ID)
+        owner = sessions.make_record(
+            session_id=OTHER_ID,
+            cwd=self.runtime.cwd,
+            composition_name="default",
+            snapshot=record["snapshot"],
+            catalog_version=self.runtime.catalog_version,
+            catalog_hash=self.runtime.catalog.bundle_sha256,
+            launcher_version=self.runtime.launcher_version,
+        )
+        self.runtime.session_store.save(owner)
+        plan = cli.managed_plan(self.runtime, record)
+        self.assertFalse(plan.ready)  # blocked by the record state itself
+        errors_before = list(plan.errors)
+        screen = cli._QuickConfirmScreen(
+            self.runtime, plan, passthrough=[], palette=tui.MONO_PALETTE
+        )
+        screen.run(FakeWindow(["\n", "\n", "\x1b"]))
+        # The failed repair surfaces as a transient notice; it must NOT
+        # append to plan.errors (review should-fix 5).
+        self.assertIsNotNone(screen.gate_notice)
+        self.assertIn("already owned", screen.gate_notice)
+        self.assertEqual(plan.errors, errors_before)
+        self.assertEqual(self.launches, [])
+
+    def test_card_repair_modal_repairs_and_unblocks(self) -> None:
+        from test_tui import FakeWindow
+
+        record = self.save_session(mode="durable", scope_generation=1)
+        record["identity_state"] = sessions.IDENTITY_REPAIR_NEEDED
+        record["observed_cwd"] = "/wrong/project"
+        self.runtime.session_store.save(record)
+        plan = cli.managed_plan(self.runtime, record)
+        self.assertFalse(plan.ready)
+        screen = cli._QuickConfirmScreen(
+            self.runtime, plan, passthrough=[], palette=tui.MONO_PALETTE
+        )
+        result = screen.run(FakeWindow(["\n", "\n", "\n"]))
+        repaired = self.runtime.session_store.load(FIXED_ID)
+        self.assertNotIn("observed_cwd", repaired)
+        self.assertIsNotNone(result)
+        self.assertEqual(result[0], "perform")

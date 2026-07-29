@@ -37,13 +37,14 @@ absolute path, or does bounded implementation inline.
 ## Candidate directions
 
 1. **Prompt note (shipped in 2.8.0, D42):** the lead contract states the
-   requirement and the manual fallback — spawn failures no longer thrash:
-   "Worktree-isolated dispatch requires your working directory to be
-   inside a git repository. When implementer spawns fail at creation
-   ('not in a git repository'), create the worktree yourself
-   (`git worktree add <path> -b <branch> <base>`) and have agents work in
-   it by absolute path, or do the bounded work yourself." Keyword-pinned
-   in tests.
+   requirement and the real fallbacks — spawn failures no longer thrash:
+   in a non-repo session, implementer variants cannot be spawned at all
+   (the isolation frontmatter is evaluated at spawn), so the lead does
+   the bounded implementation inline (creating worktrees by hand with
+   `git worktree add` when useful), uses read-mostly variants by absolute
+   path for other legs, or runs the implementation from a repo-rooted
+   session. (An earlier wording implied a hand-created worktree makes
+   implementers spawnable — second review corrected it: it does not.)
 2. **Conditional isolation (deferred, candidate D43)**: the scope
    compiler strips `isolation` from implementer definitions when the
    *record's* cwd is not a git repository (stable per session). Keeps

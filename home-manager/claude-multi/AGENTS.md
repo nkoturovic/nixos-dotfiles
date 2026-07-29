@@ -301,13 +301,17 @@ full): run with a disk-backed temp dir, e.g.
   reviewers with worktree isolation.
 - **Resume gate (D41):** every resume is pre-checked by
   `_evaluate_resume_gate` (pure, metadata-only, no locks) with
-  `Runtime.perform` as the mandatory backstop: repair-needed → the exact
-  `relink-runtime` command (bare relink re-asserts the recorded cwd);
-  ● daemon-owned → stop-first guidance (`-r --force` bypasses ONLY that
-  branch; TUI modal offers Stop & resume / Resume anyway / Cancel);
-  transcript missing/elsewhere → restore-or-forget / relink-`--cwd`
-  guidance. Precommitted transition relaunches are exempt. Rows mark
-  repair-needed with `!` next to ●/⚠.
+  `Runtime.perform` as the mandatory backstop: repair-needed (cwd
+  evidence) → the exact `relink-runtime` command (bare relink re-asserts
+  the recorded cwd); transcript missing/elsewhere → restore-or-forget /
+  relink-`--cwd` guidance (checked BEFORE liveness, so force can never
+  bypass it); ● daemon-owned → stop-first guidance (`-r --force`
+  bypasses ONLY that branch; TUI modal offers Stop & resume / Resume
+  anyway / Cancel). Precommitted transition relaunches are exempt **from
+  the liveness branch only** (their flow already warns); identity and
+  transcript damage still refuse. Model-only drift intentionally follows
+  the allow-model-relaunch path, not the gate. Rows mark repair-needed
+  with `!` next to ●/⚠.
 - `claude-multi-dev probe …` — dev-only disposable-fixture harness; loopback
   fake provider; daemon-domain gate; live-domain tripwire. The delegation
   probe asserts subagent wire models against the production-shaped fence

@@ -87,9 +87,12 @@ automatically.
 TUI shows a popup when something needs a decision — never a dead-end native
 error:
 
-- **Identity repair needed** (`!` row marker): offers **Repair & resume**
-  (one keypress runs the exact `relink-runtime` repair, keeping the recorded
-  project dir) or Cancel. In text mode you get the full copy-paste command.
+- **Identity repair needed** (`!` row marker, from a conflicting
+  resume-CWD observation): offers **Repair & resume** (one keypress runs
+  the exact `relink-runtime` repair, keeping the recorded project dir)
+  or Cancel. In text mode you get the full copy-paste command. (A
+  model-only observation is different: the launcher reconciles it on the
+  next resume through the recorded model — no gate popup needed.)
 - **Live in the background** (`●` row marker): resuming a daemon-owned
   session natively forks it — the incident shape. Offers **Stop & resume**
   (stops it through upstream's own `claude stop`, then resumes), **Resume
