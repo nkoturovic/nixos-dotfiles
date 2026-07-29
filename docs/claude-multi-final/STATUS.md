@@ -1,6 +1,6 @@
 # STATUS — live tracker
 
-## 2026-07-30 — v2.10.0: ordinary gateway sessions launch from the card (D46, pending activation)
+## 2026-07-30 — v2.10.0: ordinary gateway sessions launch from the card (D46, activated gen 116)
 
 - **G new gateway** on the composition card opens the ordinary-session
   picker — the TUI twin of `claude-gateway`, closing the last CLI-only
@@ -23,6 +23,9 @@
   addressed), implementation review per the usual cadence. Catalog
   stays 12; `bundle_sha256` rotates via version.json (expected).
 - Evidence: 1,434 host tests OK (skipped=2), sandbox derivation green.
+  Post-activation verified: launcher 2.10.0, gen 116, doctor exit 0,
+  PTY-driven line-mode `g` prints the live grouped listing (no
+  unavailable rows — both provider secrets present).
   New pins: `OrdinaryLaunchModelsTests`, `OrdinaryScreenTuiTests`,
   `OrdinaryCardKeyTests`, renderer parity test.
 

@@ -21,7 +21,9 @@ untouched; `claude-gateway` is the ordinary non-composition entrypoint.
 
 - `claude-multi` → composition card → **Enter** to launch.
   **Tab/P** cycles presets (e.g. `default`, `kimi-sol`, `qwen-sol`,
-  `glm-sol`, `sol-direct` — full table in USAGE.md),
+  `glm-sol`, `sol-direct` — full table in USAGE.md), **G** opens the
+  ordinary gateway picker (profile-grouped models, no composition —
+  the TUI twin of `claude-gateway`),
   **W** toggles workflows native/off, **S** opens the sessions picker,
   **?** explains workflow guarantees, **E** edits the composition,
   **H** runs doctor in place, **U** appears when a Claude update is
@@ -67,7 +69,7 @@ untouched; `claude-gateway` is the ordinary non-composition entrypoint.
 
 ## Installed state (2026-07-29)
 
-- claude-multi **2.9.0** active (HM generation 115; rollback: gen 114/113),
+- claude-multi **2.10.0** active (HM generation 116; rollback: gen 115/114),
   Claude pinned at **2.1.220** (hash-verified, symlink-aligned).
   Resume gate live (D41): repair-needed records get one-keypress Repair &
   resume in the TUI, daemon-owned resumes gate with Stop & resume /
@@ -86,6 +88,11 @@ untouched; `claude-gateway` is the ordinary non-composition entrypoint.
   lane max with `reasoning_effort: "max"` — 1M context, alibaba family
   (Sol/Kimi stay the cross-family reviewers). `glm-sol` = GLM lead;
   `kimi-sol-qwen-glm` = Kimi lead with GLM/Qwen comparable alternates.
+- **Ordinary sessions launch from the card** (2.10.0, D46): **G new gateway**
+  opens a profile-grouped model picker — the TUI twin of `claude-gateway`.
+  `(no secret)` rows reflect render-time availability; Enter rechecks and
+  asks before launching anyway. CLI `direct` warns (non-blocking) on a
+  missing provider secret; line-mode `g` lists the groups.
 - `claude-multi doctor` → **Ready** (all 18 durable scopes on catalog 12 + D44 shim guard;
   watchdog pin + roster prompts live; D43 radar in the suite).
   Sessions screen sorts by last used with the created age alongside
