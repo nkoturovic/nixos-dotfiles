@@ -66,7 +66,7 @@ untouched; `claude-gateway` is the ordinary non-composition entrypoint.
 
 ## Installed state (2026-07-29)
 
-- claude-multi **2.8.0** active (HM generation 110; rollback: gen 109/108),
+- claude-multi **2.8.2** active (HM generation 112; rollback: gen 111/110),
   Claude pinned at **2.1.220** (hash-verified, symlink-aligned).
   Resume gate live (D41): repair-needed records get one-keypress Repair &
   resume in the TUI, daemon-owned resumes gate with Stop & resume /
@@ -79,8 +79,8 @@ untouched; `claude-gateway` is the ordinary non-composition entrypoint.
   `opus-sol`, `opus-kimi`, `fable`, `kimi-sol`, `qwen-sol`, `sol-direct`
   all live); gateway serves `claude-opus-5` and `claude-multi-opus-5`
   (CLIProxy registry patched); binary pinned at 2.1.220 and symlink-matched.
-- `claude-multi doctor` → **Ready** after `--repair-all` converged all
-  18 durable scopes to catalog 9 (watchdog pin + roster prompt updates).
+- `claude-multi doctor` → **Ready** (all 18 durable scopes on catalog 11;
+  watchdog pin + roster prompts live; D43 radar in the suite).
   Known open item: heavy-subagent sessions may show a model-only
   repair-needed flag from a subagent-model attribution at compaction —
   benign, self-heals on next launcher resume (issue 008, mechanism under
