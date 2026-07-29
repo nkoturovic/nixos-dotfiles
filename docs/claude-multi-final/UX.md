@@ -24,7 +24,7 @@ health    gateway ok · pin 2.1.218
 update    Claude 2.1.219 available · pinned 2.1.218 · press U to update
 
 Status  Ready
-Enter launch · E edit · Tab preset · W wf · D details · S sessions · ? help · U update · H health · Esc cancel
+Enter launch · E edit · Tab preset · W wf · D details · S sessions · G new gateway · ? help · U update · H health · Esc cancel
 ```
 
 (The `update` row and the **U** binding appear only when a newer Claude is
@@ -40,6 +40,51 @@ Elements and their honesty semantics:
 - **Project agents line**: visible participation (Q10) — count, and collision
   status. Exact `cm-*` collision blocks launch with the path named.
 - **Policy line**: one compact sentence, durable-by-settings.
+
+## 1.5 Gateway picker (G, 2.10.0)
+
+**G new gateway** (shared keybar tail, available on every card state) opens
+the ordinary-session launch picker — the TUI twin of `claude-gateway`:
+
+```
+gateway session — no composition
+────────────────────────────────────────────────────────────
+plain Claude through the local gateway · native /model within a group · no roster, no workflow pins
+
+large · 1M context · /model switches freely within this group
+  fable — Fable 5 · 1M selector · anthropic
+  glm52 — GLM-5.2 · alibaba  (no secret)
+  kimi-k3 — Kimi K3 · 1M selector · moonshot
+  opus — Opus 4.8 · 1M selector · anthropic
+  opus5 — Opus 5 · 1M selector · anthropic
+  qwen38 — Qwen3.8 Max · Preview · alibaba  (no secret)
+
+sol · 372K context · lanes high/xhigh via /model
+> sol — GPT-5.6 Sol · openai
+
+Enter launch · ? help · Esc back
+```
+
+Honesty semantics (D46):
+
+- **Groups are the /model fence.** Sections are ordinary context profiles;
+  the launched session's native `/model` can switch inside its group only.
+  Rows are models, not lanes — lanes switch in-session; the launch uses the
+  model's default selector (cursor starts on `sol`, the CLI default).
+- **`(no secret)` is render-time availability, not a live guarantee.** The
+  gateway omits providers rendered without their secret; the row dims and
+  the detail line spells out the exact `missing required secret env:X`
+  reason for the selected row. Enter **rechecks the secret file** (never a
+  cached verdict) and asks for explicit confirmation (default Cancel)
+  before launching anyway — the running gateway may legitimately still
+  serve an older config. The marking speaks for the initial model only.
+- **Rows come from the compiler's accepted ordinary-lead domain**
+  (`direct_context_profile`): agent-only or profile-less models never
+  appear, so a row can never fail validation after Enter.
+- Line mode parity: `g` prints the same grouped listing + the
+  `claude-gateway --model <model>` hint; the CLI `direct` path warns
+  (non-blocking) before a launch whose provider secret is missing, and
+  never on `--print-launch`.
 
 ## 2. Editor
 

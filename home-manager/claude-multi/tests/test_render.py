@@ -175,6 +175,22 @@ class SecretBoundaryTests(unittest.TestCase):
         result = _render(resolve_secret=lambda name: "resolved-dummy-value")
         self.assertIn('api-key: "resolved-dummy-value"', result.yaml)
 
+    def test_unavailable_providers_matches_renderer_report(self) -> None:
+        # The UI helper and the renderer's omission pass are two readers of
+        # one rule; this parity pin fails if they ever drift (D46).
+        bundle = catalog.load_catalog(CATALOG_ROOT)
+        providers = bundle.docs["providers"]["providers"]
+        for resolver in (
+            lambda name: None,
+            lambda name: "dummy",
+            lambda name: "dummy" if name == "QWEN_CLAUDE_API_KEY" else None,
+        ):
+            via_helper = render.unavailable_providers(
+                providers, resolve_secret=resolver
+            )
+            via_render = _render(resolve_secret=resolver).unavailable
+            self.assertEqual(via_helper, via_render)
+
 
 class EmitterTests(unittest.TestCase):
     def test_special_characters_escaped(self) -> None:

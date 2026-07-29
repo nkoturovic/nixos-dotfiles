@@ -127,7 +127,7 @@ class SeedLoadTests(unittest.TestCase):
 
     def test_version_json_matches_v2_2_schema_and_catalog_change(self) -> None:
         bundle = catalog.load_catalog(CATALOG_ROOT)
-        self.assertEqual(bundle.docs["version"]["launcher_version"], "2.9.0")
+        self.assertEqual(bundle.docs["version"]["launcher_version"], "2.10.0")
         self.assertEqual(bundle.docs["version"]["catalog_version"], 12)
 
 

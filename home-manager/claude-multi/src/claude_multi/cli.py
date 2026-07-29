@@ -32,6 +32,7 @@ from . import (
     composition,
     launch,
     proxy as proxy_mod,
+    render,
     scope as scope_mod,
     sessions,
     state,
@@ -1417,9 +1418,9 @@ def quick_footer(plan: QuickPlan, *, update_hint: tuple[str, str] | None = None)
     update = " · U update" if update_hint is not None else ""
     if plan.record is not None:
         primary = "Enter launch" if plan.ready else "Enter transition hint"
-        return (f"{primary} · D details · S sessions · ? workflows{update} · Q cancel",)
+        return (f"{primary} · D details · S sessions · G new gateway · ? workflows{update} · Q cancel",)
     primary = "Enter launch" if plan.ready else "Enter edit"
-    return (f"{primary} · E edit · D details · S sessions · ? workflows · P preset · W wf on/off{update} · Q cancel",)
+    return (f"{primary} · E edit · D details · S sessions · G new gateway · ? workflows · P preset · W wf on/off{update} · Q cancel",)
 
 
 def validate_quick_passthrough(
@@ -1590,6 +1591,7 @@ QUICK_HELP = (
     "W — toggle native workflows on/off for this launch.\n"
     "D — details (scalar, providers, catalog hashes, workers).\n"
     "S — sessions: managed + native picker (resume, switch comp, adopt).\n"
+    "G — new gateway session: ignores this card; pick a model, no composition.\n"
     "P (line mode) — cycle presets.\n"
     "? — this help, then the workflow guarantees below.\n"
     "Esc — cancel (everywhere; in text fields Esc is also the way out).\n"
@@ -1944,7 +1946,7 @@ class _QuickConfirmScreen:
             bindings.append(("W", "wf on/off"))
         if self.update_hint is not None:
             bindings.append(("U", "update"))
-        bindings.extend((("D", "details"), ("S", "sessions"), ("?", "help"), ("H", "health"), ("Esc", "cancel")))
+        bindings.extend((("D", "details"), ("S", "sessions"), ("G", "new gateway"), ("?", "help"), ("H", "health"), ("Esc", "cancel")))
         return tui.KeyBar(bindings)
 
     # -- health / update actions ----------------------------------------------
@@ -2101,6 +2103,29 @@ class _QuickConfirmScreen:
             return result
         return None
 
+    def _open_ordinary(self, win: Any) -> tuple | None:
+        """Open the ordinary gateway picker in place; None means stay.
+
+        A pick maps to ("perform", PreparedLaunch, None) so the outer
+        launcher tears down curses before exec, exactly like Enter (D46).
+        """
+
+        model_id = _OrdinaryScreen(self.runtime, palette=self.palette).run(win)
+        if model_id is None:
+            return None
+        try:
+            prepared = self.runtime.prepare_direct(
+                action="fresh",
+                model_id=model_id,
+                passthrough=self.passthrough,
+            )
+        except (CLIError, compiler.CompilerError) as exc:
+            # Transient notice, never plan.errors (same contract as the
+            # gate modal): the card stays ready and G can be retried.
+            self.gate_notice = str(exc)
+            return None
+        return ("perform", prepared, None)
+
     # -- editor -------------------------------------------------------------
 
     def _recorded_only_modal(self, win: Any) -> None:
@@ -2172,6 +2197,11 @@ class _QuickConfirmScreen:
                 continue
             if key.kind == "char" and key.ch.lower() == "s":
                 outcome = self._open_sessions(win)
+                if outcome is None:
+                    continue
+                return outcome
+            if key.kind == "char" and key.ch.lower() == "g":
+                outcome = self._open_ordinary(win)
                 if outcome is None:
                     continue
                 return outcome
@@ -2459,8 +2489,17 @@ def _line_quick_confirm(
         if key == "s":
             _print_sessions_listing(runtime, output_stream)
             output_stream.write(
-                "resume with `claude-multi -r <uuid>` (or a name), or press S "
-                "in the curses UI to pick interactively.\n"
+                "resume managed sessions with `claude-multi -r <uuid>` (or a "
+                "name), ordinary sessions with `claude-gateway --resume "
+                "<uuid>`, or press S in the curses UI to pick interactively.\n"
+            )
+            continue
+        if key == "g":
+            _print_ordinary_listing(runtime, output_stream)
+            output_stream.write(
+                "launch with `claude-gateway --model <model>` (or "
+                "`claude-multi direct --model <model>`), or press G in the "
+                "curses UI to pick interactively.\n"
             )
             continue
         if key in ("p", "P"):
@@ -3265,6 +3304,287 @@ class _SessionsScreen:
             if key.kind == "char" and key.ch.lower() == "e":
                 self._stop_live(win, record)
                 continue
+
+
+ORDINARY_TITLE = "gateway session — no composition"
+ORDINARY_SUBTITLE = (
+    "plain Claude through the local gateway · native /model within a group · "
+    "no roster, no workflow pins"
+)
+ORDINARY_PROFILE_NOTES = {
+    "large": "1M context · /model switches freely within this group",
+    "sol": "372K context · lanes high/xhigh via /model",
+}
+ORDINARY_PROFILE_NOTE_DEFAULT = "/model switches freely within this group"
+ORDINARY_KEYBAR = (
+    ("Enter", "launch"),
+    ("?", "help"),
+    ("Esc", "back"),
+)
+ORDINARY_HELP = (
+    "ordinary gateway sessions run plain Claude through the local gateway: no\n"
+    "composition, no agent roster, no workflow pins — you pick the model.\n"
+    "\n"
+    "  Enter — launch a fresh session with the selected model.\n"
+    "  Esc — back to the card.\n"
+    "\n"
+    "Groups are context profiles: native /model can switch freely among the\n"
+    "models inside the launched session's group; switching across groups is an\n"
+    "explicit relaunch (claude-gateway --resume ID --model MODEL) so a 1M\n"
+    "transcript can never strand into a smaller context. The session starts on\n"
+    "the model's default selector; lanes (e.g. sol high/xhigh) switch via\n"
+    "/model in-session.\n"
+    "\n"
+    "Rows marked (no secret) belong to a provider whose secret is missing: the\n"
+    "gateway omits providers rendered without their secret, so the model will\n"
+    "fail unless the running gateway still serves an older config. Enter asks\n"
+    "for explicit confirmation before launching anyway. The marking speaks for\n"
+    "the initial model only — in-session /model offers the whole group.\n"
+    "\n"
+    "The session is tracked as an ordinary record: resume it from the sessions\n"
+    "screen (S) or with claude-gateway --continue, with the usual resume gate.\n"
+    "\n"
+    "Arrow keys move; Esc closes this panel."
+)
+ORDINARY_UNAVAILABLE_TITLE = "Provider secret missing"
+ORDINARY_UNAVAILABLE_BODY = (
+    "The gateway omits providers rendered without their secret; the model\n"
+    "may fail unless the running gateway still serves an older config."
+)
+ORDINARY_SECRET_FILE_ERROR = "secret env file unavailable or invalid"
+
+
+def _ordinary_unavailable(runtime: Runtime) -> dict[str, str]:
+    """Provider -> unavailable reason for ordinary launch marking (D46).
+
+    Same rule the renderer applies when omitting providers from the gateway
+    config (render.unavailable_providers), resolved against the live secret
+    env file — the picker's dimmed rows and the CLI warning can never drift
+    from what the gateway actually serves. A malformed, unreadable, or
+    unsafe secret env file resolves nothing: every direct provider is then
+    marked with one static file-level reason (never the parser's message)
+    rather than crashing an advisory preflight.
+    """
+
+    providers = runtime.catalog.docs["providers"]["providers"]
+    try:
+        entries = render.unavailable_providers(
+            providers,
+            resolve_secret=lambda name: proxy_mod.resolve_secret(
+                name, environ=runtime.environ
+            ),
+        )
+    except (proxy_mod.ProxyError, UnicodeDecodeError):
+        return {
+            provider_id: ORDINARY_SECRET_FILE_ERROR
+            for provider_id in sorted(providers)
+            if providers[provider_id]["transport"]["kind"] == "direct"
+        }
+    return {entry["provider"]: entry["reason"] for entry in entries}
+
+
+def _print_ordinary_listing(runtime: Runtime, output_stream: Any) -> None:
+    """Text-mode ordinary launch listing (mirrors the G picker, D46)."""
+
+    docs = runtime.catalog.docs
+    models = docs["models"]["models"]
+    unavailable = _ordinary_unavailable(runtime)
+    output_stream.write(
+        "ordinary gateway sessions (no composition; /model within a group):\n"
+    )
+    for profile, model_ids in compiler.ordinary_launch_models(docs).items():
+        note = ORDINARY_PROFILE_NOTES.get(profile, ORDINARY_PROFILE_NOTE_DEFAULT)
+        output_stream.write(f"  {profile} · {note}:\n")
+        for model_id in model_ids:
+            model = models[model_id]
+            reason = unavailable.get(model["provider"])
+            suffix = f"  (unavailable: {reason})" if reason is not None else ""
+            output_stream.write(
+                f"    {model_id}\t{tui.visible_text(model['display'])}{suffix}\n"
+            )
+
+
+class _OrdinaryScreen:
+    """Fresh ordinary gateway launch picker (D46).
+
+    Sections are ordinary context profiles — the native /model fence of the
+    launched session. Rows are catalog models (lanes stay in-session via
+    /model). Rows whose provider secret is missing render dimmed with a
+    (no secret) marker: the marking is render-time availability (the
+    gateway omits providers rendered without their secret), so Enter on
+    one rechecks the file and asks for explicit confirmation before
+    launching anyway. Returns the picked catalog model id; None cancels.
+    """
+
+    def __init__(self, runtime: Runtime, *, palette: tui.Palette) -> None:
+        self.runtime = runtime
+        self.palette = palette
+        self.groups = compiler.ordinary_launch_models(runtime.catalog.docs)
+        self.rows = [
+            model_id for model_ids in self.groups.values() for model_id in model_ids
+        ]
+        self.unavailable = _ordinary_unavailable(runtime)
+        # Match the CLI default (prepare_direct: model_id or "sol").
+        self.selected = self.rows.index("sol") if "sol" in self.rows else 0
+
+    def _row_reason(self, model_id: str) -> str | None:
+        model = self.runtime.catalog.models[model_id]
+        return self.unavailable.get(model["provider"])
+
+    def _detail_reserve(self, width: int) -> int:
+        """Wrapped-line worst case for the selected-row detail (floor math).
+
+        Computed over every reason any direct provider could produce at
+        this width, so the size floor never flaps while browsing.
+        """
+
+        providers = self.runtime.catalog.docs["providers"]["providers"]
+        candidates = [
+            f"missing required secret {p['transport']['auth']['secret_ref']}"
+            for p in providers.values()
+            if p["transport"]["kind"] == "direct"
+        ]
+        candidates.append(ORDINARY_SECRET_FILE_ERROR)
+        wrap_width = max(20, width - 4)
+        return max(
+            len(
+                textwrap.wrap(
+                    f"{reason} — Enter asks before launching anyway", wrap_width
+                )
+            )
+            for reason in candidates
+        )
+
+    def _draw(self, win: Any) -> None:
+        win.erase()
+        palette = self.palette
+        height, width = win.getmaxyx()
+        keybar = tui.KeyBar(ORDINARY_KEYBAR)
+        bar_rows = keybar.rows(width)
+        # Layout: title, separator, subtitle, blank, per group header + rows
+        # (+ a blank after each), trailing blank, wrapped detail lines above
+        # the bar (worst case reserved so the floor is stable per width).
+        needed = (
+            4 + len(self.rows) + 2 * len(self.groups) + 1 + self._detail_reserve(width)
+        )
+        if height < needed or width < 44:
+            # Minimum-size floor (same H6 contract as the sessions screen):
+            # below this the list cannot render honestly.
+            tui.safe_add(win, 1, 2, ORDINARY_TITLE, palette.attr("accent") | curses.A_BOLD)
+            tui.safe_add(
+                win, 3, 2, "terminal too small for the gateway picker;",
+                palette.attr("warn"),
+            )
+            tui.safe_add(
+                win, 4, 2, "resize, or use `claude-gateway --model MODEL` (text).",
+                palette.attr("dim"),
+            )
+            keybar.draw(win, height - 1, palette)
+            win.refresh()
+            return
+        message_row = height - bar_rows - 1
+        tui.safe_add(win, 1, 2, ORDINARY_TITLE, palette.attr("accent") | curses.A_BOLD)
+        tui.safe_add(win, 2, 2, "─" * min(width - 1, 62), palette.attr("dim"))
+        tui.safe_add(win, 3, 2, ORDINARY_SUBTITLE, palette.attr("dim"))
+        row = 5
+        index = 0
+        models = self.runtime.catalog.models
+        providers = self.runtime.catalog.providers
+        for profile, model_ids in self.groups.items():
+            note = ORDINARY_PROFILE_NOTES.get(profile, ORDINARY_PROFILE_NOTE_DEFAULT)
+            tui.safe_add(win, row, 2, f"{profile} · {note}", palette.attr("dim"))
+            row += 1
+            for model_id in model_ids:
+                reason = self._row_reason(model_id)
+                model = models[model_id]
+                family = providers[model["provider"]]["independence_family"]
+                # Rows stay narrow on purpose (H11): the full reason for the
+                # selected row is spelled out on the detail lines instead.
+                label = f"{model_id} — {model['display']} · {family}"
+                if reason is not None:
+                    label += "  (no secret)"
+                attr = palette.attr("dim") if reason is not None else palette.attr("normal")
+                if index == self.selected:
+                    attr |= curses.A_REVERSE
+                prefix = "> " if index == self.selected else "  "
+                tui.safe_add(win, row, 2, prefix + label, attr)
+                row += 1
+                index += 1
+            row += 1
+        if not self.rows:
+            tui.safe_add(
+                win, row, 2, "(no ordinary-capable models in this catalog)",
+                palette.attr("dim"),
+            )
+        selected_reason = (
+            self._row_reason(self.rows[self.selected]) if self.rows else None
+        )
+        if selected_reason is not None:
+            lines = textwrap.wrap(
+                f"{selected_reason} — Enter asks before launching anyway",
+                max(20, width - 4),
+            )
+            start = message_row - len(lines) + 1
+            for offset, line in enumerate(lines):
+                tui.safe_add(win, start + offset, 2, line, palette.attr("warn"))
+        keybar.draw(win, height - 1, palette)
+        win.refresh()
+
+    def run(self, win: Any) -> str | None:
+        tui.hide_cursor()
+        while True:
+            self._draw(win)
+            key = tui.read_key(win)
+            if key.kind == "resize":
+                continue
+            if key.kind == "ctrl" and key.ch == "c":
+                raise KeyboardInterrupt
+            if key.kind == "esc":
+                return None
+            if key.kind == "char" and key.ch == "?":
+                tui.Modal(
+                    "gateway session — help",
+                    ORDINARY_HELP.splitlines(),
+                    buttons=(("Close", True),),
+                ).run(win, self.palette, background=self._draw)
+                continue
+            if key.kind == "up" or (key.kind == "char" and key.ch == "k"):
+                if self.selected > 0:
+                    self.selected -= 1
+                continue
+            if key.kind == "down" or (key.kind == "char" and key.ch == "j"):
+                if self.selected < len(self.rows) - 1:
+                    self.selected += 1
+                continue
+            if not self.rows:
+                # Same empty-list guard as the sessions screen: action keys
+                # never index an empty catalog.
+                continue
+            if key.kind == "enter":
+                model_id = self.rows[self.selected]
+                # Recheck at Enter (not just at open): the secret file can
+                # change while the picker is up, and the marking is advisory
+                # renderability — never a stale verdict.
+                self.unavailable = _ordinary_unavailable(self.runtime)
+                reason = self._row_reason(model_id)
+                if reason is not None:
+                    model = self.runtime.catalog.models[model_id]
+                    _height, modal_width = win.getmaxyx()
+                    wrap_width = max(20, min(60, modal_width - 8))
+                    lines = [
+                        f"{model_id} — {model['display']} "
+                        f"(provider {model['provider']})"
+                    ]
+                    for raw in [reason + ".", *ORDINARY_UNAVAILABLE_BODY.splitlines()]:
+                        lines.extend(textwrap.wrap(raw, wrap_width))
+                    confirmed = tui.Modal(
+                        ORDINARY_UNAVAILABLE_TITLE,
+                        lines,
+                        buttons=(("Cancel", False), ("Launch anyway", True)),
+                    ).run(win, self.palette, background=self._draw)
+                    if not confirmed:
+                        continue
+                return model_id
 
 
 TRANSITION_HELP = (
@@ -4505,6 +4825,30 @@ def handle_command(
         if args.print_launch:
             _print_launch_plan(prepared, output_stream)
             return 0
+        launched_model = runtime.catalog.docs["models"]["models"][
+            prepared.record["ordinary_model"]
+        ]
+        launched_provider = runtime.catalog.docs["providers"]["providers"][
+            launched_model["provider"]
+        ]
+        if launched_provider["transport"]["kind"] == "direct":
+            unavailable_reason = _ordinary_unavailable(runtime).get(
+                launched_model["provider"]
+            )
+            if unavailable_reason is not None:
+                # Non-blocking (D46): the TUI picker asks for confirmation,
+                # the CLI stays permissive — but the operator is told why
+                # the session's requests may fail before the process starts.
+                # Never on --print-launch: a dry-run report stays clean.
+                output_stream.write(
+                    f"warning: {unavailable_reason} — requests may fail "
+                    "unless the running gateway still serves an earlier "
+                    "rendered config; add the secret and re-render the "
+                    "proxy config to fix it properly.\n"
+                )
+        # execve never flushes Python buffers: force the note/warning above
+        # out before control reaches the launch boundary.
+        output_stream.flush()
         return runtime.perform(
             prepared,
             resume_decision="force" if getattr(args, "force", False) else None,

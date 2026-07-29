@@ -728,6 +728,72 @@ alias split, floor),
 the re-blessed gateway golden (alias block + override, nothing else
 moved).
 
+**D46 — Ordinary gateway sessions launch from the card (2.10.0).**
+Fresh ordinary sessions were CLI-only (`claude-gateway` / `direct`);
+the TUI is the main way in, so the card gains **G new gateway** (shared
+keybar tail, available on every card state like S — it is explicitly an
+escape from the current card, never an operation on it, which the label
+and help wording state). The picker (`_OrdinaryScreen`) lists exactly
+the compiler's accepted ordinary-lead domain — models `direct_context_profile`
+accepts, enumerated by `compiler.ordinary_launch_models`, so agent-only
+or profile-less models never appear and a row can never fail validation
+after Enter. **Groups are the safety surface**: sections are ordinary
+context profiles (the native /model fence of the launched session);
+rows are models, not lanes (lanes switch in-session); the launch uses
+the model's default selector and the cursor starts on `sol`, matching
+the CLI default. Enter maps to `("perform", prepare_direct(fresh),
+None)` with the card's passthrough threaded — curses tears down before
+`perform`, the exact `_open_sessions` contract; Esc creates nothing.
+Rejected alternatives: a preset (presets are compositions; ordinary has
+no document — would break E/W/transition), a row inside S (S is
+resume/manage; fresh launch belongs on the card), a flat `SelectList`
+(no group headers, and its `enabled=False` is cosmetic — Enter still
+activates; making disabled rows real meant changing a shared widget's
+semantics for every existing caller, a bigger blast radius than a
+self-contained screen), and remembering the last-picked model
+(nondeterministic; revisit if usage data says so). **Availability is
+honest about what it measures**: `(no secret)` rows reflect render-time
+availability — the gateway omits providers rendered without their
+secret (the shared `render.unavailable_providers` helper, parity-pinned
+against the renderer's own report). It is not a live-serving guarantee
+(the running gateway may still serve an older config), so Enter
+**rechecks the secret file** and asks for explicit confirmation
+(default Cancel) instead of a hard block; the marking speaks for the
+initial model only — the in-session /model set is the whole profile by
+design (dynamic scope filtering rejected: scope determinism, resume
+identity). Rows stay narrow — the full reason lives on the selected
+row's detail line. Two adjacent fixes shipped with it (design review
+findings): the CLI `direct` path now warns (non-blocking, never on
+`--print-launch`) before launching with a missing provider secret —
+previously a silent guaranteed-broken session; and the line-mode S
+hint now names the correct ordinary resume form (`claude-gateway
+--resume`) alongside the managed one. Line mode gains `g` (grouped
+listing + CLI hint). Catalog stays 12 (code-only); `bundle_sha256`
+still rotates via version.json — expected record hash drift, not
+catalog drift. Blueprint reviewed cross-family (Sol xhigh,
+SOUND-WITH-ADJUSTMENTS) — all twelve findings addressed above; the
+implementation review (same reviewer, BLOCK→fixed) added: the
+advisory probe never raises — a malformed/unsafe secret env file
+degrades to a static `secret env file unavailable or invalid`
+marking on every direct provider instead of crashing the card, line
+mode, or a direct CLI launch (OAuth providers skip the probe
+entirely), and `parse_secret_env` now translates invalid UTF-8 into
+`ProxyError` at the source, closing a pre-existing crash of the
+managed plan path on non-UTF-8 secret files that the new tests
+surfaced; the CLI warning flushes before `perform` (execve never
+flushes Python buffers) and matches the modal's honest "may fail
+unless the running gateway still serves an older config" wording;
+detail/modal text wraps to the available width (worst-case reserve in
+the floor formula, so the size floor is stable per width) — the
+complete `env:NAME` reference survives a 44-column terminal.
+Pins: `OrdinaryLaunchModelsTests`, `OrdinaryScreenTuiTests` (render,
+navigation, confirm modal, recheck-at-Enter, floor boundary 16/17,
+minimum-width reason, malformed-file degradation),
+`OrdinaryCardKeyTests` (intent shape, record fields, passthrough,
+transient notice, keybar/footer labels, line mode, CLI warning,
+OAuth-skip, flush-before-launch spy),
+`test_render.test_unavailable_providers_matches_renderer_report`.
+
 ## User decision summary (what you're approving by accepting this design)
 
 1. Selected agents become **real files** in a per-session scope; the failure

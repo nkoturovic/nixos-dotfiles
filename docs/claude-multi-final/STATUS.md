@@ -1,5 +1,31 @@
 # STATUS — live tracker
 
+## 2026-07-30 — v2.10.0: ordinary gateway sessions launch from the card (D46, pending activation)
+
+- **G new gateway** on the composition card opens the ordinary-session
+  picker — the TUI twin of `claude-gateway`, closing the last CLI-only
+  launch path. Rows are exactly the compiler's accepted ordinary-lead
+  domain (`compiler.ordinary_launch_models`), grouped by context profile
+  (the group is the /model fence); cursor starts on `sol` (CLI default);
+  Enter → `prepare_direct(fresh)` with card passthrough → perform after
+  teardown, the `_open_sessions` contract.
+- **Honest availability**: `(no secret)` rows mark render-time
+  availability (shared `render.unavailable_providers`, parity-pinned);
+  Enter rechecks the secret file and asks explicit confirmation (default
+  Cancel) — never a hard block on a stale verdict. Initial-model-only
+  semantics documented.
+- **Adjacent fixes** (design-review findings): CLI `direct` warns
+  (non-blocking, never on `--print-launch`) before launching with a
+  missing provider secret; line-mode S hint names `claude-gateway
+  --resume` for ordinary rows; line-mode `g` lists the groups.
+- **Process**: blueprint first (Q&A design record), cross-family Sol
+  xhigh design critique (SOUND-WITH-ADJUSTMENTS, 12 findings — all
+  addressed), implementation review per the usual cadence. Catalog
+  stays 12; `bundle_sha256` rotates via version.json (expected).
+- Evidence: 1,434 host tests OK (skipped=2), sandbox derivation green.
+  New pins: `OrdinaryLaunchModelsTests`, `OrdinaryScreenTuiTests`,
+  `OrdinaryCardKeyTests`, renderer parity test.
+
 ## 2026-07-29 — v2.9.0: GLM-5.2 on the qwen provider (D45, activated gen 115)
 
 - **`glm52` joins the existing `qwen` provider** (Token Plan

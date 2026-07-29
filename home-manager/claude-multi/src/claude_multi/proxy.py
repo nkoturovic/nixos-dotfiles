@@ -79,8 +79,14 @@ def parse_secret_env(path: Path) -> dict[str, str]:
         raw = state.read_private(path)
     except state.StateError as exc:
         raise ProxyError(f"secret env file {path} unavailable or unsafe: {exc}") from exc
+    try:
+        text = raw.decode("utf-8")
+    except UnicodeDecodeError as exc:
+        # Same failure class as an unreadable file: consumers must see one
+        # exception type, and the codec message never carries secret bytes.
+        raise ProxyError(f"secret env file {path} is not valid UTF-8") from exc
     values: dict[str, str] = {}
-    for number, line in enumerate(raw.decode("utf-8").splitlines(), start=1):
+    for number, line in enumerate(text.splitlines(), start=1):
         stripped = line.strip()
         if not stripped or stripped.startswith("#"):
             continue

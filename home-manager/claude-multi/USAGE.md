@@ -34,6 +34,7 @@ A card shows the composition (lead, team, policy, context). Then:
 - **Enter** — launch
 - **Tab / P** — cycle presets (`default` (Opus 5 + Sol + Kimi), `opus-sol` (Opus 5 + Sol), `opus-kimi` (Opus 5 + Kimi), `fable`, `kimi-sol`, `kimi-sol-qwen`, `kimi-sol-qwen-glm`, `qwen-sol`, `glm-sol`, `sol-direct`)
 - **W** — toggle workflows on/off
+- **G** — new gateway session: pick a model, launch with no composition (see "Ordinary gateway sessions")
 - **E** — edit the composition (form editor; `?` explains each field)
 - **S** — open the sessions picker
 - **H** — health: doctor in place (with an optional repair-all prompt)
@@ -185,6 +186,11 @@ is flagged by the identity machinery with the exact relaunch guidance.
 
 ### Ordinary gateway sessions
 
+Press **G** on the composition card for the TUI picker: models grouped by
+context profile (the group is the `/model` fence), Enter launches, rows
+whose provider secret is missing are marked and ask for confirmation.
+The CLI equivalent:
+
 ```bash
 claude-gateway                       # ordinary session, default model (sol)
 claude-gateway --model qwen38        # pick a model
@@ -195,6 +201,8 @@ claude-gateway -r <uuid> --model sol # explicit cross-profile relaunch
 
 Native `/model` works inside one safe context profile; switching profiles is
 an explicit relaunch (a note reminds you the old process must have exited).
+A CLI launch whose provider secret is missing prints a non-blocking warning
+first (the TUI picker asks for confirmation instead).
 
 ### Adopt an existing plain-Claude session
 

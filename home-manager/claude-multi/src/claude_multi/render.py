@@ -179,6 +179,36 @@ class RenderResult:
     unavailable: tuple[dict[str, str], ...] = field(default_factory=tuple)
 
 
+def unavailable_providers(
+    providers: dict[str, Any],
+    *,
+    resolve_secret: Callable[[str], str | None],
+) -> tuple[dict[str, str], ...]:
+    """Providers whose routes are omitted, as {"provider", "reason"} entries.
+
+    The rule mirrors the omission pass in ``build_config_document`` exactly:
+    a direct provider whose secret resolves to None is unavailable; OAuth
+    pools always render. UIs that mark provider availability (the ordinary
+    gateway picker, D46) share it so their marking can never drift from
+    what the renderer actually serves; a parity test pins the two together.
+    """
+
+    unavailable: list[dict[str, str]] = []
+    for provider_id in sorted(providers):
+        transport = providers[provider_id]["transport"]
+        if transport["kind"] != "direct":
+            continue
+        secret_ref = transport["auth"]["secret_ref"]
+        if resolve_secret(secret_ref.removeprefix("env:")) is None:
+            unavailable.append(
+                {
+                    "provider": provider_id,
+                    "reason": f"missing required secret {secret_ref}",
+                }
+            )
+    return tuple(unavailable)
+
+
 def _alias_entries(
     provider_id: str,
     provider: dict[str, Any],

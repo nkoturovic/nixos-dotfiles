@@ -641,6 +641,24 @@ def direct_context_profile(docs: dict[str, Any], model_id: str) -> str:
     return profile
 
 
+def ordinary_launch_models(docs: dict[str, Any]) -> dict[str, tuple[str, ...]]:
+    """Ordinary profile -> sorted lead-capable model ids in that profile.
+
+    The launch picker's catalog enumeration (D46): exactly the models
+    ``direct_context_profile`` accepts, grouped by their ordinary profile
+    so the picker can render the /model fence as section headers.
+    """
+
+    groups: dict[str, list[str]] = {}
+    for model_id in sorted(docs["models"]["models"]):
+        try:
+            profile = direct_context_profile(docs, model_id)
+        except CompilerError:
+            continue
+        groups.setdefault(profile, []).append(model_id)
+    return {profile: tuple(ids) for profile, ids in sorted(groups.items())}
+
+
 def direct_model_for_selector(
     docs: dict[str, Any], selector: str
 ) -> tuple[str, str] | None:

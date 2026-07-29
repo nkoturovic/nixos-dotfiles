@@ -193,7 +193,7 @@ class QuickConfirmTests(CLITestCase):
         self.assertEqual(
             cli.quick_footer(plan),
             (
-                "Enter launch · D details · S sessions · ? workflows · Q cancel",
+                "Enter launch · D details · S sessions · G new gateway · ? workflows · Q cancel",
             ),
         )
 
@@ -206,7 +206,7 @@ class QuickConfirmTests(CLITestCase):
         self.assertEqual(
             cli.quick_footer(plan),
             (
-                "Enter transition hint · D details · S sessions · ? workflows · Q cancel",
+                "Enter transition hint · D details · S sessions · G new gateway · ? workflows · Q cancel",
             ),
         )
         self.assertNotIn("Enter launch", "\n".join(cli.quick_footer(plan)))
@@ -3318,6 +3318,8 @@ class QuickConfirmSessionsKeyTests(CLITestCase):
         self.assertEqual(code, 0)
         self.assertIn(FIXED_ID, out)
         self.assertIn("claude-multi -r <uuid>", out)
+        # Ordinary rows get the correct resume form too (D46 finding 5).
+        self.assertIn("claude-gateway --resume <uuid>", out)
 
     def test_curses_open_sessions_cancel_stays(self) -> None:
         self.save_session()
@@ -3364,6 +3366,429 @@ class QuickConfirmSessionsKeyTests(CLITestCase):
         self.assertIsNotNone(outcome)
         self.assertEqual(outcome[0], "perform")
         self.assertEqual(outcome[1].record["managed_id"], FIXED_ID)
+
+
+class OrdinaryLaunchModelsTests(CLITestCase):
+    """compiler.ordinary_launch_models: the picker's catalog enumeration (D46)."""
+
+    def test_groups_match_catalog_profiles(self) -> None:
+        groups = cli.compiler.ordinary_launch_models(self.runtime.catalog.docs)
+        self.assertEqual(
+            groups,
+            {
+                "large": ("fable", "glm52", "kimi-k3", "opus", "opus5", "qwen38"),
+                "sol": ("sol",),
+            },
+        )
+
+    def test_agents_only_models_never_appear(self) -> None:
+        # gpt55 has no ordinary profile: direct_context_profile rejects it,
+        # so the picker must never offer it.
+        groups = cli.compiler.ordinary_launch_models(self.runtime.catalog.docs)
+        self.assertNotIn("gpt55", {m for ids in groups.values() for m in ids})
+
+
+class OrdinaryScreenTuiTests(CLITestCase):
+    """The G gateway picker, driven via the FakeWindow double (D46)."""
+
+    def _run(self, keys, **win_kwargs):
+        from test_tui import FakeWindow
+
+        screen = cli._OrdinaryScreen(self.runtime, palette=tui.MONO_PALETTE)
+        win = FakeWindow(keys, **win_kwargs)
+        result = screen.run(win)
+        return result, win, screen
+
+    def test_renders_groups_models_and_availability(self) -> None:
+        result, win, _screen = self._run(["\x1b"])
+        self.assertIsNone(result)
+        text = win.text()
+        self.assertIn("gateway session — no composition", text)
+        self.assertIn("large · 1M context", text)
+        self.assertIn("sol · 372K context", text)
+        for model_id in ("fable", "glm52", "kimi-k3", "opus", "opus5", "qwen38", "sol"):
+            self.assertIn(model_id, text)
+        self.assertIn("GLM-5.2 · alibaba", text)
+        # The fixture secret file holds only the Kimi key: both qwen rows
+        # carry the compact marker (the full reason lives on the detail
+        # line for the selected row — see the confirm test).
+        self.assertEqual(text.count("(no secret)"), 2)
+        self.assertIn("Enter launch", text)
+
+    def test_default_selection_is_sol_like_the_cli(self) -> None:
+        result, _win, screen = self._run(["\n"])
+        self.assertEqual(screen.rows[screen.selected], "sol")
+        self.assertEqual(result, "sol")
+
+    def test_navigation_picks_model(self) -> None:
+        # Rows: fable glm52 kimi-k3 opus opus5 qwen38 | sol; cursor starts
+        # on sol (index 6), three steps up land on opus.
+        result, _win, _screen = self._run(["k", "k", "k", "\n"])
+        self.assertEqual(result, "opus")
+
+    def test_arrow_keys_match_jk(self) -> None:
+        import curses as _curses
+
+        # Two steps up from sol lands on opus5 (one step is qwen38, which
+        # needs the confirm modal in this fixture — covered below).
+        result, _win, _screen = self._run([_curses.KEY_UP, _curses.KEY_UP, "\n"])
+        self.assertEqual(result, "opus5")
+
+    def test_unavailable_row_requires_explicit_confirm(self) -> None:
+        # sol(6) -> five steps up = glm52(1); Enter opens the confirm modal;
+        # the default button is Cancel.
+        result, win, _screen = self._run(["k", "k", "k", "k", "k", "\n", "\n", "\x1b"])
+        self.assertIsNone(result)
+        self.assertTrue(
+            any("Provider secret missing" in frame for frame in win.frames)
+        )
+        self.assertTrue(
+            any(
+                "missing required secret env:QWEN_CLAUDE_API_KEY" in frame
+                for frame in win.frames
+            )
+        )
+
+    def test_unavailable_row_confirmed_launches_anyway(self) -> None:
+        import curses as _curses
+
+        result, _win, _screen = self._run(
+            ["k", "k", "k", "k", "k", "\n", _curses.KEY_RIGHT, "\n"]
+        )
+        self.assertEqual(result, "glm52")
+
+    def test_reason_rechecked_at_enter_not_cached(self) -> None:
+        # Screen opens with the qwen secret missing (cached marking), the
+        # secret appears while the picker is up, Enter rechecks and launches
+        # without any confirm modal.
+        screen = cli._OrdinaryScreen(self.runtime, palette=tui.MONO_PALETTE)
+        self.assertIn("qwen", screen.unavailable)
+        with open(self.secret_file, "a", encoding="utf-8") as handle:
+            handle.write("QWEN_CLAUDE_API_KEY=late-addition\n")
+        from test_tui import FakeWindow
+
+        result = screen.run(FakeWindow(["k", "k", "k", "k", "k", "\n"]))
+        self.assertEqual(result, "glm52")
+
+    def test_row_unblocks_once_secret_appears(self) -> None:
+        with open(self.secret_file, "a", encoding="utf-8") as handle:
+            handle.write("QWEN_CLAUDE_API_KEY=late-addition\n")
+        result, _win, _screen = self._run(["k", "k", "k", "k", "k", "\n"])
+        self.assertEqual(result, "glm52")
+
+    def test_esc_creates_no_record(self) -> None:
+        result, _win, _screen = self._run(["\x1b"])
+        self.assertIsNone(result)
+        self.assertEqual(
+            list(self.runtime.session_store.sessions_dir.glob("*.json")), []
+        )
+
+    def test_help_modal_explains_profiles(self) -> None:
+        result, win, _screen = self._run(["?", "\n", "\x1b"])
+        self.assertIsNone(result)
+        self.assertTrue(
+            any("switching across groups is an" in frame for frame in win.frames)
+        )
+
+    def test_terminal_floor(self) -> None:
+        result, win, _screen = self._run(["\x1b"], height=10, width=50)
+        self.assertIsNone(result)
+        self.assertIn("terminal too small for the gateway picker", win.text())
+
+    def test_floor_boundary_at_wide_width(self) -> None:
+        # Width 90 wraps the worst-case detail to one line: needed is 17,
+        # so 16 floors and 17 renders (exact boundary pins).
+        result, win, _screen = self._run(["\x1b"], height=16, width=90)
+        self.assertIsNone(result)
+        self.assertIn("terminal too small for the gateway picker", win.text())
+        result, win, _screen = self._run(["\x1b"], height=17, width=90)
+        self.assertIsNone(result)
+        self.assertIn("gateway session — no composition", win.text())
+
+    def test_full_reason_survives_minimum_width(self) -> None:
+        # Width 44 must wrap, never truncate, the complete secret reference.
+        _result, win, _screen = self._run(["k", "k", "k", "k", "k", "\x1b"], width=44)
+        self.assertIn("env:QWEN_CLAUDE_API_KEY", win.text())
+
+    def test_confirm_modal_intact_at_minimum_width(self) -> None:
+        result, win, _screen = self._run(
+            ["k", "k", "k", "k", "k", "\n", "\n", "\x1b"], width=44
+        )
+        self.assertIsNone(result)
+        modal_frame = next(
+            frame for frame in win.frames if "Provider secret missing" in frame
+        )
+        # The reference must survive INSIDE the modal's bordered rows — a
+        # whole-frame search would pass from the background detail alone.
+        self.assertTrue(
+            any(
+                "env:QWEN_CLAUDE_API_KEY" in line and line.lstrip().startswith("|")
+                for line in modal_frame.splitlines()
+            )
+        )
+
+    def test_malformed_secret_file_marks_rows_without_crashing(self) -> None:
+        # A duplicate assignment raises ProxyError directly; invalid bytes
+        # are translated to ProxyError by parse_secret_env's decode wrapper.
+        # The advisory probe must degrade to the static marking for both.
+        for break_style in ("duplicate", "bytes"):
+            self.setUp()
+            if break_style == "duplicate":
+                with open(self.secret_file, "a", encoding="utf-8") as handle:
+                    handle.write("KIMI_CLAUDE_API_KEY=duplicate-assignment\n")
+            else:
+                with open(self.secret_file, "ab") as handle:
+                    handle.write(b"\xff\xfe invalid bytes")
+            screen = cli._OrdinaryScreen(self.runtime, palette=tui.MONO_PALETTE)
+            self.assertEqual(
+                screen.unavailable.get("qwen"), cli.ORDINARY_SECRET_FILE_ERROR
+            )
+            self.assertEqual(
+                screen.unavailable.get("kimi"), cli.ORDINARY_SECRET_FILE_ERROR
+            )
+            from test_tui import FakeWindow
+
+            result = screen.run(FakeWindow(["k", "\x1b"]))
+            self.assertIsNone(result)
+
+    def test_empty_catalog_never_indexes_or_launches(self) -> None:
+        # Defense parity with the sessions screen's empty guard: a catalog
+        # with no ordinary-capable models renders a note and ignores Enter.
+        import copy as _copy
+        import dataclasses as _dc
+        from test_tui import FakeWindow
+
+        docs = _copy.deepcopy(self.runtime.catalog.docs)
+        for model in docs["models"]["models"].values():
+            model["context"]["ordinary_profile"] = None
+        self.runtime.catalog = _dc.replace(self.runtime.catalog, docs=docs)
+        result, win, _screen = self._run(["j", "k", "\n", "\x1b"])
+        self.assertIsNone(result)
+        self.assertIn("(no ordinary-capable models in this catalog)", win.text())
+        self.assertEqual(
+            list(self.runtime.session_store.sessions_dir.glob("*.json")), []
+        )
+
+    def test_narrow_widths_do_not_overdraw(self) -> None:
+        # FakeWindow raises curses.error on out-of-bounds writes: surviving
+        # the draw at each width is the assertion.
+        for width in (44, 56, 71, 90):
+            result, _win, _screen = self._run(["\x1b"], width=width)
+            self.assertIsNone(result)
+
+
+class OrdinaryCardKeyTests(CLITestCase):
+    """The card's G key + _open_ordinary intent wiring (D46)."""
+
+    def _plan(self):
+        return cli.build_quick_plan(
+            self.runtime,
+            self.runtime.compositions.load("default"),
+            action="fresh",
+            source="Trusted default",
+        )
+
+    def _screen(self):
+        return cli._QuickConfirmScreen(
+            self.runtime, self._plan(), passthrough=[], palette=tui.MONO_PALETTE
+        )
+
+    def _fake_ordinary(self, picked):
+        class FakeOrdinary:
+            def __init__(self, runtime, *, palette):
+                pass
+
+            def run(self, win):
+                return picked
+
+        return FakeOrdinary
+
+    def test_cancel_stays_on_card(self) -> None:
+        screen = self._screen()
+        original = cli._OrdinaryScreen
+        cli._OrdinaryScreen = self._fake_ordinary(None)
+        try:
+            self.assertIsNone(screen._open_ordinary(None))
+        finally:
+            cli._OrdinaryScreen = original
+
+    def test_pick_returns_perform_intent_with_ordinary_record(self) -> None:
+        screen = self._screen()
+        original = cli._OrdinaryScreen
+        cli._OrdinaryScreen = self._fake_ordinary("glm52")
+        try:
+            outcome = screen._open_ordinary(None)
+        finally:
+            cli._OrdinaryScreen = original
+        self.assertIsNotNone(outcome)
+        action, prepared, *rest = outcome
+        self.assertEqual(action, "perform")
+        self.assertEqual(rest, [None])
+        record = prepared.record
+        self.assertEqual(record["session_type"], sessions.SESSION_TYPE_ORDINARY)
+        self.assertEqual(record["ordinary_model"], "glm52")
+        self.assertEqual(record["context_profile"], "large")
+        self.assertIn("--model", prepared.result.argv)
+        self.assertIn("claude-multi-glm52-max[1m]", prepared.result.argv)
+        self.assertEqual(self.launches, [])  # perform happens after teardown
+
+    def test_prepare_failure_becomes_transient_notice(self) -> None:
+        screen = self._screen()
+        original = cli._OrdinaryScreen
+        cli._OrdinaryScreen = self._fake_ordinary("no-such-model")
+        try:
+            outcome = screen._open_ordinary(None)
+        finally:
+            cli._OrdinaryScreen = original
+        self.assertIsNone(outcome)
+        self.assertIn("no-such-model", screen.gate_notice)
+        self.assertEqual(screen.plan.errors, [])  # never poisons the plan
+
+    def test_card_g_dispatches_and_keybar_lists_it(self) -> None:
+        from test_tui import FakeWindow
+
+        screen = self._screen()
+        original = cli._OrdinaryScreen
+        cli._OrdinaryScreen = self._fake_ordinary("kimi-k3")
+        try:
+            win = FakeWindow(["g"])
+            outcome = screen.run(win)
+        finally:
+            cli._OrdinaryScreen = original
+        self.assertIsNotNone(outcome)
+        self.assertEqual(outcome[0], "perform")
+        self.assertEqual(outcome[1].record["ordinary_model"], "kimi-k3")
+        self.assertIn("G new gateway", win.text())
+
+    def test_line_mode_g_prints_listing_and_hint(self) -> None:
+        code, out = self.run_cli([], "g\nq\n", interactive=True)
+        self.assertEqual(code, 0)
+        self.assertIn("ordinary gateway sessions (no composition", out)
+        self.assertIn("glm52", out)
+        self.assertIn("unavailable: missing required secret env:QWEN_CLAUDE_API_KEY", out)
+        self.assertIn("claude-gateway --model <model>", out)
+
+    def test_passthrough_threads_into_prepared_argv(self) -> None:
+        screen = cli._QuickConfirmScreen(
+            self.runtime,
+            self._plan(),
+            passthrough=["--verbose"],
+            palette=tui.MONO_PALETTE,
+        )
+        original = cli._OrdinaryScreen
+        cli._OrdinaryScreen = self._fake_ordinary("sol")
+        try:
+            outcome = screen._open_ordinary(None)
+        finally:
+            cli._OrdinaryScreen = original
+        self.assertIsNotNone(outcome)
+        self.assertIn("--verbose", outcome[1].result.argv)
+
+    def test_direct_cli_warns_on_missing_secret_before_launch(self) -> None:
+        code, out = self.run_cli(["direct", "--model", "glm52"], interactive=False)
+        self.assertEqual(code, 0)
+        self.assertIn(
+            "warning: missing required secret env:QWEN_CLAUDE_API_KEY", out
+        )
+        self.assertEqual(len(self.launches), 1)  # advisory, never blocking
+
+    def test_direct_cli_print_launch_stays_clean(self) -> None:
+        # Dry-run reports never carry the warning, even with the secret gone.
+        code, out = self.run_cli(
+            ["direct", "--model", "glm52", "--print-launch"], interactive=False
+        )
+        self.assertEqual(code, 0)
+        self.assertNotIn("warning:", out)
+        self.assertEqual(self.launches, [])
+
+    def test_direct_cli_silent_when_secret_present(self) -> None:
+        with open(self.secret_file, "a", encoding="utf-8") as handle:
+            handle.write("QWEN_CLAUDE_API_KEY=present\n")
+        code, out = self.run_cli(["direct", "--model", "glm52"], interactive=False)
+        self.assertEqual(code, 0)
+        self.assertNotIn("warning:", out)
+
+    def _break_secret_file(self, style: str = "duplicate") -> None:
+        # "duplicate": ProxyError from the parser; "bytes": invalid UTF-8,
+        # translated to ProxyError by parse_secret_env's decode wrapper.
+        if style == "duplicate":
+            with open(self.secret_file, "a", encoding="utf-8") as handle:
+                handle.write("KIMI_CLAUDE_API_KEY=duplicate-assignment\n")
+        else:
+            with open(self.secret_file, "ab") as handle:
+                handle.write(b"\xff\xfe invalid bytes")
+
+    def test_line_mode_g_survives_malformed_secret_file(self) -> None:
+        for style in ("duplicate", "bytes"):
+            self.setUp()
+            self._break_secret_file(style)
+            code, out = self.run_cli([], "g\nq\n", interactive=True)
+            self.assertEqual(code, 0)
+            self.assertIn(cli.ORDINARY_SECRET_FILE_ERROR, out)
+            self.assertIn("claude-gateway --model <model>", out)
+
+    def test_direct_oauth_provider_never_probes_secrets(self) -> None:
+        # sol's provider is an OAuth pool: the availability probe must not
+        # run at all, even with a broken secret env file.
+        self._break_secret_file()
+        probed = []
+        original = cli._ordinary_unavailable
+
+        def spy(runtime):
+            probed.append(True)
+            return original(runtime)
+
+        cli._ordinary_unavailable = spy
+        try:
+            code, out = self.run_cli(["direct", "--model", "sol"], interactive=False)
+        finally:
+            cli._ordinary_unavailable = original
+        self.assertEqual(code, 0)
+        self.assertNotIn("warning:", out)
+        self.assertEqual(len(self.launches), 1)
+        self.assertEqual(probed, [])
+
+    def test_direct_warns_statically_on_malformed_secret_file(self) -> None:
+        for style in ("duplicate", "bytes"):
+            self.setUp()
+            self._break_secret_file(style)
+            code, out = self.run_cli(["direct", "--model", "kimi-k3"], interactive=False)
+            self.assertEqual(code, 0)
+            self.assertIn(f"warning: {cli.ORDINARY_SECRET_FILE_ERROR}", out)
+            self.assertEqual(len(self.launches), 1)  # advisory, never blocking
+
+    def test_direct_flushes_warning_before_launch_boundary(self) -> None:
+        import io as _io
+
+        class FlushSpy(_io.StringIO):
+            def __init__(self) -> None:
+                super().__init__()
+                self.flushes = 0
+
+            def flush(self) -> None:
+                self.flushes += 1
+                super().flush()
+
+        spy = FlushSpy()
+
+        def launch_then_assert_flushed(prepared):
+            # execve never flushes Python buffers: the warning must be out
+            # before control reaches the launch boundary.
+            self.assertGreater(spy.flushes, 0)
+            self.launches.append(prepared)
+            return 0
+
+        self.runtime.launch_callback = launch_then_assert_flushed
+        code = cli.main(
+            ["direct", "--model", "glm52"],
+            runtime=self.runtime,
+            input_stream=None,
+            output_stream=spy,
+            interactive=False,
+        )
+        self.assertEqual(code, 0)
+        self.assertIn("warning:", spy.getvalue())
+        self.assertEqual(len(self.launches), 1)
 
 
 class PresetCycleTests(CLITestCase):
