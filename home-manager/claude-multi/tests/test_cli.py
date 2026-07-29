@@ -67,6 +67,20 @@ class CLITestCase(unittest.TestCase):
         )
         return code, output.getvalue()
 
+    def _write_transcript(self, runtime_id: str) -> Path:
+        """Metadata-only fixture transcript for the resume gate."""
+
+        transcript = (
+            Path(self.runtime.environ["HOME"])
+            / ".claude"
+            / "projects"
+            / cli._native_project_slug(self.runtime.cwd)
+            / f"{runtime_id}.jsonl"
+        )
+        transcript.parent.mkdir(parents=True, exist_ok=True)
+        transcript.touch()
+        return transcript
+
     def save_session(
         self,
         document=None,
@@ -95,15 +109,7 @@ class CLITestCase(unittest.TestCase):
         self.runtime.session_store.update_last(self.runtime.cwd, session_id)
         # Fixture transcript so the resume gate sees "present" by default
         # (metadata-only existence; gate tests delete/relocate explicitly).
-        transcript = (
-            Path(self.runtime.environ["HOME"])
-            / ".claude"
-            / "projects"
-            / cli._native_project_slug(self.runtime.cwd)
-            / f"{session_id}.jsonl"
-        )
-        transcript.parent.mkdir(parents=True, exist_ok=True)
-        transcript.touch()
+        self._write_transcript(session_id)
         return record
 
 
@@ -1729,6 +1735,7 @@ class TransitionCommandTests(CLITestCase):
         record["identity_state"] = sessions.IDENTITY_AUTHORITATIVE
         self.runtime.session_store.save(record)
         self._write_scope(FIXED_ID)
+        self._write_transcript(OTHER_ID)
         code, output = self.run_cli(
             [
                 "sessions",
@@ -4796,6 +4803,7 @@ class ForkHardeningBatchTests(CLITestCase):
 
     def test_noninteractive_resume_self_heals_authority_marker(self) -> None:
         self._stuck()
+        self._write_transcript(OTHER_ID)
         code, output = self.run_cli(["-r", FIXED_ID], interactive=False)
         self.assertEqual(code, 0, output)
         self.assertEqual(len(self.launches), 1)
@@ -5343,7 +5351,33 @@ class ResumeGateTests(CLITestCase):
         self.assertIn(FIXED_ID, text)
         self.assertIn("--cwd /wrong/project", text)
         self.assertIn(("repair-resume", "Repair & resume"), gate.actions)
-        self.assertTrue(all(len(line) <= 60 for line in gate.lines))
+
+    def test_gate_refusal_text_never_splits_commands(self) -> None:
+        # Review must-fix 4: the refusal text is built from raw lines, so
+        # no path length can hyphen-split `relink-runtime` apart.
+        record = self.save_session(mode="durable", scope_generation=1)
+        record["identity_state"] = sessions.IDENTITY_REPAIR_NEEDED
+        record["observed_cwd"] = "/wrong/project-with-a-very-long-path-" + "x" * 80
+        self.runtime.session_store.save(record)
+        gate = self._gate(record)
+        refusal = cli._resume_gate_refusal(gate)
+        self.assertIn("relink-runtime", refusal)
+        self.assertNotIn("relink- runtime", refusal)
+
+    def test_gate_transcript_blocker_outranks_daemon_owned(self) -> None:
+        # Review must-fix 1: live + missing transcript → transcript gate,
+        # and force must not bypass it.
+        record = self.save_session(mode="durable", scope_generation=1)
+        self._transcript(record).unlink()
+        gate = self._gate(record, prefixes=frozenset({FIXED_ID}))
+        self.assertEqual(gate.kind, "transcript-missing")
+        runtime = self._bare_runtime()
+        with mock.patch.object(
+            runtime, "_live_prefixes", return_value=frozenset({FIXED_ID})
+        ):
+            with self.assertRaises(cli.CLIError) as raised:
+                runtime.perform(self._prepared(record), resume_decision="force")
+        self.assertIn("Transcript not found", str(raised.exception))
 
     def test_gate_daemon_owned_offers_stop_and_force(self) -> None:
         record = self.save_session(mode="durable", scope_generation=1)
@@ -5493,3 +5527,74 @@ class ResumeGateTests(CLITestCase):
         label = cli._record_actions_label(record)
         self.assertIn("repair needed (resume blocked)", label)
         self.assertNotIn("[t]ransition", label)
+
+
+class ResumeGateReviewFixTests(CLITestCase):
+    """Cross-family review follow-ups (002/003 hardening round 2)."""
+
+    def _ordinary(self, **overrides):
+        record = sessions.make_ordinary_record(
+            managed_id=FIXED_ID,
+            runtime_session_id=FIXED_ID,
+            cwd=self.runtime.cwd,
+            model="qwen38",
+            context_profile="large",
+            catalog_version=self.runtime.catalog_version,
+            catalog_hash=self.runtime.catalog.bundle_sha256,
+            launcher_version=self.runtime.launcher_version,
+        )
+        for key, value in overrides.items():
+            record[key] = value
+        self.runtime.session_store.save(record)
+        return record
+
+    def test_direct_force_flag_equivalent_both_placements(self) -> None:
+        parser = cli.build_parser()
+        before = parser.parse_args(
+            ["--force", "direct", "--resume", FIXED_ID]
+        )
+        after = parser.parse_args(
+            ["direct", "--force", "--resume", FIXED_ID]
+        )
+        self.assertTrue(getattr(before, "force", False))
+        self.assertTrue(getattr(after, "force", False))
+
+    def test_transcript_elsewhere_decodes_real_project_path(self) -> None:
+        record = self.save_session(mode="durable", scope_generation=1)
+        stray = (
+            Path(self.runtime.environ["HOME"])
+            / ".claude"
+            / "projects"
+            / cli._native_project_slug(record["cwd"])
+            / f"{FIXED_ID}.jsonl"
+        )
+        real_project = Path(self.runtime.environ["HOME"]) / "real-project"
+        real_project.mkdir(parents=True)
+        slug_dir = stray.parent.parent / cli._native_project_slug(real_project)
+        slug_dir.mkdir(parents=True)
+        stray.rename(slug_dir / stray.name)
+        gate = cli._evaluate_resume_gate(self.runtime, record)
+        self.assertEqual(gate.kind, "transcript-elsewhere")
+        text = " ".join(gate.lines)
+        self.assertIn(str(real_project), text)
+        self.assertIn(f"--cwd {str(real_project)}", text)
+
+    def test_ordinary_combined_repair_prepares_with_recorded_model(self) -> None:
+        record = self._ordinary(
+            identity_state=sessions.IDENTITY_REPAIR_NEEDED,
+            observed_model="gpt-multi-sol-high",
+        )
+        # The gate's repair-resume cleared observed_cwd (none here); the
+        # picker passes the recorded model explicitly for the leftover
+        # model evidence — the prepare must accept the relaunch.
+        with self.assertRaises(cli.CLIError):
+            self.runtime.prepare_direct(
+                action="resume", model_id=None, passthrough=[], session_id=FIXED_ID
+            )
+        prepared = self.runtime.prepare_direct(
+            action="resume",
+            model_id=record["ordinary_model"],
+            passthrough=[],
+            session_id=FIXED_ID,
+        )
+        self.assertTrue(prepared.model_relaunch)

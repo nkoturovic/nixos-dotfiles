@@ -347,6 +347,7 @@ def _lifecycle_settings(
     *,
     gateway_base_url: str | None = None,
     token_helper_command: str | None = None,
+    retry_watchdog: bool = False,
 ) -> dict[str, Any]:
     """Compiled metadata-only lifecycle hook settings for one stable scope.
 
@@ -380,13 +381,15 @@ def _lifecycle_settings(
         "CLAUDE_MULTI_LAUNCH_EPOCH": str(launch_epoch),
         # Compatibility for scopes created before the identity split.
         "CLAUDE_MULTI_SESSION_ID": managed_id,
-        # Managed sessions own their recovery policy (issue 004, doctrine #8):
-        # watchdog mode raises the transient-retry budget so a subagent or a
-        # backgrounded turn never dies waiting for a human to type "continue"
-        # (binary-verified at 2.1.220: 300 retries, no 60s retry-after abort).
-        # Mid-stream-after-content errors stay unrecoverable at this pin.
-        "CLAUDE_CODE_RETRY_WATCHDOG": "1",
     }
+    if retry_watchdog:
+        # Managed sessions own their recovery policy (issue 004, doctrine
+        # #8): watchdog mode raises the transient-retry budget so a
+        # subagent or a backgrounded turn never dies waiting for a human
+        # to type "continue" (binary-verified at 2.1.220: 300 retries, no
+        # 60s retry-after abort). Ordinary sessions stay unpinned by
+        # design; mid-stream-after-content errors stay unrecoverable.
+        env["CLAUDE_CODE_RETRY_WATCHDOG"] = "1"
     if gateway_base_url:
         env["ANTHROPIC_BASE_URL"] = gateway_base_url
     settings: dict[str, Any] = {
@@ -460,6 +463,7 @@ def compile_scope(
                 launch_epoch,
                 gateway_base_url=catalog_meta.gateway_base_url,
                 token_helper_command=token_helper_command,
+                retry_watchdog=True,
             )
         )
     if any(variant.isolation == "worktree" for variant in resolved.variants):

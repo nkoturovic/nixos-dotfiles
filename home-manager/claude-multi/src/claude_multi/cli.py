@@ -16,6 +16,7 @@ import io
 import json
 import os
 import shutil
+import shlex
 import stat
 import subprocess
 import sys
@@ -637,9 +638,9 @@ class Runtime:
     def perform(
         self, prepared: PreparedLaunch, *, resume_decision: str | None = None
     ) -> Any:
+        self._enforce_resume_gate(prepared, resume_decision)
         if self.launch_callback is not None:
             return self.launch_callback(prepared)
-        self._enforce_resume_gate(prepared, resume_decision)
         return launch.perform_launch(
             prepared.result,
             record=prepared.record,
@@ -677,14 +678,18 @@ class Runtime:
         action = prepared.result.session_action
         if action.kind != "resume" or not prepared.record:
             return
-        if prepared.precommitted:
-            return
         gate = _evaluate_resume_gate(
             self, prepared.record, live_prefixes=self._live_prefixes()
         )
         if gate.kind == "ok":
             return
-        if gate.kind == "daemon-owned" and resume_decision == "force":
+        # Precommitted transition relaunches skip ONLY the liveness branch
+        # (the transition flow already warns on live sessions — verifier
+        # nuance); repair and transcript damage are always enforced
+        # (review must-fix 2).
+        if gate.kind == "daemon-owned" and (
+            resume_decision == "force" or prepared.precommitted
+        ):
             return
         raise CLIError(_resume_gate_refusal(gate))
 
@@ -729,7 +734,7 @@ def build_parser() -> argparse.ArgumentParser:
         "direct", help="launch an ordinary gateway session without a composition"
     )
     direct_parser.add_argument("--model", dest="direct_model")
-    direct_parser.add_argument("--force", action="store_true", help="resume despite a background-liveness marker (only bypasses the heuristic ● check)")
+    direct_parser.add_argument("--force", action="store_true", default=argparse.SUPPRESS, help="resume despite a background-liveness marker (only bypasses the heuristic ● check)")
     direct_parser.add_argument("--print-launch", action="store_true")
     direct_identity = direct_parser.add_mutually_exclusive_group()
     direct_identity.add_argument(
@@ -3297,7 +3302,14 @@ def _sessions_list_tui(
         if record["session_type"] == sessions.SESSION_TYPE_ORDINARY:
             prepared = runtime.prepare_direct(
                 action="resume",
-                model_id=None,
+                # A leftover observed_model after a gate repair needs the
+                # explicit-model relaunch; otherwise the recorded model is
+                # implied (review should-fix 7).
+                model_id=(
+                    record.get("ordinary_model")
+                    if "observed_model" in record
+                    else None
+                ),
                 passthrough=passthrough,
                 session_id=sessions.managed_id(record),
             )
@@ -3476,10 +3488,11 @@ class ResumeGate:
 
 def _resume_transcript_status(
     runtime: Runtime, record: dict[str, Any]
-) -> tuple[str, str]:
+) -> tuple[str, str, bool]:
     """Metadata-only: is the runtime transcript where the record points?
 
-    Returns ("present", path) | ("elsewhere", slug-dirs) | ("missing", path).
+    Returns (status, detail, decoded): ("present", path, True) |
+    ("elsewhere", project-path-or-slugs, decoded?) | ("missing", path, True).
     Never opens a transcript; filename checks only.
     """
 
@@ -3492,12 +3505,18 @@ def _resume_transcript_status(
         / _native_project_slug(record["cwd"])
         / f"{runtime_id}.jsonl"
     )
-    if expected.exists():
-        return ("present", str(expected))
+    if expected.is_file():
+        return ("present", str(expected), True)
     found = _slugs_for_session(runtime, runtime_id)
+    for slug in found:
+        # Best-effort decode back to the real project path so the guidance
+        # can name an exact --cwd (review must-fix 5c).
+        for candidate in _decode_project_slug_candidates(slug):
+            if candidate.is_dir():
+                return ("elsewhere", str(candidate), True)
     if found:
-        return ("elsewhere", ", ".join(found))
-    return ("missing", str(expected))
+        return ("elsewhere", ", ".join(found), False)
+    return ("missing", str(expected), True)
 
 
 def _evaluate_resume_gate(
@@ -3516,50 +3535,39 @@ def _evaluate_resume_gate(
         return ResumeGate(
             kind="repair-needed",
             title="Session needs identity repair",
-            lines=tuple(
-                textwrap.wrap(sessions.relink_message(record), width=60)
-            ),
+            lines=(sessions.relink_message(record),),
             actions=(("repair-resume", "Repair & resume"),),
         )
-    prefixes = (
-        live_prefixes if live_prefixes is not None else _live_background_prefixes()
-    )
-    if _record_is_live(record, prefixes):
-        runtime_id = sessions.runtime_session_id(record)
-        text = (
-            f"session {stable_id} is live in the background (●). Resuming a "
-            "background-owned session natively either fails or forks it — "
-            "the fork path is what caused the original incident. The "
-            "supported route is to stop it first "
-            f"(`claude-multi sessions stop {stable_id}`), then resume. The "
-            "marker is a best-effort heuristic — if you are sure it is "
-            "stale, Resume anyway."
-        )
-        return ResumeGate(
-            kind="daemon-owned",
-            title="Session is live in the background",
-            lines=tuple(textwrap.wrap(text, width=60)),
-            actions=(
-                ("stop-resume", "Stop & resume"),
-                ("force", "Resume anyway"),
-            ),
-        )
-    status, detail = _resume_transcript_status(runtime, record)
+    # Transcript blockers outrank liveness: a missing transcript makes the
+    # daemon question moot, and a force decision must never bypass them
+    # (review must-fix 1).
+    status, detail, decoded = _resume_transcript_status(runtime, record)
     if status == "elsewhere":
         runtime_id = sessions.runtime_session_id(record)
+        if decoded:
+            remedy = (
+                f"if the session was intentionally re-homed there, repair "
+                f"the record with `claude-multi sessions relink-runtime "
+                f"{stable_id} {runtime_id} --cwd {shlex.quote(detail)}`; "
+                "otherwise resume from the recorded dir after moving the "
+                "transcript back"
+            )
+        else:
+            remedy = (
+                "inspect those directories and relink with "
+                "`claude-multi sessions relink-runtime "
+                f"{stable_id} {runtime_id} --cwd <that project directory>` "
+                "only if the session was intentionally re-homed"
+            )
         text = (
             f"the transcript for runtime {runtime_id} was not found under "
             f"the recorded project dir ({record['cwd']}), but a file with "
-            f"the same name exists in: {detail}. If the session was "
-            "intentionally re-homed, repair the record with "
-            f"`claude-multi sessions relink-runtime {stable_id} {runtime_id} "
-            "--cwd <that project directory>`; otherwise resume from the "
-            "recorded dir after moving the transcript back."
+            f"the same name exists under: {detail}. {remedy}."
         )
         return ResumeGate(
             kind="transcript-elsewhere",
             title="Transcript found in a different project",
-            lines=tuple(textwrap.wrap(text, width=60)),
+            lines=(text,),
             actions=(),
         )
     if status == "missing":
@@ -3575,8 +3583,30 @@ def _evaluate_resume_gate(
         return ResumeGate(
             kind="transcript-missing",
             title="Transcript not found",
-            lines=tuple(textwrap.wrap(text, width=60)),
+            lines=(text,),
             actions=(),
+        )
+    prefixes = (
+        live_prefixes if live_prefixes is not None else _live_background_prefixes()
+    )
+    if _record_is_live(record, prefixes):
+        text = (
+            f"session {stable_id} is live in the background (●). Resuming a "
+            "background-owned session natively either fails or forks it — "
+            "the fork path is what caused the original incident. The "
+            "supported route is to stop it first "
+            f"(`claude-multi sessions stop {stable_id}`), then resume. The "
+            "marker is a best-effort heuristic — if you are sure it is "
+            "stale, Resume anyway."
+        )
+        return ResumeGate(
+            kind="daemon-owned",
+            title="Session is live in the background",
+            lines=(text,),
+            actions=(
+                ("stop-resume", "Stop & resume"),
+                ("force", "Resume anyway"),
+            ),
         )
     return ResumeGate(kind="ok", title="", lines=(), actions=())
 
@@ -3607,8 +3637,13 @@ def _run_resume_gate_modal(
 
     buttons = [(label, value) for value, label in gate.actions]
     buttons.append(("Cancel", None))
+    # Raw lines are stored unwrapped (text mode joins them verbatim);
+    # wrap only for modal presentation (review must-fix 4).
+    lines = [
+        wrapped for line in gate.lines for wrapped in textwrap.wrap(line, width=60)
+    ]
     choice = tui.Modal(
-        gate.title, list(gate.lines), buttons=tuple(buttons)
+        gate.title, lines, buttons=tuple(buttons)
     ).run(win, palette, background=background)
     if choice is None:
         return None

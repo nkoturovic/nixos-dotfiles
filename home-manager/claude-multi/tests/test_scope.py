@@ -847,6 +847,16 @@ class GatewayRoutingDurabilityTests(unittest.TestCase):
             token_helper_command="/state/bin/claude-multi-gateway-token",
         )
         self.assertEqual(plan.settings["apiKeyHelper"], "/state/bin/claude-multi-gateway-token")
+
+    def test_ordinary_scope_stays_unpinned_watchdog(self) -> None:
+        # Ordinary mode respects user settings (doctrine #8): no recovery pin.
+        plan = scope.compile_ordinary_scope(
+            managed_id=FIXED_SESSION,
+            hook_command="/hook/shim",
+            available_models=("gpt-multi-sol-high",),
+            gateway_base_url="http://127.0.0.1:8317",
+        )
+        self.assertNotIn("CLAUDE_CODE_RETRY_WATCHDOG", plan.settings["env"])
         self.assertEqual(plan.settings["env"]["ANTHROPIC_BASE_URL"], "http://127.0.0.1:8317")
 
     def test_api_key_helper_is_inside_the_allowlist(self) -> None:

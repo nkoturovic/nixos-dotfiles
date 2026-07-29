@@ -12,6 +12,7 @@ import copy
 import json
 import os
 import re
+import shlex
 import uuid
 from datetime import datetime, timezone
 from pathlib import Path
@@ -198,6 +199,21 @@ def relink_message(record: dict[str, Any]) -> str:
     base = f"claude-multi sessions relink-runtime {stable_id} {runtime_id}"
     observed_cwd = record.get("observed_cwd")
     if not observed_cwd:
+        observed_model = record.get("observed_model")
+        if observed_model:
+            recorded_model = (
+                record.get("snapshot", {})
+                .get("lead", {})
+                .get("client_selector", "the recorded model")
+            )
+            return (
+                f"session {stable_id} identity is repair-needed (observed "
+                f"model {observed_model} differs from the recorded "
+                f"{recorded_model}); resume through the launcher to "
+                f"reconcile the recorded model (`claude-multi -r "
+                f"{stable_id}`), or relink only if the runtime UUID itself "
+                f"changed: `{base}`"
+            )
         return (
             f"session {stable_id} identity is repair-needed (runtime/model "
             f"evidence conflicts with the record); repair it with `{base}`"
@@ -207,9 +223,9 @@ def relink_message(record: dict[str, Any]) -> str:
         f"session {stable_id} identity is repair-needed (a resume was "
         f"observed from {observed_cwd}, conflicting with the recorded "
         f"project dir {recorded_cwd}); repair it with `{base} --cwd "
-        f"{recorded_cwd}` to keep the recorded dir (the common case), or "
-        f"`{base} --cwd {observed_cwd}` only if the session was "
-        f"intentionally re-homed there"
+        f"{shlex.quote(recorded_cwd)}` to keep the recorded dir (the "
+        f"common case), or `{base} --cwd {shlex.quote(observed_cwd)}` "
+        f"only if the session was intentionally re-homed there"
     )
 
 

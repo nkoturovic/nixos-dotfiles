@@ -1359,10 +1359,25 @@ class RelinkGuidanceTests(SessionTestCase):
     def test_relink_message_without_observed_cwd_is_bare_command(self) -> None:
         record = _record(self.snapshot)
         record["identity_state"] = sessions.IDENTITY_REPAIR_NEEDED
-        record["observed_model"] = "gpt-multi-sol-high"
         message = sessions.relink_message(record)
         self.assertIn(
             f"`claude-multi sessions relink-runtime {FIXED_ID} {FIXED_ID}`",
             message,
         )
         self.assertNotIn("--cwd", message)
+
+    def test_relink_message_model_only_points_at_launcher_reconcile(self) -> None:
+        record = _record(self.snapshot)
+        record["identity_state"] = sessions.IDENTITY_REPAIR_NEEDED
+        record["observed_model"] = "gpt-multi-sol-high"
+        message = sessions.relink_message(record)
+        self.assertIn("observed model gpt-multi-sol-high", message)
+        self.assertIn(f"`claude-multi -r {FIXED_ID}`", message)
+        self.assertIn("relink only if the runtime UUID itself changed", message)
+
+    def test_relink_message_shell_quotes_cwds(self) -> None:
+        record = self._repair_needed_record()
+        record["cwd"] = "/project/with space"
+        message = sessions.relink_message(record)
+        self.assertIn("--cwd '/project/with space'", message)
+        self.assertIn("--cwd /wrong/project", message)
