@@ -107,10 +107,13 @@ L327). The TUI never presents `off` as "safer subagents" — just different.
 ```
 sessions
 ──────────────────────────────────────────────
-● ⚠ a1b2…  cm:kimi-sol   durable(g2)  /repo/dotfiles   2h ago   [x] resolve fork (resume blocked) [f]orget
-○ 9c8e…  cm:kimi-sol   legacy       /repo/other      3d ago   [r]esume (upgrades to durable) [f]orget
-○ 7f3a…  linked        legacy       (native session, adopted) [r]esume (upgrades) [f]orget
+● ⚠ a1b2…  cm:kimi-sol   durable(g2)  /repo/dotfiles   last used 2h ago · created 3d ago   [x] resolve fork [f]orget
+○ 9c8e…  cm:kimi-sol   legacy       /repo/other      last used 4d ago · created 4d ago   [r]esume (upgrades) [f]orget
+○ 7f3a…  linked        legacy       (native session, adopted) [r]esume [f]orget
 ```
+
+Managed rows sort by **last used** (hooks keep it current); last used is
+always shown, created appears when width permits (2.8.4).
 
 - Row markers (2.6.0): **●** live — the session is owned by the background
   daemon right now (reattaching from a Claude menu forks natively); **⚠**

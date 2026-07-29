@@ -5985,3 +5985,180 @@ class SubagentModelBleedOrdinaryTests(CLITestCase):
         self.assertEqual(code, 0)
         updated = self.runtime.session_store.load(FIXED_ID)
         self.assertEqual(updated["ordinary_model"], "qwen38")
+
+
+class SessionsLastUsedSortTests(CLITestCase):
+    """Feature: sessions sorted by last used, created also visible."""
+
+    def _save_with_times(
+        self, session_id, *, created, last_seen=None, scope_generation=1
+    ):
+        record = self.save_session(
+            session_id=session_id, mode="durable", scope_generation=scope_generation
+        )
+        record["created_at"] = created
+        if last_seen is not None:
+            record["last_seen_at"] = last_seen
+        self.runtime.session_store.save(record)
+        return record
+
+    def test_sort_prefers_last_seen_over_created(self) -> None:
+        older_created_recent_use = self._save_with_times(
+            FIXED_ID,
+            created="2026-07-20T00:00:00Z",
+            last_seen="2026-07-29T10:00:00Z",
+        )
+        newer_created_stale_use = self._save_with_times(
+            OTHER_ID,
+            created="2026-07-28T00:00:00Z",
+            last_seen="2026-07-21T00:00:00Z",
+        )
+        screen = cli._SessionsScreen(self.runtime, palette=tui.MONO_PALETTE)
+        self.assertEqual(
+            [r["managed_id"] for r in screen.records], [FIXED_ID, OTHER_ID]
+        )
+        rows = screen._managed_rows()
+        first = rows[0]
+        self.assertEqual(first[4], cli._record_last_used_age(older_created_recent_use))
+        self.assertEqual(first[5], cli._record_age(older_created_recent_use))
+
+    def test_missing_last_seen_falls_back_to_created(self) -> None:
+        # The schema always carries last_seen_at; the helper's fallback is
+        # exercised directly at the unit level.
+        bare = {"created_at": "2026-07-25T00:00:00Z"}
+        self.assertEqual(cli._record_last_seen(bare), bare["created_at"])
+        self.assertEqual(
+            cli._record_sort_key_last_used(bare), bare["created_at"]
+        )
+        self._save_with_times(FIXED_ID, created="2026-07-25T00:00:00Z")
+        self._save_with_times(
+            OTHER_ID,
+            created="2026-07-28T00:00:00Z",
+            last_seen="2026-07-20T00:00:00Z",
+        )
+        screen = cli._SessionsScreen(self.runtime, palette=tui.MONO_PALETTE)
+        # FIXED's last_seen (make_record default 07-21) precedes its created
+        # (07-25) → clamps to created; OTHER (last_seen 07-20 < created
+        # 07-28) also clamps: the effective order is by created (07-28 first).
+        self.assertEqual(
+            [r["managed_id"] for r in screen.records], [OTHER_ID, FIXED_ID]
+        )
+
+    def test_rows_show_last_used_and_created_columns(self) -> None:
+        self._save_with_times(
+            FIXED_ID,
+            created="2026-07-25T00:00:00Z",
+            last_seen="2026-07-29T10:00:00Z",
+        )
+        screen = cli._SessionsScreen(self.runtime, palette=tui.MONO_PALETTE)
+        row = screen._managed_rows()[0]
+        self.assertEqual(len(row), 6)
+        self.assertEqual(row[4], cli._record_last_used_age(row_record := self.runtime.session_store.load(FIXED_ID)))
+        self.assertEqual(row[5], cli._record_age(row_record))
+
+    def test_text_listing_sorted_by_last_used_with_both_fields(self) -> None:
+        self._save_with_times(
+            FIXED_ID,
+            created="2026-07-20T00:00:00Z",
+            last_seen="2026-07-29T10:00:00Z",
+        )
+        self._save_with_times(
+            OTHER_ID,
+            created="2026-07-28T00:00:00Z",
+            last_seen="2026-07-21T00:00:00Z",
+        )
+        code, output = self.run_cli(["sessions", "list"], interactive=False)
+        self.assertEqual(code, 0)
+        self.assertIn("last used", output)
+        self.assertIn("created", output)
+        self.assertLess(output.index(FIXED_ID), output.index(OTHER_ID))
+
+
+class SessionsLastUsedLayoutTests(CLITestCase):
+    """Width-adaptive table: both ages at >=82 cols, last-used only below."""
+
+    def _seed(self):
+        record = self.save_session(mode="durable", scope_generation=1)
+        record["created_at"] = "2026-07-25T00:00:00Z"
+        record["last_seen_at"] = "2026-07-29T10:00:00Z"
+        self.runtime.session_store.save(record)
+
+    def _draw_text(self, width):
+        from test_tui import FakeWindow
+
+        screen = cli._SessionsScreen(self.runtime, palette=tui.MONO_PALETTE)
+        win = FakeWindow([], width=width, height=24)
+        screen._draw(win)
+        return win.text()
+
+    def test_full_width_shows_both_age_columns(self) -> None:
+        self._seed()
+        text = self._draw_text(90)
+        self.assertIn("last used", text)
+        self.assertIn("created", text)
+
+    def test_narrow_width_keeps_last_used_drops_created_column(self) -> None:
+        self._seed()
+        text = self._draw_text(80)
+        self.assertIn("last used", text)
+        self.assertNotIn("created", text)
+
+    def test_pre_creation_last_seen_falls_back_to_created(self) -> None:
+        record = {
+            "created_at": "2026-07-28T00:00:00Z",
+            "last_seen_at": "2026-07-20T00:00:00Z",
+        }
+        self.assertEqual(cli._record_last_seen(record), record["created_at"])
+        malformed = {
+            "created_at": "2026-07-28T00:00:00Z",
+            "last_seen_at": "not-a-date",
+        }
+        self.assertEqual(cli._record_last_seen(malformed), malformed["created_at"])
+        missing = {"created_at": "2026-07-28T00:00:00Z"}
+        self.assertEqual(cli._record_last_seen(missing), missing["created_at"])
+
+
+class SessionsLastUsedTierTests(CLITestCase):
+    """Every width tier renders honestly (fits its range)."""
+
+    def _seed(self):
+        record = self.save_session(mode="durable", scope_generation=1)
+        record["created_at"] = "2026-07-25T00:00:00Z"
+        record["last_seen_at"] = "2026-07-29T10:00:00Z"
+        self.runtime.session_store.save(record)
+
+    def _header(self, width):
+        from test_tui import FakeWindow
+
+        screen = cli._SessionsScreen(self.runtime, palette=tui.MONO_PALETTE)
+        win = FakeWindow([], width=width, height=24)
+        screen._draw(win)
+        return win.text()
+
+    def test_tiers_render_last_used_at_every_width(self) -> None:
+        self._seed()
+        for width in (44, 57, 71, 82, 100):
+            with self.subTest(width=width):
+                self.assertIn("last used", self._header(width))
+
+    def test_created_only_at_full_width(self) -> None:
+        self._seed()
+        self.assertIn("created", self._header(82))
+        self.assertNotIn("created", self._header(81))
+
+    def test_narrowest_tier_drops_mode_and_cwd(self) -> None:
+        self._seed()
+        text = self._header(44)
+        self.assertIn("last used", text)
+        self.assertNotIn("mode", text)
+
+    def test_last_used_age_matches_sort_value(self) -> None:
+        record = {
+            "created_at": "2026-99-99T00:00:00Z",
+            "last_seen_at": "2026-07-20T00:00:00Z",
+        }
+        # Calendar-invalid created sorts as the effective value; the display
+        # must show the SAME value, never a divergent fallback.
+        self.assertEqual(
+            cli._record_last_used_age(record), cli._record_last_seen(record)
+        )

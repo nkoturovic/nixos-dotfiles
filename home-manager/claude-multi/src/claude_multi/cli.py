@@ -2666,7 +2666,10 @@ SESSIONS_HELP = (
     "row markers: ● live — the session is owned by the background daemon right\n"
     "  now (reattaching to it from a Claude menu forks natively; exit it first\n"
     "  or resume after it exits) · ⚠ fork-blocked — a native fork awaits your\n"
-    "  adopt/discard decision (X).\n"
+    "  adopt/discard decision (X) · ! repair needed.\n"
+    "\n"
+    "rows are sorted by last used (hooks keep it current); the last used age\n"
+    "  is always shown, created appears when width permits (both relative).\n"
     "\n"
     "native (unmanaged): plain-Claude sessions discovered by name/time only —\n"
     "the launcher never opens their files. They have no managed guarantees\n"
@@ -2719,18 +2722,63 @@ def _windowed(
     return rows[start : start + max_rows], selected - start
 
 
-def _record_age(record: dict[str, Any], *, now: datetime | None = None) -> str:
-    """Relative session age for display ("2h ago"); ISO string on parse failure."""
+def _record_age_of(record: dict[str, Any], field: str, *, now: datetime | None = None) -> str:
+    """Relative age of one record timestamp field ("2h ago"); raw value on parse failure."""
 
     try:
-        created = datetime.strptime(record["created_at"], "%Y-%m-%dT%H:%M:%SZ").replace(
+        stamp = datetime.strptime(record[field], "%Y-%m-%dT%H:%M:%SZ").replace(
             tzinfo=timezone.utc
         )
     except (KeyError, ValueError):
-        return str(record.get("created_at", "?"))
+        return str(record.get(field, "?"))
     current = now or datetime.now(timezone.utc)
-    seconds = max(0, int((current - created).total_seconds()))
+    seconds = max(0, int((current - stamp).total_seconds()))
     return _age_from_seconds(seconds)
+
+
+def _record_age(record: dict[str, Any], *, now: datetime | None = None) -> str:
+    """Relative session age for display ("2h ago"); ISO string on parse failure."""
+
+    return _record_age_of(record, "created_at", now=now)
+
+
+def _record_last_seen(record: dict[str, Any]) -> str:
+    """Effective last-activity timestamp for sort and display.
+
+    Creation is itself a use: a missing, malformed, or pre-creation
+    `last_seen_at` (clock skew, hand-edits) falls back to `created_at`.
+    """
+
+    created = record["created_at"]
+    last_seen = record.get("last_seen_at")
+    if isinstance(last_seen, str) and last_seen >= created:
+        try:
+            datetime.strptime(last_seen, "%Y-%m-%dT%H:%M:%SZ")
+        except ValueError:
+            return created
+        return last_seen
+    return created
+
+
+def _record_last_used_age(record: dict[str, Any], *, now: datetime | None = None) -> str:
+    """Relative age of the effective last-used timestamp (same value as sort)."""
+
+    effective = _record_last_seen(record)
+    try:
+        stamp = datetime.strptime(effective, "%Y-%m-%dT%H:%M:%SZ").replace(
+            tzinfo=timezone.utc
+        )
+    except ValueError:
+        return effective
+    current = now or datetime.now(timezone.utc)
+    seconds = max(0, int((current - stamp).total_seconds()))
+    return _age_from_seconds(seconds)
+
+
+def _record_sort_key_last_used(record: dict[str, Any]) -> str:
+    """Descending-sort key: the effective last-used timestamp."""
+
+    return _record_last_seen(record)
 
 
 def _mtime_age(mtime: float, *, now: datetime | None = None) -> str:
@@ -2783,7 +2831,7 @@ class _SessionsScreen:
     def _reload(self) -> None:
         self.records = sorted(
             _session_records(self.runtime),
-            key=lambda record: record["created_at"],
+            key=_record_sort_key_last_used,
             reverse=True,
         )
         self.native = _discover_native_sessions(
@@ -2812,6 +2860,7 @@ class _SessionsScreen:
                 _record_target_label(record),
                 _record_mode_label(record),
                 record["cwd"],
+                _record_last_used_age(record),
                 _record_age(record),
             ]
             for record in self.records
@@ -2875,11 +2924,30 @@ class _SessionsScreen:
             shown_rows, managed_selected = _windowed(
                 managed_rows, self.selected if self.section == "managed" else -1, managed_max
             )
+            # Width-tiered honesty: every tier fits its range (content +
+            # separators = width-4); created appears only when it fits.
+            if width >= 82:
+                columns = ["session", "composition", "mode", "cwd", "last used", "created"]
+                min_widths = [20, 10, 10, 7, 8, 8]
+                pick = (0, 1, 2, 3, 4, 5)
+            elif width >= 71:
+                columns = ["session", "composition", "mode", "cwd", "last used"]
+                min_widths = [20, 10, 10, 7, 8]
+                pick = (0, 1, 2, 3, 4)
+            elif width >= 57:
+                columns = ["session", "composition", "mode", "last used"]
+                min_widths = [16, 10, 10, 8]
+                pick = (0, 1, 2, 4)
+            else:
+                columns = ["session", "composition", "last used"]
+                min_widths = [16, 10, 8]
+                pick = (0, 1, 4)
+            tier_rows = [[row[index] for index in pick] for row in shown_rows]
             table = tui.Table(
-                ["session", "composition", "mode", "cwd", "created"],
-                shown_rows,
+                columns,
+                tier_rows,
                 selected=managed_selected,
-                min_widths=[27, 10, 11, 8, 19],
+                min_widths=min_widths,
             )
             table.draw(win, row, 2, width - 2, palette, max_rows=managed_max)
             row += managed_max + 2
@@ -3870,7 +3938,7 @@ def _print_sessions_listing(runtime: Runtime, output_stream: TextIO) -> None:
 
     records = sorted(
         _session_records(runtime),
-        key=lambda record: record["created_at"],
+        key=_record_sort_key_last_used,
         reverse=True,
     )
     output_stream.write("sessions\n")
@@ -3884,7 +3952,8 @@ def _print_sessions_listing(runtime: Runtime, output_stream: TextIO) -> None:
                 f"{_record_state_marker(record, live)}"
                 f"{_record_identity_label(record)}  {_record_target_label(record)}  "
                 f"{_record_mode_label(record)}  {record['cwd']}  "
-                f"{record['created_at']}  {_record_actions_label(record)}"
+                f"last used {_record_last_used_age(record)} · "
+                f"created {_record_age(record)}  {_record_actions_label(record)}"
             )
             + "\n"
         )

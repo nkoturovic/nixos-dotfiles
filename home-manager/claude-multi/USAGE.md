@@ -107,7 +107,11 @@ error:
 
 ### The sessions screen (`claude-multi -r` or **S**)
 
-Managed sessions on top, plain-Claude (native) sessions below. Keys:
+Managed sessions on top, plain-Claude (native) sessions below. Rows are
+**sorted by last used** (hooks keep it current) so recent work floats to
+the top. The *last used* age is always shown; *created* appears too when
+the terminal is wide enough — `sessions show` has every exact timestamp.
+Keys:
 
 - **R** resume · **T** switch composition · **X** resolve fork ·
   **E** end session (stop a live ● one) · **F** forget · **L** adopt a native
