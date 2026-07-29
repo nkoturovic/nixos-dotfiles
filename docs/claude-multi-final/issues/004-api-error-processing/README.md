@@ -1,6 +1,6 @@
 # 004 — API Error "An error occurred while processing"
 
-**Status: in release** · addressed in 2.8.0 (D42)
+**Status: resolved** · addressed in 2.8.0–2.8.2 (D42, D43)
 
 ## Report (2026-07-29, operator)
 
@@ -28,10 +28,12 @@ was all-Kimi — the Sol attribution was a UI line merge.
   retries, no 60s abort — subagents and backgrounded turns keep
   recovering instead of dying for a typed "continue".
 - Lead contract (cm-lead): a delegated agent that dies on infrastructure
-  failure is first continued by message (it failed + why + this is a
-  continuation — context survives); fresh dispatch only when the
-  approach/context was the problem or it died twice. (Operator rule,
-  encoded.)
+  failure is continued by message across up to 5 consecutive deaths (the
+  counter resets on any successful continuation; it failed + why + this
+  is a continuation — context survives); fresh-with-narrower-scope and
+  abandon the failed agent (stop it with TaskStop first if it still
+  runs) past 5, or when the approach/context was the problem. (Operator
+  rule, encoded; the two-death threshold was superseded by D43.)
 
 **Rejected with evidence:** gateway `request-retry` at 7.2.80 — one
 credential per provider, rotation has nothing to rotate to.
@@ -61,3 +63,19 @@ cross-family review independence).
 - Client binary (2.1.220) contains no such string (it renders upstream
   bodies); retry knobs verified at the pin (MAX_RETRIES clamp 15,
   watchdog 300, backoff/60s abort, subagent retry protection).
+
+## D43 probe outcome (2026-07-29, offline, pinned binary)
+
+The mechanical continue-hook (SubagentStop `decision:block`) was probed
+and **rejected with evidence**: the hook fires on completion and honors
+block continuations with `stop_hook_active` as the native loop guard,
+but it **does not fire on API-error deaths** (verified twice, incl. a
+15s post-death window). No mechanical continue-on-death exists at this
+pin. Final design (two layers): watchdog retry pin prevents most
+deaths; the lead contract owns recovery — continue across up to 5
+consecutive deaths (counter resets on success), one finalize attempt
+for context deaths, then fresh-with-narrower-scope and abandon the
+failed agent (never delete transcripts). Radar:
+`RealPinnedBinaryTests.test_subagent_stop_*` — a future pin that fires
+on deaths makes the mechanical hook viable; recorded as native-contract
+U10 (verified).

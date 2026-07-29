@@ -632,6 +632,34 @@ candidate (issue 005). Hardening (cross-family round 1): the watchdog
 pin is scoped to managed scopes only — the shared lifecycle helper no
 longer leaks it into ordinary sessions (absence test added).
 
+**D43 — Subagent recovery is two-layer; the SubagentStop hook cannot
+help at this pin (2.8.2).** Evidence (2026-07-29, offline probe against
+the pinned 2.1.220 binary, fake provider, zero provider calls): the
+`SubagentStop` hook fires on normal subagent completion with a rich
+payload (`stop_hook_active`, agent id, transcript paths, last message),
+and `decision:block` genuinely continues the subagent (5→13 requests in
+probe) with `stop_hook_active` flipping true as the native loop guard —
+but the hook **does not fire on API-error deaths at all** (verified
+twice: retry-exhaustion death, then again with a 15s post-death window;
+zero events). So no mechanical continue-on-death hook exists at this
+pin, and building one would be fake automation. The recovery design is
+therefore two-layer, both pin/contract level: (1) the watchdog retry
+pin prevents most deaths (D42); (2) the lead contract owns recovery —
+imperative since 2.8.1, and now shaped as: continue the dead agent by
+message across up to **5 consecutive** infrastructure deaths (the
+counter resets on any successful continuation), never summarize a death
+and move on, never make the operator type "continue"; context-exhaustion
+deaths get one finalize-from-what-you-have attempt; past 5 consecutive
+deaths, or when the approach or context was the problem, dispatch fresh
+with a narrower scope and abandon the failed agent (stop it first if it
+still runs; transcripts are never deleted). An agent that completes
+with reported failures is not done either — the lead addresses the
+failed parts before presenting results. Radar:
+`RealPinnedBinaryTests.test_subagent_stop_*` pins the boundary — if a future Claude
+version starts firing SubagentStop on API-error deaths, the test fails
+and the mechanical continue-hook becomes viable (recorded as U10,
+verified, in the native contract).
+
 ## User decision summary (what you're approving by accepting this design)
 
 1. Selected agents become **real files** in a per-session scope; the failure

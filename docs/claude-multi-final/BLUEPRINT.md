@@ -100,6 +100,7 @@ strings, and explicit "unverified" labels in SPEC.
 | U7 | Fork with managed sessions: (a) refused due to `--append-system-prompt-file` (AV L330)? (b) if allowed, does the scope pointer carry? | AV L324/L330/L340–349 | Acceptance; until then UX says forks may be refused |
 | U8 | Are settings file edits re-read mid-session? | Not documented in corpus | v1 transitions relaunch-only; probe informs later hot mode |
 | U9 | Cross-file deny/allow merge precedence (can project/local weaken our settings denies)? | SA L501–517 documents the deny mechanism, not merge precedence | Claim downgraded to "deny present in effective settings"; we control the user's files; Doctor reports conflicts |
+| U10 | SubagentStop hook contract (fires on completion, honors block, fires on API-error death?) | probe-verified at 2.1.220: completion + block-honoring confirmed; API-error deaths NOT observed (D43) | `RealPinnedBinaryTests.test_subagent_stop_*` radar; verified in native contract |
 
 ## 2. Architecture options (Q2)
 

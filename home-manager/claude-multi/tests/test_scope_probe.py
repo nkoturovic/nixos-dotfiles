@@ -1338,5 +1338,277 @@ class RealPinnedBinaryTests(ScopeProbeTestCase):
         )
 
 
+
+    # -- D43: the SubagentStop hook contract (probe-verified at 2.1.220) ----
+
+    def _install_stop_dump(self, block: bool = False, name: str = "subagent-stop") -> Path:
+        """SubagentStop hook dumping WHITELISTED protocol fields only."""
+
+        log = self.fixture.root / f"{name}.jsonl"
+        hook = self.fixture.root / "dump-stop.py"
+        hook.write_text(
+            f"#!{sys.executable}\n"
+            "import json, sys\n"
+            f"target = {str(log)!r}\n"
+            "payload = json.load(sys.stdin)\n"
+            "record = {\n"
+            "    'hook_event_name': payload.get('hook_event_name'),\n"
+            "    'agent_type': payload.get('agent_type'),\n"
+            "    'agent_id': payload.get('agent_id'),\n"
+            "    'stop_hook_active': payload.get('stop_hook_active'),\n"
+            "    'has_transcript_path': bool(payload.get('transcript_path')),\n"
+            "    'has_agent_transcript_path': bool("
+            "payload.get('agent_transcript_path')),\n"
+            "    'has_last_message': bool(payload.get('last_assistant_message')),\n"
+            "}\n"
+            "with open(target, 'a', encoding='utf-8') as handle:\n"
+            "    handle.write(json.dumps(record, sort_keys=True) + '\\n')\n"
+            "    handle.flush()\n"
+            + (
+                "if not record['stop_hook_active']:\n"
+                "    print('{\"decision\":\"block\",\"reason\":\"continue your work\"}')\n"
+                "else:\n"
+                "    print('{}')\n"
+                if block
+                else "print('{}')\n"
+            ),
+            encoding="utf-8",
+        )
+        hook.chmod(0o700)
+        state.atomic_write(
+            self.fixture.claude_config_dir / "settings.json",
+            strict_json.canonical_file_bytes(
+                {
+                    "availableModels": ["lead-probe-model", "probe-model"],
+                    "model": "lead-probe-model",
+                    "hooks": {
+                        "SubagentStop": [
+                            {
+                                "hooks": [
+                                    {
+                                        "type": "command",
+                                        "command": str(hook),
+                                        "timeout": 5,
+                                    }
+                                ]
+                            }
+                        ]
+                    },
+                }
+            ),
+        )
+        return log
+
+    @staticmethod
+    def _read_stop_records(log: Path) -> list[dict]:
+        if not log.exists():
+            return []
+        return [
+            strict_json.loads(line) for line in log.read_text().splitlines()
+        ]
+
+    def _delegate(self, scope: Path) -> probe.DelegationResult:
+        return probe.run_scripted_delegation(
+            "cm-probe-marker",
+            scope_dir=scope,
+            trusted=self.trusted,
+            fixture=self.fixture,
+            environ=self.environ,
+            timeout=150,
+            evidence_name=None,
+            live_daemon_domain=None,  # the real uid-shared tripwire
+        )
+
+    def test_subagent_stop_fires_on_completion_with_protocol_fields(self) -> None:
+        scope = self._scope_dir()
+        log = self._install_stop_dump()
+        result = self._delegate(scope)
+        self.assertEqual(result.returncode, 0)
+        self.assertEqual(result.classification, "accepted")
+        request_models = [record.model for record in result.requests]
+        self.assertIn("probe-model", request_models)
+        records = self._read_stop_records(log)
+        self.assertEqual(len(records), 1)
+        record = records[0]
+        self.assertEqual(record["hook_event_name"], "SubagentStop")
+        self.assertEqual(record["agent_type"], "cm-probe-marker")
+        self.assertFalse(record["stop_hook_active"])
+        self.assertTrue(record["agent_id"])
+        self.assertTrue(record["has_transcript_path"])
+        self.assertTrue(record["has_agent_transcript_path"])
+        self.assertTrue(record["has_last_message"])
+
+    def test_block_continues_same_subagent_and_sets_stop_hook_active(self) -> None:
+        scope = self._scope_dir()
+        log = self._install_stop_dump(block=True, name="subagent-stop-blocked")
+        blocked = self._delegate(scope)
+        # The fixture settings file is shared; install the no-block variant
+        # only after the blocked run completed (its dump uses another file).
+        baseline = self._scope_dir()
+        self._install_stop_dump(name="subagent-stop-plain")
+        plain = self._delegate(baseline)
+        records = self._read_stop_records(log)
+        # The hook blocks only while stop_hook_active is false; the native
+        # cap flags the later event — the exact event count can vary with
+        # timing, but the first event is always unflagged, the last is
+        # always flagged, and all of it is the same agent.
+        self.assertGreaterEqual(len(records), 2)
+        self.assertFalse(records[0]["stop_hook_active"])
+        self.assertTrue(records[-1]["stop_hook_active"])
+        self.assertTrue(
+            all(
+                not record["stop_hook_active"]
+                for record in records[:-1]
+            )
+        )
+        agent_ids = {record["agent_id"] for record in records}
+        self.assertEqual(len(agent_ids), 1)
+        self.assertTrue(agent_ids.pop())
+        self.assertGreater(
+            len(blocked.requests),
+            len(plain.requests),
+            "a blocked subagent must run more turns than an unblocked one",
+        )
+
+    def test_subagent_stop_silent_on_api_error_death(self) -> None:
+        # RADAR: if this starts failing on a future pin, the capability
+        # changed — SubagentStop then observes API deaths and a mechanical
+        # continue-hook becomes viable. Until then: none exists (D43).
+        scope = self._scope_dir()
+        log = self._install_stop_dump()
+        hook = self.fixture.root / "dump-stop.py"
+        state.atomic_write(
+            self.fixture.claude_config_dir / "settings.json",
+            strict_json.canonical_file_bytes(
+                {
+                    "availableModels": ["lead-probe-model", "probe-model"],
+                    "model": "lead-probe-model",
+                    "env": {"CLAUDE_CODE_MAX_RETRIES": "2"},
+                    "hooks": {
+                        "SubagentStop": [
+                            {
+                                "hooks": [
+                                    {
+                                        "type": "command",
+                                        "command": str(hook),
+                                        "timeout": 5,
+                                    }
+                                ]
+                            }
+                        ]
+                    },
+                }
+            ),
+        )
+
+        class KillChild:
+            """Parent flow succeeds; marker-context (child) turns 500."""
+
+            def __init__(self) -> None:
+                self.tool_use_id = "toolu_d43_radar"
+                self._forced = False
+                self.child_errors = 0
+                self.parent_followups = 0
+
+            def __call__(self, document, path):
+                import time
+                import urllib.parse
+
+                route = urllib.parse.urlsplit(path).path.rstrip("/")
+                if route.endswith("/count_tokens"):
+                    return 200, {"input_tokens": 1}
+                if not route.endswith("/messages"):
+                    return 404, {
+                        "type": "error",
+                        "error": {"type": "not_found_error", "message": "probe"},
+                    }
+                model = document.get("model")
+                stream = bool(document.get("stream"))
+                if not self._forced:
+                    tools = document.get("tools") or []
+                    names = {t.get("name") for t in tools if isinstance(t, dict)}
+                    if "Agent" not in names:
+                        payload = probe._message_payload(
+                            [{"type": "text", "text": "PROBE-OK"}],
+                            model=model,
+                            stop_reason="end_turn",
+                            message_id="msg_d43_radar_plain",
+                        )
+                        return 200, probe._sse_message(payload) if stream else payload
+                    self._forced = True
+                    payload = probe._message_payload(
+                        [
+                            {
+                                "type": "tool_use",
+                                "id": self.tool_use_id,
+                                "name": "Agent",
+                                "input": {
+                                    "description": "d43 radar",
+                                    "subagent_type": "cm-probe-marker",
+                                    "prompt": "Reply with exactly: RADAR-OK",
+                                },
+                            }
+                        ],
+                        model=model,
+                        stop_reason="tool_use",
+                        message_id="msg_d43_radar_force",
+                    )
+                    return 200, probe._sse_message(payload) if stream else payload
+                blob = strict_json.canonical_bytes(document)
+                if b"TOKEN-XYZZY-MARKER" in blob:
+                    # The child turn (its context carries the agent body):
+                    # persistent 500 so the capped retry budget exhausts.
+                    self.child_errors += 1
+                    return 500, {
+                        "type": "error",
+                        "error": {
+                            "type": "api_error",
+                            "message": "An error occurred while processing",
+                        },
+                    }
+                # Parent follow-up: succeed after a bounded quiet window so
+                # any asynchronous SubagentStop dispatch could still fire.
+                self.parent_followups += 1
+                time.sleep(15)
+                payload = probe._message_payload(
+                    [{"type": "text", "text": "followup ok"}],
+                    model=model,
+                    stop_reason="end_turn",
+                    message_id="msg_d43_radar_followup",
+                )
+                return 200, probe._sse_message(payload) if stream else payload
+
+        responder = KillChild()
+        provider = probe.FakeAnthropicProvider(responder=responder).start()
+        try:
+            outcome = probe.run_native(
+                (
+                    "-p",
+                    "Use the Agent tool exactly once with subagent_type "
+                    "cm-probe-marker and report its reply.",
+                    "--add-dir",
+                    str(scope),
+                    "--dangerously-skip-permissions",
+                ),
+                trusted=self.trusted,
+                fixture=self.fixture,
+                provider=provider,
+                timeout=240,
+                allow_real=True,
+                environ=self.environ,
+                live_daemon_domain=None,  # the real uid-shared tripwire
+            )
+        finally:
+            provider.stop()
+        # The death really happened: the marker-context turn was 500ed at
+        # least initial + the capped retries, and the parent completed.
+        self.assertGreaterEqual(responder.child_errors, 3)
+        self.assertGreaterEqual(responder.parent_followups, 1)
+        self.assertEqual(outcome.returncode, 0)
+        self.assertFalse(outcome.timed_out)
+        # And SubagentStop observed none of it.
+        self.assertEqual(self._read_stop_records(log), [])
+
+
 if __name__ == "__main__":
     unittest.main()

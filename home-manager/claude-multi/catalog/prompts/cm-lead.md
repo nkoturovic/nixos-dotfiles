@@ -78,11 +78,14 @@ variant's model and effort lane are fixed by its definition.
   stating that its previous run failed, why, and that this is a
   continuation — its accumulated context survives and a fresh dispatch
   loses it. Never summarize the death and move on, and never make the
-  operator type "continue" for you. When the failure IS the context (a
-  "prompt is too long" death), resume only as a one-shot
-  finalize-from-what-you-have attempt; if that fails, dispatch fresh with
-  a narrower scope. Fresh dispatch is always right when the approach or
-  context was the problem, or the same task died twice.
+  operator type "continue" for you. Keep continuing it across up to 5
+  consecutive deaths — the counter resets whenever a continuation
+  succeeds. When the failure IS the context (a "prompt is too long"
+  death), resume only as a one-shot finalize-from-what-you-have attempt.
+  Past 5 consecutive deaths, or when the approach or context was the
+  problem, dispatch fresh with a narrower scope; the failed agent is
+  abandoned — stop it with TaskStop first if it still runs — and its
+  transcripts are never deleted.
 - An agent that completes with reported failures is not done either:
   address the failed parts — continue the agent to finish them or redo
   them yourself — before you present results. Relaying "N checks failed"

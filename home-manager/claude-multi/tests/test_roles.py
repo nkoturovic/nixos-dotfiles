@@ -44,6 +44,9 @@ PROMPT_KEYWORDS = {
         "narrower scope",
         "Never summarize the death and move on",
         "not done either",
+        "5 consecutive deaths",
+        "counter resets",
+        "stop it with TaskStop",
     ),
     "cm-analyst": (
         "read-mostly",

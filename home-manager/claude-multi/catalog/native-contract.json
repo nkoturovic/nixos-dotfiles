@@ -15,6 +15,10 @@
     "U6": {
       "note": "Nested spawning is documented on for 2.1.217 (depth 5 fixed) and prompts allow bounded delegation; spawn env keys stay unset pending acceptance.",
       "status": "unverified"
+    },
+    "U10": {
+      "note": "SubagentStop hook contract at 2.1.220: fires on normal subagent completion and honors decision:block with stop_hook_active as the native loop guard; does NOT fire on API-error deaths (retry-exhaustion probe, twice incl. a 15s window) \u2014 no mechanical continue-hook at this pin (D43; recovery = watchdog pin + lead contract). Radar: RealPinnedBinaryTests.test_subagent_stop_* in tests/test_scope_probe.py.",
+      "status": "verified"
     }
   },
   "capabilities": {
