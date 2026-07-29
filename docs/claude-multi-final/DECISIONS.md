@@ -573,6 +573,17 @@ already warns on live sessions — verifier nuance); interactive adapters
 resolve before prepare and thread the decision; the liveness heuristic
 stays a gate-with-choices, never a hard block; `--print-launch` stays a
 pure diagnostic. Rows now mark repair-needed sessions `!` alongside ●/⚠.
+Hardening (cross-family round 1, all confirmed then fixed): transcript
+blockers outrank liveness so force can never bypass them; the
+precommitted exemption narrowed to the daemon branch only (a transition
+relaunch that hits gate damage now refuses and restores instead of
+exec'ing into a native error); gate text is stored raw and wrapped only
+at Modal presentation (hyphen-split commands at some path lengths were
+corrupting the refusal text); relink guidance shell-quotes paths and
+points model-only drift at the launcher reconcile instead of a no-op
+bare relink; transcript-elsewhere decodes the real project path for an
+exact `--cwd`; enforcement moved ahead of the launch-callback seam;
+`direct --force` is placement-equivalent (SUPPRESS).
 
 **D42 — Recovery policy: watchdog retry pin, gateway retry rejected,
 resume-over-redispatch (2.8.0).** Evidence (2026-07-29, operator-reported
@@ -605,7 +616,9 @@ the problem or it died twice. En passant: worktree-isolated dispatch is
 impossible from a non-repo session cwd (harness spawn-time creation;
 verified distinct from D40) — the lead contract documents the manual
 `git worktree add` fallback; conditional isolation stays a parked
-candidate (issue 005).
+candidate (issue 005). Hardening (cross-family round 1): the watchdog
+pin is scoped to managed scopes only — the shared lifecycle helper no
+longer leaks it into ordinary sessions (absence test added).
 
 ## User decision summary (what you're approving by accepting this design)
 
