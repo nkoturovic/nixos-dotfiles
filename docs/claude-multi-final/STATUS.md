@@ -1,5 +1,32 @@
 # STATUS — live tracker
 
+## 2026-07-29 — v2.9.0: GLM-5.2 on the qwen provider (D45, activated gen 115)
+
+- **`glm52` joins the existing `qwen` provider** (Token Plan
+  `apps/anthropic`, bearer `QWEN_CLAUDE_API_KEY`): wire `glm-5.2`,
+  selector `claude-multi-glm52-max[1m]`, lead+agents, single lane **max**
+  pinned `reasoning_effort: "max"` via the new `reasoning-effort-max`
+  payload contract; 1M context (opus5-style attestation, 200K validated
+  floor), family alibaba, floor 2.1.216, `ordinary_profile: large`
+  (`claude-gateway --model glm52` works). No CLIProxy registry patch —
+  third-party aliases enumerate via `claude-api-key` sections.
+- **Evidence:** HF model card (1M context; eval configs up to 163,840
+  generated tokens; text-only) + user-approved canary (HTTP 200,
+  default-on thinking, wire id `glm-5.2`).
+- **Profiles:** `glm-sol` (GLM lead, Sol preferred, GLM alternates) and
+  `kimi-sol-qwen-glm` (Kimi lead; per role Sol preferred, then
+  kimi-k3/GLM/Qwen **comparable** alternates — identical routing hints,
+  both non-preferred). Operator note recorded in D45: qwen38 moves ahead
+  of glm52 when qwen3.8 ships production (D21 sequence).
+- **Review:** cross-family Sol xhigh — SHIP-WITH-FIXES; all findings
+  addressed (qwen-sol USAGE row, D45 output-cap wording, preset
+  shorthand; pre-activation doctor block from the pending compositions
+  resolved at activation).
+- Evidence: 1,401 host tests OK (skipped=2), sandbox derivation green,
+  render golden delta = GLM block only. Post-activation verified:
+  launcher 2.9.0, gen 115, `/v1/models` serves `claude-multi-glm52-max`,
+  both compositions resolve, doctor exit 0.
+
 ## 2026-07-24 — v2.5.0: Opus 5 as the default lead (D31)
 
 - **Opus 5 integrated** (Anthropic release 2026-07-24): new `opus5` model
