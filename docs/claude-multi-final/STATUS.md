@@ -1,5 +1,24 @@
 # STATUS — live tracker
 
+## 2026-07-30 — v2.11.0: operator-observation batch (D47, pending activation)
+
+- **Five items, each root-caused before any edit** (issues 009–013):
+  /model picker display filter (native — allow-list intact, display
+  subset; documented, stale "roster-shaped" claims removed); subagent
+  TaskStop flailing (native ownership — prompt boundary added);
+  general-purpose denials (our policy fence working; delegation clause
+  naming legal types added to non-lead prompts); sessions picker opens
+  cwd-filtered (C widens; resume-cwd already guaranteed by `_CwdLease`);
+  session `--name` gains project basename (`cm:kimi-sol@project`,
+  `cg:glm52@project`), resume-by-name extended to the qualified form.
+- **Prompt-bloat audit**: lead 8.3K chars, role prompts ~2K each,
+  --agents 14KB/6 variants — healthy, nothing trimmed.
+- **Reviews**: cross-family Sol xhigh — BLOCK (qualified names broke
+  resume-by-name; prompt wording overreach ×2; stale FAQ claims) → all
+  fixed → re-review. Evidence: 1,449 host tests OK (skipped=2), sandbox
+  green. Catalog 13 (role prompts are catalog content); goldens
+  re-blessed prompt-only.
+
 ## 2026-07-30 — v2.10.0: ordinary gateway sessions launch from the card (D46, activated gen 116)
 
 - **G new gateway** on the composition card opens the ordinary-session

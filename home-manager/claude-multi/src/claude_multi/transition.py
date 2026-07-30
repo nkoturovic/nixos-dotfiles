@@ -406,6 +406,7 @@ def execute(
         ),
         token_helper_command=scope.ensure_token_helper_command(store.root, env),
         launch_epoch=plan.new_record.get("launch_epoch", 0),
+        session_cwd=plan.prior_record["cwd"],
     )
     if result.scope_plan is None:
         raise TransitionError("durable compile produced no scope plan")

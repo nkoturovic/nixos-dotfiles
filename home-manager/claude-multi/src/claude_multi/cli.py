@@ -470,6 +470,9 @@ class Runtime:
             hook_command=self.hook_command,
             launch_epoch=launch_epoch,
             token_helper_command=self.token_helper_command,
+            session_cwd=(
+                prior_record["cwd"] if prior_record is not None else self.cwd
+            ),
         )
         if prior_record is None:
             record = sessions.make_record(
@@ -592,6 +595,7 @@ class Runtime:
             pin_model=pin_model,
             launch_epoch=launch_epoch,
             token_helper_command=self.token_helper_command,
+            session_cwd=prior["cwd"] if prior is not None else self.cwd,
         )
         if prior is None:
             record = sessions.make_ordinary_record(
@@ -2709,6 +2713,8 @@ SESSIONS_HELP = (
     "\n"
     "rows are sorted by last used (hooks keep it current); the last used age\n"
     "  is always shown, created appears when width permits (both relative).\n"
+    "  C cwd filter — ON by default: only this directory's sessions; toggle\n"
+    "  to see all.\n"
     "\n"
     "native (unmanaged): plain-Claude sessions discovered by name/time only —\n"
     "the launcher never opens their files. They have no managed guarantees\n"
@@ -2864,7 +2870,9 @@ class _SessionsScreen:
         self.section = "managed"
         self.selected = 0
         self.message = ""
-        self.cwd_filter = False
+        # Harness-style default (issue 012): the picker opens on this
+        # directory's sessions; C widens to all.
+        self.cwd_filter = True
         self._reload()
 
     def _reload(self) -> None:
@@ -3328,18 +3336,20 @@ ORDINARY_HELP = (
     "  Enter — launch a fresh session with the selected model.\n"
     "  Esc — back to the card.\n"
     "\n"
-    "Groups are context profiles: native /model can switch freely among the\n"
-    "models inside the launched session's group; switching across groups is an\n"
-    "explicit relaunch (claude-gateway --resume ID --model MODEL) so a 1M\n"
-    "transcript can never strand into a smaller context. The session starts on\n"
-    "the model's default selector; lanes (e.g. sol high/xhigh) switch via\n"
-    "/model in-session.\n"
+    "Groups are context profiles: the launched session's /model allow-list is\n"
+    "its group; switching across groups is an explicit relaunch\n"
+    "(claude-gateway --resume ID --model MODEL) so a 1M transcript can never\n"
+    "strand into a smaller context. The session starts on the model's default\n"
+    "selector; lanes (e.g. sol high/xhigh) switch via /model in-session. The\n"
+    "native /model picker displays Anthropic-family names plus the current\n"
+    "model — the whole group stays allowed, shown or not.\n"
     "\n"
     "Rows marked (no secret) belong to a provider whose secret is missing: the\n"
     "gateway omits providers rendered without their secret, so the model will\n"
     "fail unless the running gateway still serves an older config. Enter asks\n"
     "for explicit confirmation before launching anyway. The marking speaks for\n"
-    "the initial model only — in-session /model offers the whole group.\n"
+    "the initial model only — in-session /model allows the whole group\n"
+    "(its picker shows Anthropic-family names plus the current model).\n"
     "\n"
     "The session is tracked as an ordinary record: resume it from the sessions\n"
     "screen (S) or with claude-gateway --continue, with the usual resume gate.\n"
@@ -5741,9 +5751,11 @@ def _resolve_resume_target(runtime: Runtime, value: str) -> str:
     Native Claude's exit hint prints ``claude --resume "cm:<composition>"``
     (the display name, not the UUID). Accept that form here: an exact UUIDv4
     resumes as before; otherwise the value (with an optional ``cm:`` prefix)
-    matches managed sessions by composition name — exactly one match resumes,
-    several list the candidates with their UUIDs, none fails with a pointer
-    to ``claude-multi sessions list``.
+    matches managed sessions by composition name OR by the generated display
+    name (``cm:<composition>@<project>``, issue 013 — the exact form the
+    exit hint prints for project-qualified sessions). Exactly one match
+    resumes, several list the candidates with their UUIDs, none fails with
+    a pointer to ``claude-multi sessions list``.
     """
 
     if sessions.UUID4.fullmatch(value):
@@ -5753,7 +5765,13 @@ def _resolve_resume_target(runtime: Runtime, value: str) -> str:
         record
         for record in _session_records(runtime)
         if record["session_type"] == sessions.SESSION_TYPE_MANAGED
-        and record["composition_name"] == name
+        and (
+            record["composition_name"] == name
+            or value
+            == compiler.session_display_name(
+                f"cm:{record['composition_name']}", record["cwd"]
+            )
+        )
     ]
     matches.sort(key=lambda record: record["created_at"], reverse=True)
     if len(matches) == 1:

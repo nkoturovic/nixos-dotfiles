@@ -25,3 +25,8 @@ Status values: `open` (reported, not yet root-caused) · `investigating` ·
 | 006 | [5ee2f942 transcript genuinely missing](006-5ee2f942-transcript-missing/) | open | — |
 | 007 | [Subagent "Prompt is too long" (context exhaustion)](007-subagent-context-exhaustion/) | open (recovery shipped 2.8.0) | — |
 | 008 | [observed_model bleed: compact event attributes a subagent's model](008-observed-model-subagent-bleed/) | resolved | 2.8.3 (D44) |
+| 009 | [/model picker shows only a subset of availableModels](009-model-picker-display-filter/) | resolved | 2.11.0 (D47, docs) |
+| 010 | [Subagent TaskStop flailing: ownership refusals](010-subagent-taskstop-flailing/) | resolved | 2.11.0 (D47) |
+| 011 | [Subagents denied spawning native types](011-native-type-denials/) | resolved | 2.11.0 (D47) |
+| 012 | [Sessions picker defaults to this directory](012-sessions-cwd-filter-default/) | resolved | 2.11.0 (D47) |
+| 013 | [Session --name distinguishes project](013-generic-session-names/) | resolved | 2.11.0 (D47) |

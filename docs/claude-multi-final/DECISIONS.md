@@ -794,6 +794,49 @@ transient notice, keybar/footer labels, line mode, CLI warning,
 OAuth-skip, flush-before-launch spy),
 `test_render.test_unavailable_providers_matches_renderer_report`.
 
+**D47 — Operator-observation batch: picker display truth, delegation
+contract completion, cwd-first sessions, distinguishable names (2.11.0).**
+Five items from one operator report, each root-caused before any edit
+(issues 009–013). **(009)** The in-session `/model` picker at 2.1.220
+displays only Anthropic-family `availableModels` entries
+(`^claude-[a-z0-9-]+$` AND name contains opus/sonnet/haiku, then
+equivalence-dedup into the Default/Fable rows) plus the current model —
+binary-verified in the option builder. The allow-list is intact; only the
+display is filtered, so the fix is documentation (USAGE both /model
+sections, UX §1.5, G-picker help) plus deleting the stale "managed
+/model menu is roster-shaped" claim — the same filter applies to managed
+rosters. **(010)** Subagent TaskStop refusals are native ownership: the
+main session stops any task; a descendant cannot stop another agent's
+tasks (delegated children are not its own) and is refused — verified
+against the binary's refusal paths. The D43 abandon rule said nothing
+about descendants, so nested agents flailed; `cm-lead.md` now states the
+boundary (descendants report stuck agents upward; their own background
+shell/monitor tasks are unaffected). **(011)** `Agent(general-purpose)`
+denials were our own native-agent policy working exactly as designed
+(`--disallowedTools` in the argv goldens); the noise source was role
+prompts that said "may delegate" without naming the legal types — a
+delegation clause (cm-* types only; native generic agents are not valid
+substitutes and may be denied by the effective policy — policy-neutral,
+since the schema legitimately allows `explore: native` /
+`general_purpose: on`) now sits in all three non-lead prompts.
+**(012)** `_SessionsScreen` opens
+cwd-filtered (harness-style; C widens); resume-cwd correctness was
+already guaranteed by the fd-pinned `_CwdLease` (verified, no change).
+**(013)** `--name` gains the project basename via
+`compiler.session_display_name` (`cm:kimi-sol@project`,
+`cg:glm52@project`; printable, 24-char cap; resume/transition thread the
+RECORDED cwd; compiler callers without `session_cwd` keep the plain form
+so goldens stand). Resume-by-name keeps working for the qualified form:
+`_resolve_resume_target` matches the generated display name
+(`cm:<composition>@<project>`) alongside UUIDs and plain composition
+names, with the same ambiguity listing (review must-fix).
+Prompt-bloat audit: lead 8.3K chars total, role
+prompts ~2K each, --agents 14KB/6 variants — healthy, nothing trimmed.
+Catalog 13 (role prompts are catalog content); goldens re-blessed for
+the prompt additions only. Pins: `test_roles` keywords,
+`CwdFilterToggleTests`, `SessionDisplayNameTests`,
+`SessionNameWiringTests`, qualified-name `_resolve_resume_target` tests.
+
 ## User decision summary (what you're approving by accepting this design)
 
 1. Selected agents become **real files** in a per-session scope; the failure

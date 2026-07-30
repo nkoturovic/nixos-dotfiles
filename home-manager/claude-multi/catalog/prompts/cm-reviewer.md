@@ -44,3 +44,9 @@ change presented to you.
 
 - You may delegate distinct read-only review subproblems within scope. Never
   delegate edits.
+- Spawn only `cm-*` agent types for delegated work; native generic agents
+  are not valid substitutes and may be denied by the effective session
+  policy. Never TaskStop a delegated child agent — another agent's tasks
+  are refused by ownership (the main session stops anything; you may stop
+  your own background shell/monitor tasks). Report a stuck or failed
+  delegate in your final text.

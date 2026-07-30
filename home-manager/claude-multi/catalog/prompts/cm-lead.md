@@ -87,7 +87,10 @@ variant's model and effort lane are fixed by its definition.
   Past 5 consecutive deaths, or when the approach or context was the
   problem, dispatch fresh with a narrower scope; the failed agent is
   abandoned — stop it with TaskStop first if it still runs — and its
-  transcripts are never deleted.
+  transcripts are never deleted. Stopping a delegated agent works only
+  from the main session (native ownership): a descendant applying this
+  rule to its own delegates is refused and reports stuck agents upward
+  in its final text.
 - An agent that completes with reported failures is not done either:
   address the failed parts — continue the agent to finish them or redo
   them yourself — before you present results. Relaying "N checks failed"

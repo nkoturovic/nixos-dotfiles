@@ -773,3 +773,55 @@ class RuntimeIdentityAndDirectCompileTests(unittest.TestCase):
             compiler.direct_profile_context(docs, "large"),
             (None, 900000, 792000),
         )
+
+
+class SessionDisplayNameTests(unittest.TestCase):
+    """--name gains the project basename (issue 013); old form without cwd."""
+
+    def test_no_cwd_keeps_plain_prefix(self) -> None:
+        self.assertEqual(compiler.session_display_name("cm:default", None), "cm:default")
+
+    def test_root_cwd_keeps_plain_prefix(self) -> None:
+        self.assertEqual(compiler.session_display_name("cg:sol", "/"), "cg:sol")
+
+    def test_basename_appended(self) -> None:
+        self.assertEqual(
+            compiler.session_display_name("cm:kimi-sol", "/home/kotur/projects/occams-agent-flow"),
+            "cm:kimi-sol@occams-agent-flow",
+        )
+
+    def test_long_basename_capped(self) -> None:
+        name = compiler.session_display_name(
+            "cg:glm52", "/x/" + "a" * 40
+        )
+        self.assertEqual(name, "cg:glm52@" + "a" * 24)
+
+    def test_control_characters_stripped(self) -> None:
+        name = compiler.session_display_name("cm:default", "/x/evil\x1b[2k\x07dir\n")
+        self.assertNotIn("\x1b", name)
+        self.assertNotIn("\x07", name)
+        self.assertNotIn("\n", name)
+        self.assertTrue(name.startswith("cm:default@evil"))
+
+    def test_compile_launch_threads_session_cwd(self) -> None:
+        bundle = catalog.load_catalog(CATALOG_ROOT)
+        resolved = composition.resolve(bundle.docs, bundle.default_composition)
+        snap = composition.snapshot(resolved)
+        digest = strict_json.bundle_digest(snap)
+        result = compiler.compile_launch(
+            docs=bundle.docs,
+            prompt_bodies=bundle.prompt_bodies,
+            resolved=resolved,
+            session_action=compiler.build_fresh(FIXED_SESSION),
+            passthrough=[],
+            settings_path=SETTINGS_PATH,
+            lead_prompt_path=compiler.lead_prompt_path(Path("/state"), digest, FIXED_SESSION),
+            session_cwd="/home/kotur/projects/occams-agent-flow",
+        )
+        index = result.argv.index("--name")
+        self.assertEqual(result.argv[index + 1], "cm:default@occams-agent-flow")
+
+    def test_compile_launch_without_cwd_keeps_old_name(self) -> None:
+        _bundle, _resolved, result = _compile()
+        index = result.argv.index("--name")
+        self.assertEqual(result.argv[index + 1], "cm:default")

@@ -48,6 +48,7 @@ PROMPT_KEYWORDS = {
         "counter resets",
         "stop it with TaskStop",
         "not a failure — never",
+        "from the main session (native ownership)",
     ),
     "cm-analyst": (
         "read-mostly",
@@ -56,6 +57,9 @@ PROMPT_KEYWORDS = {
         "may delegate",
         "git -C",
         "Never call EnterWorktree",
+        "Spawn only `cm-*` agent types",
+        "not valid substitutes",
+        "refused by ownership",
     ),
     "cm-reviewer": (
         "severity",
@@ -65,6 +69,9 @@ PROMPT_KEYWORDS = {
         "report every edit",
         "git -C",
         "Never call EnterWorktree",
+        "Spawn only `cm-*` agent types",
+        "not valid substitutes",
+        "refused by ownership",
     ),
     "cm-implementer": (
         "bounded",
@@ -77,6 +84,9 @@ PROMPT_KEYWORDS = {
         "Leave the worktree in place",
         "git -C <path>",
         "EnterWorktree is not",
+        "Spawn only `cm-*` agent types",
+        "not valid substitutes",
+        "refused by ownership",
     ),
 }
 

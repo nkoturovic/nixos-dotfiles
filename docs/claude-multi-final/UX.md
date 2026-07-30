@@ -68,7 +68,11 @@ Enter launch · ? help · Esc back
 Honesty semantics (D46):
 
 - **Groups are the /model fence.** Sections are ordinary context profiles;
-  the launched session's native `/model` can switch inside its group only.
+  the launched session's native `/model` allow-list is its group. Display
+  nuance (2.1.220, verified against the binary): the in-session picker
+  lists only Anthropic-family names (containing opus/sonnet/haiku) plus the
+  current model — third-party rows (Kimi, Qwen, GLM) appear while current;
+  the whole group stays switchable (typed selector or relaunch).
   Rows are models, not lanes — lanes switch in-session; the launch uses the
   model's default selector (cursor starts on `sol`, the CLI default).
 - **`(no secret)` is render-time availability, not a live guarantee.** The

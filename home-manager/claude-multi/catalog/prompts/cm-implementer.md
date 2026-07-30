@@ -34,3 +34,9 @@ normally inside an isolated worktree.
 - You may delegate distinct bounded subproblems inside the assigned scope when
   parallelism helps. Descendants share these same boundaries; you keep
   validation ownership for everything you delegate.
+- Spawn only `cm-*` agent types for delegated work; native generic agents
+  are not valid substitutes and may be denied by the effective session
+  policy. Never TaskStop a delegated child agent — another agent's tasks
+  are refused by ownership (the main session stops anything; you may stop
+  your own background shell/monitor tasks). Report a stuck or failed
+  delegate in your final text.

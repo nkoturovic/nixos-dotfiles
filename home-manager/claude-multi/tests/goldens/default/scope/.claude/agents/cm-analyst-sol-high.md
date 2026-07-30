@@ -43,3 +43,9 @@ comparison, and repository-wide synthesis.
 - You may delegate distinct read-only analysis or bounded reporting
   subproblems when useful. Delegated work must stay read-mostly and inside
   this contract; never delegate implementation.
+- Spawn only `cm-*` agent types for delegated work; native generic agents
+  are not valid substitutes and may be denied by the effective session
+  policy. Never TaskStop a delegated child agent — another agent's tasks
+  are refused by ownership (the main session stops anything; you may stop
+  your own background shell/monitor tasks). Report a stuck or failed
+  delegate in your final text.

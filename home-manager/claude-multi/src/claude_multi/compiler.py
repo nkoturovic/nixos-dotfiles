@@ -464,6 +464,7 @@ def lead_prompt_path(
 
 
 def _extract_add_dirs(args: list[str]) -> tuple[str, ...]:
+
     """Passthrough ``--add-dir`` values (split and equals forms), in order."""
 
     add_dirs: list[str] = []
@@ -482,6 +483,22 @@ def _extract_add_dirs(args: list[str]) -> tuple[str, ...]:
     return tuple(add_dirs)
 
 
+def session_display_name(prefix: str, cwd: Path | str | None) -> str:
+    """Session ``--name`` with the project basename appended (issue 013).
+
+    Sessions across projects shared one generic name in the Claude UI
+    (``cm:<composition>`` / ``cg:<model>``); the basename makes them
+    distinguishable while staying short and printable.
+    """
+
+    if cwd is None:
+        return prefix
+    base = "".join(ch for ch in Path(cwd).name if ch.isprintable()).strip()
+    if not base:
+        return prefix
+    return f"{prefix}@{base[:24]}"
+
+
 def compile_launch(
     *,
     docs: dict[str, Any],
@@ -496,6 +513,7 @@ def compile_launch(
     hook_command: str | None = None,
     launch_epoch: int = 0,
     token_helper_command: str | None = None,
+    session_cwd: Path | str | None = None,
 ) -> CompileResult:
     """Compile the pure launch plan. No effects; fail closed on conflicts.
 
@@ -579,7 +597,7 @@ def compile_launch(
         argv += ["--resume", session_action.runtime_session_id]
     else:
         raise CompilerError(f"unknown session action {session_action.kind!r}")
-    argv += ["--name", f"cm:{resolved.name}"]
+    argv += ["--name", session_display_name(f"cm:{resolved.name}", session_cwd)]
     if durable:
         argv += [
             "--settings",
@@ -749,6 +767,7 @@ def compile_direct_launch(
     pin_model: bool = True,
     launch_epoch: int = 0,
     token_helper_command: str | None = None,
+    session_cwd: Path | str | None = None,
 ) -> CompileResult:
     """Compile an ordinary gateway-backed Claude session with no composition."""
 
@@ -820,7 +839,7 @@ def compile_direct_launch(
         raise CompilerError(f"unknown session action {session_action.kind!r}")
     argv += [
         "--name",
-        f"cg:{model_id}",
+        session_display_name(f"cg:{model_id}", session_cwd),
         "--settings",
         str(scope_dir / "settings.json"),
     ]

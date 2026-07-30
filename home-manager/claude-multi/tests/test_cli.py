@@ -3143,6 +3143,10 @@ class TerminalInjectionTests(CLITestCase):
         record["cwd"] = self.OSC_CWD
         self.runtime.session_store.save(record)
         screen = cli._SessionsScreen(self.runtime, palette=tui.MONO_PALETTE)
+        # The hostile cwd is not this directory: widen past the issue-012
+        # default filter so the row renders (sanitization is the subject).
+        screen.cwd_filter = False
+        screen._reload()
         win = FakeWindow(["\x1b"])
         screen.run(win)
         text = win.text()
@@ -3283,6 +3287,50 @@ class ResumeNameResolutionTests(CLITestCase):
     def test_resume_by_name_end_to_end(self) -> None:
         self.save_session()
         code, _out = self.run_cli(["-r", "cm:default"], "\n", interactive=True)
+        self.assertEqual(code, 0)
+        self.assertEqual(
+            self.launches[0].record["managed_id"], FIXED_ID
+        )
+
+    def test_qualified_display_name_resolves(self) -> None:
+        # The exit hint prints exactly the --name value (issue 013):
+        # cm:<composition>@<project> must resolve like the plain forms.
+        self.save_session()
+        self.assertEqual(
+            cli._resolve_resume_target(self.runtime, "cm:default@project"),
+            FIXED_ID,
+        )
+
+    def test_qualified_name_uses_recorded_cwd(self) -> None:
+        record = self.save_session()
+        record["cwd"] = "/somewhere/project-x"
+        self.runtime.session_store.save(record)
+        self.assertEqual(
+            cli._resolve_resume_target(self.runtime, "cm:default@project-x"),
+            FIXED_ID,
+        )
+
+    def test_qualified_name_ambiguity_lists_candidates(self) -> None:
+        self.save_session(session_id=FIXED_ID)
+        self.save_session(session_id=self.OTHER_ID)
+        with self.assertRaises(cli.CLIError) as ctx:
+            cli._resolve_resume_target(self.runtime, "cm:default@project")
+        text = str(ctx.exception)
+        self.assertIn("matches 2 managed sessions", text)
+        self.assertIn(FIXED_ID, text)
+        self.assertIn(self.OTHER_ID, text)
+
+    def test_unknown_qualified_name_points_at_sessions_list(self) -> None:
+        self.save_session()
+        with self.assertRaises(cli.CLIError) as ctx:
+            cli._resolve_resume_target(self.runtime, "cm:default@nowhere")
+        self.assertIn("claude-multi sessions list", str(ctx.exception))
+
+    def test_resume_by_qualified_name_end_to_end(self) -> None:
+        self.save_session()
+        code, _out = self.run_cli(
+            ["-r", "cm:default@project"], "\n", interactive=True
+        )
         self.assertEqual(code, 0)
         self.assertEqual(
             self.launches[0].record["managed_id"], FIXED_ID
@@ -4071,6 +4119,10 @@ class NativeDiscoveryTests(CLITestCase):
         screen = cli._SessionsScreen(
             self.runtime, palette=cli.tui.MONO_PALETTE
         )
+        # The fake native project is not this directory: widen past the
+        # issue-012 default filter to reach it.
+        screen.cwd_filter = False
+        screen._reload()
         self.assertEqual(len(screen.native), 1)
         screen.section = "native"
         item = screen.native[0]
@@ -4256,7 +4308,7 @@ class ResumeChdirTests(CLITestCase):
 
 
 class CwdFilterToggleTests(CLITestCase):
-    def test_filter_shows_only_current_directory(self) -> None:
+    def test_filter_defaults_on_and_widens_on_toggle(self) -> None:
         here = self.save_session()
         other = self.save_session(
             session_id="97a6194a-1111-4222-8333-444455556666"
@@ -4268,14 +4320,16 @@ class CwdFilterToggleTests(CLITestCase):
         screen = cli._SessionsScreen(
             self.runtime, palette=cli.tui.MONO_PALETTE
         )
-        self.assertEqual(len(screen.records), 2)
-        screen.cwd_filter = True
-        screen._reload()
+        # Issue 012: the picker opens on this directory's sessions.
+        self.assertTrue(screen.cwd_filter)
         self.assertEqual(
             [r["managed_id"] for r in screen.records], [here["managed_id"]]
         )
+        screen.cwd_filter = False
+        screen._reload()
+        self.assertEqual(len(screen.records), 2)
 
-    def test_empty_filtered_view_can_toggle_back_to_all(self) -> None:
+    def test_toggle_roundtrip_returns_to_filtered_default(self) -> None:
         other = self.save_session()
         record = self.runtime.session_store.load(other["managed_id"])
         record["cwd"] = "/somewhere/else"
@@ -4283,6 +4337,8 @@ class CwdFilterToggleTests(CLITestCase):
         screen = cli._SessionsScreen(
             self.runtime, palette=cli.tui.MONO_PALETTE
         )
+        self.assertTrue(screen.cwd_filter)
+        self.assertEqual(screen.records, [])
         with mock.patch.object(screen, "_draw"), mock.patch.object(
             cli.tui, "hide_cursor"
         ), mock.patch.object(
@@ -4290,13 +4346,41 @@ class CwdFilterToggleTests(CLITestCase):
             "read_key",
             side_effect=(
                 cli.tui.Key("char", "C"),
-                cli.tui.Key("char", "C"),
                 cli.tui.Key("esc"),
             ),
         ):
             self.assertIsNone(screen.run(object()))
         self.assertFalse(screen.cwd_filter)
         self.assertEqual(len(screen.records), 1)
+
+
+class SessionNameWiringTests(CLITestCase):
+    """--name carries the session's project basename end to end (issue 013)."""
+
+    def test_fresh_managed_name_carries_project_basename(self) -> None:
+        document = self.runtime.compositions.load("default")
+        prepared = self.runtime.prepare(document, action="fresh", passthrough=[])
+        index = prepared.result.argv.index("--name")
+        # The fixture runtime cwd is <root>/project.
+        self.assertEqual(prepared.result.argv[index + 1], "cm:default@project")
+
+    def test_resume_name_uses_recorded_cwd_not_current(self) -> None:
+        record = self.save_session(mode="durable", scope_generation=1)
+        record["cwd"] = "/somewhere/project-x"
+        self.runtime.session_store.save(record)
+        document = self.runtime.compositions.load("default")
+        prepared = self.runtime.prepare(
+            document, action="resume", passthrough=[], session_id=FIXED_ID
+        )
+        index = prepared.result.argv.index("--name")
+        self.assertEqual(prepared.result.argv[index + 1], "cm:default@project-x")
+
+    def test_direct_name_carries_project_basename(self) -> None:
+        prepared = self.runtime.prepare_direct(
+            action="fresh", model_id="glm52", passthrough=[]
+        )
+        index = prepared.result.argv.index("--name")
+        self.assertEqual(prepared.result.argv[index + 1], "cg:glm52@project")
 
 
 class SessionEventAndDirectModeTests(CLITestCase):
@@ -5067,7 +5151,15 @@ class SessionsScreenForkLiveTests(CLITestCase):
         found = cli._discover_native_sessions(self.runtime)
         self.assertEqual(len(found), 1)
         self.assertEqual(found[0]["fork_of"], FIXED_ID)
-        result, win, _ = self._run(["\x1b"])
+        # The fork's native project is not this directory: opt the screen
+        # out of the issue-012 default filter to see it.
+        from test_tui import FakeWindow
+
+        screen = cli._SessionsScreen(self.runtime, palette=tui.MONO_PALETTE)
+        screen.cwd_filter = False
+        screen._reload()
+        win = FakeWindow(["\x1b"])
+        self.assertIsNone(screen.run(win))
         self.assertIn("(fork)", win.text())
 
 

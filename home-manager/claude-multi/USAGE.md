@@ -179,10 +179,15 @@ claude-multi sessions transition <uuid> --composition qwen-sol
 
 Shows a semantic diff (what changes), asks you to confirm the session has
 **exited**, then relaunches with the exact same transcript under the new
-composition. Model/agent/effort/workflow changes all go through this — the
-managed `/model` menu is deliberately roster-shaped (lead + your agent
-team's models, lead pinned as Default); a manual switch away from the lead
-is flagged by the identity machinery with the exact relaunch guidance.
+composition. Model/agent/effort/workflow changes all go through this — a
+manual `/model` switch away from the lead is flagged by the identity
+machinery with the exact relaunch guidance. Note the native `/model`
+picker (2.1.220) does **not** list every allowed model: it shows the
+Default row, Anthropic-family entries (names containing opus/sonnet/haiku),
+and the current model. Third-party selectors (Kimi, Qwen, GLM, Sol) appear
+only while they are the session's current model — the scope's
+`availableModels` allow-list still governs what a switch may use, it is
+just not all displayed.
 
 ### Ordinary gateway sessions
 
@@ -202,7 +207,11 @@ claude-gateway -r <uuid> --model sol # explicit cross-profile relaunch
 Native `/model` works inside one safe context profile; switching profiles is
 an explicit relaunch (a note reminds you the old process must have exited).
 A CLI launch whose provider secret is missing prints a non-blocking warning
-first (the TUI picker asks for confirmation instead).
+first (the TUI picker asks for confirmation instead). The in-session `/model`
+picker shows the whole profile only for Anthropic-family names — third-party
+models (Kimi, Qwen, GLM) appear when they are the current model; switching
+to any model in the group still works by relaunching with
+`claude-gateway -r <uuid> --model <model>`.
 
 ### Adopt an existing plain-Claude session
 
@@ -328,16 +337,21 @@ transcripts (always untouched).
   lead with Kimi agents; `kimi-sol`/`qwen-sol` when you need a Kimi or Qwen
   1M lead; `fable` is the previous default, kept around; `sol-direct` is
   one model, no team.
-- **Why does `/model` show only the lead plus the roster models in my
-  managed session?** — the pool is deliberately roster-shaped: the lead
-  (pinned as Default) plus exactly the models your agent team uses, so
-  subagent dispatch always resolves correctly. Switching the lead
-  mid-session is still not the supported path (compaction thresholds and
-  identity tracking are lead-shaped) — the session will flag it as an
-  identity mismatch with the exact relaunch guidance; the supported model
-  change is `sessions transition`. For model-flexible sessions use
-  `claude-gateway`, whose `/model` menu offers every model inside one
-  safe context profile.
+- **Why does `/model` show so few models in my managed session?** — two
+  different things shape that menu. The allow-list is deliberately
+  roster-shaped: the lead plus exactly the models your agent team uses, so
+  subagent dispatch always resolves correctly. The display is native
+  (2.1.220): the picker lists the Default row, Anthropic-family names
+  (containing opus/sonnet/haiku), and the current model — third-party
+  selectors (Kimi, Qwen, GLM, Sol) appear only while current, allowed or
+  not. Switching the lead mid-session is still not the supported path
+  (compaction thresholds and identity tracking are lead-shaped) — the
+  session will flag it as an identity mismatch with the exact relaunch
+  guidance; the supported model change is `sessions transition`. For
+  model-flexible sessions use `claude-gateway`, whose allow-list is every
+  model inside one safe context profile (same display rule: third-party
+  names show when current, and `claude-gateway -r <uuid> --model X`
+  relaunches to any of them).
 - **A session forked when I came back to it — why?** — it was backgrounded
   and the supervisor daemon adopted it; reattaching from a menu forks
   natively. See "Native forks" above. The **●** marker in the sessions
