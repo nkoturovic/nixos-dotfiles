@@ -3447,6 +3447,36 @@ class OrdinaryScreenTuiTests(CLITestCase):
         result = screen.run(win)
         return result, win, screen
 
+    def test_initial_model_preselects_current(self) -> None:
+        screen = cli._OrdinaryScreen(
+            self.runtime, palette=tui.MONO_PALETTE, initial_model="qwen38"
+        )
+        self.assertEqual(screen.rows[screen.selected], "qwen38")
+
+    def test_unknown_initial_model_falls_back_to_sol(self) -> None:
+        # A recorded model the installed catalog no longer offers (catalog
+        # drift) must not strand the picker: cursor lands on the CLI default.
+        screen = cli._OrdinaryScreen(
+            self.runtime, palette=tui.MONO_PALETTE, initial_model="gone"
+        )
+        self.assertEqual(screen.rows[screen.selected], "sol")
+
+    def test_switch_purpose_shows_select_copy(self) -> None:
+        screen = cli._OrdinaryScreen(
+            self.runtime,
+            palette=tui.MONO_PALETTE,
+            initial_model="kimi-k3",
+            purpose="switch",
+        )
+        from test_tui import FakeWindow
+
+        win = FakeWindow(["\x1b"])
+        self.assertIsNone(screen.run(win))
+        text = win.text()
+        self.assertIn("switch model — gateway session", text)
+        self.assertIn("Enter select", text)
+        self.assertNotIn("Enter launch", text)
+
     def test_renders_groups_models_and_availability(self) -> None:
         result, win, _screen = self._run(["\x1b"])
         self.assertIsNone(result)
@@ -4346,12 +4376,53 @@ class CwdFilterToggleTests(CLITestCase):
             "read_key",
             side_effect=(
                 cli.tui.Key("char", "C"),
+                cli.tui.Key("char", "C"),
                 cli.tui.Key("esc"),
             ),
         ):
             self.assertIsNone(screen.run(object()))
-        self.assertFalse(screen.cwd_filter)
-        self.assertEqual(len(screen.records), 1)
+        # Roundtrip: ON (default) -> OFF (widened) -> ON (re-filtered).
+        self.assertTrue(screen.cwd_filter)
+        self.assertEqual(screen.records, [])
+
+    def test_empty_filtered_state_names_the_filter(self) -> None:
+        other = self.save_session()
+        record = self.runtime.session_store.load(other["managed_id"])
+        record["cwd"] = "/somewhere/else"
+        self.runtime.session_store.save(record)
+        from test_tui import FakeWindow
+
+        result, win, _screen = self._run_sessions(["\x1b"])
+        self.assertIsNone(result)
+        self.assertIn("(no sessions in this directory — press C to see all)", win.text())
+        self.assertIn("cwd filter ON", win.text())
+
+    def test_toggle_messages_and_help_line(self) -> None:
+        screen = cli._SessionsScreen(
+            self.runtime, palette=cli.tui.MONO_PALETTE
+        )
+        with mock.patch.object(screen, "_draw"), mock.patch.object(
+            cli.tui, "hide_cursor"
+        ), mock.patch.object(
+            cli.tui,
+            "read_key",
+            side_effect=(
+                cli.tui.Key("char", "C"),
+                cli.tui.Key("char", "C"),
+                cli.tui.Key("esc"),
+            ),
+        ):
+            self.assertIsNone(screen.run(object()))
+        # The two toggle messages fired in order (second C re-filters).
+        self.assertEqual(screen.message, "showing only this directory")
+        self.assertIn("C cwd filter — ON by default", cli.SESSIONS_HELP)
+
+    def _run_sessions(self, keys):
+        from test_tui import FakeWindow
+
+        screen = cli._SessionsScreen(self.runtime, palette=cli.tui.MONO_PALETTE)
+        win = FakeWindow(keys)
+        return screen.run(win), win, screen
 
 
 class SessionNameWiringTests(CLITestCase):
@@ -4381,6 +4452,227 @@ class SessionNameWiringTests(CLITestCase):
         )
         index = prepared.result.argv.index("--name")
         self.assertEqual(prepared.result.argv[index + 1], "cg:glm52@project")
+
+
+class OrdinaryModelSwitchTests(CLITestCase):
+    """T on an ordinary row: gate, pick, confirm, model override (D48)."""
+
+    def _ordinary(self, model="kimi-k3"):
+        record = sessions.make_ordinary_record(
+            managed_id=FIXED_ID,
+            runtime_session_id=FIXED_ID,
+            cwd=self.runtime.cwd,
+            model=model,
+            context_profile="large",
+            catalog_version=self.runtime.catalog_version,
+            catalog_hash=self.runtime.catalog.bundle_sha256,
+            launcher_version=self.runtime.launcher_version,
+        )
+        self.runtime.session_store.save(record)
+        self._write_transcript(FIXED_ID)
+        return record
+
+    def _run(self, keys, resume_decision=None):
+        from test_tui import FakeWindow
+
+        screen = cli._SessionsScreen(
+            self.runtime, palette=tui.MONO_PALETTE, resume_decision=resume_decision
+        )
+        win = FakeWindow(keys)
+        return screen.run(win), win, screen
+
+    def test_full_flow_returns_model_override(self) -> None:
+        self._ordinary()
+        result, _win, _screen = self._run(["t", "j", "j", "\n", "\n"])
+        self.assertIsNotNone(result)
+        self.assertEqual(result[0], "resume")
+        self.assertEqual(result[1]["managed_id"], FIXED_ID)
+        self.assertIsNone(result[2])
+        self.assertEqual(result[3], "opus5")
+
+    def test_initial_selection_is_current_model(self) -> None:
+        self._ordinary(model="qwen38")
+        # Current qwen38 preselected (index 5); one step up lands on the
+        # available opus5 (index 4).
+        result, _win, _screen = self._run(["t", "k", "\n", "\n"])
+        self.assertEqual(result[3], "opus5")
+
+    def test_same_model_pick_is_noop(self) -> None:
+        self._ordinary()
+        result, _win, screen = self._run(["t", "\n", "\x1b"])
+        self.assertIsNone(result)
+        self.assertEqual(screen.message, "already on kimi-k3")
+
+    def test_picker_cancel_stays(self) -> None:
+        self._ordinary()
+        result, _win, _screen = self._run(["t", "\x1b", "\x1b"])
+        self.assertIsNone(result)
+
+    def test_confirm_cancel_stays(self) -> None:
+        self._ordinary()
+        result, _win, screen = self._run(["t", "j", "\n", "\x1b", "\x1b"])
+        self.assertIsNone(result)
+        self.assertEqual(screen.message, "Switch cancelled.")
+
+    def test_daemon_owned_gate_modal_after_confirm(self) -> None:
+        # Gate runs LAST (after picker/no-op/confirm, all cancellable);
+        # the full R modal then applies — force via buttons threads the
+        # decision into the switch result.
+        import curses as _curses
+
+        self._ordinary()
+        with mock.patch.object(
+            cli, "_live_background_prefixes", return_value=frozenset({"11111111"})
+        ):
+            result, win, _screen = self._run(
+                ["t", "j", "j", "\n", "\n", _curses.KEY_RIGHT, "\n"]
+            )
+        self.assertIsNotNone(result)
+        self.assertEqual(result[0], "resume")
+        self.assertEqual(result[2], "force")
+        self.assertEqual(result[3], "opus5")
+
+    def test_gate_cancel_after_confirm_stays(self) -> None:
+        self._ordinary()
+        with mock.patch.object(
+            cli, "_live_background_prefixes", return_value=frozenset({"11111111"})
+        ):
+            result, _win, screen = self._run(
+                ["t", "j", "j", "\n", "\n", "\x1b", "\x1b"]
+            )
+        self.assertIsNone(result)
+        self.assertEqual(screen.message, "Switch cancelled.")
+
+    def test_transcript_missing_gate_guidance_shown(self) -> None:
+        record = sessions.make_ordinary_record(
+            managed_id=FIXED_ID,
+            runtime_session_id=FIXED_ID,
+            cwd=self.runtime.cwd,
+            model="kimi-k3",
+            context_profile="large",
+            catalog_version=self.runtime.catalog_version,
+            catalog_hash=self.runtime.catalog.bundle_sha256,
+            launcher_version=self.runtime.launcher_version,
+        )
+        self.runtime.session_store.save(record)
+        # No transcript fixture: after the switch confirm, the gate modal
+        # names the missing transcript (R parity), and Esc cancels.
+        result, win, screen = self._run(
+            ["t", "j", "j", "\n", "\n", "\x1b", "\x1b"]
+        )
+        self.assertIsNone(result)
+        self.assertEqual(screen.message, "Switch cancelled.")
+        self.assertTrue(
+            any("no transcript file exists for runtime" in frame for frame in win.frames),
+            "expected the transcript-missing gate modal to render",
+        )
+
+    def test_same_model_pick_skips_secret_confirm(self) -> None:
+        # Current model's provider secret is unavailable in this fixture:
+        # picking it must no-op directly, never ask a risky-sounding
+        # confirm for a relaunch that never happens (review should-fix).
+        self._ordinary(model="qwen38")
+        result, win, screen = self._run(["t", "\n", "\x1b"])
+        self.assertIsNone(result)
+        self.assertEqual(screen.message, "already on qwen38")
+        self.assertFalse(
+            any("Provider secret missing" in frame for frame in win.frames)
+        )
+
+    def test_force_decision_skips_gate_modal_and_threads(self) -> None:
+        self._ordinary()
+        with mock.patch.object(
+            cli, "_live_background_prefixes", return_value=frozenset({"11111111"})
+        ):
+            result, _win, _screen = self._run(
+                ["t", "j", "j", "\n", "\n"], resume_decision="force"
+            )
+        self.assertIsNotNone(result)
+        self.assertEqual(result[2], "force")
+        self.assertEqual(result[3], "opus5")
+
+    def test_cross_profile_confirm_names_the_rebuild(self) -> None:
+        self._ordinary()
+        # From kimi-k3 (large) to sol (sol profile): the confirm modal must
+        # state the profile change and the fence/compaction rebuild.
+        # kimi(2) -> j j j j -> sol(6).
+        result, win, _screen = self._run(
+            ["t", "j", "j", "j", "j", "\n", "\x1b", "\x1b"]
+        )
+        self.assertIsNone(result)  # confirm modal cancelled via Esc
+        self.assertTrue(
+            any(
+                "context profile large → sol" in frame
+                and "scope fence and compaction policy are rebuilt" in frame
+                for frame in win.frames
+            )
+        )
+
+    def test_card_open_sessions_threads_override_into_prepare(self) -> None:
+        record = self._ordinary()
+        palette = cli.tui.Palette("mono", False)
+        plan = cli.build_quick_plan(
+            self.runtime,
+            self.runtime.compositions.load("default"),
+            action="fresh",
+            source="Trusted default",
+        )
+        screen = cli._QuickConfirmScreen(
+            self.runtime, plan, passthrough=["--verbose"], palette=palette
+        )
+
+        class FakeSessions:
+            def __init__(self, runtime, *, palette, resume_decision=None):
+                pass
+
+            def run(self, win):
+                return ("resume", record, None, "glm52")
+
+        original = cli._SessionsScreen
+        cli._SessionsScreen = FakeSessions
+        try:
+            outcome = screen._open_sessions(None)
+        finally:
+            cli._SessionsScreen = original
+        self.assertIsNotNone(outcome)
+        self.assertEqual(outcome[0], "perform")
+        prepared = outcome[1]
+        self.assertEqual(prepared.record["ordinary_model"], "glm52")
+        self.assertEqual(prepared.record["context_profile"], "large")
+        self.assertIn("claude-multi-glm52-max[1m]", prepared.result.argv)
+        self.assertIn("--verbose", prepared.result.argv)
+        self.assertEqual(self.launches, [])
+
+    def test_driver_threads_override_into_launch(self) -> None:
+        import io as _io
+
+        record = self._ordinary()
+
+        class FakeScreen:
+            def __init__(self, runtime, *, palette, resume_decision=None):
+                pass
+
+            def run(self, win):
+                return ("resume", record, None, "glm52")
+
+        original_screen = cli._SessionsScreen
+        original_runner = cli.tui.run_curses_on_streams
+        cli._SessionsScreen = FakeScreen
+        cli.tui.run_curses_on_streams = lambda fn, i, o, palette: fn(None)
+        try:
+            code = cli._sessions_list_tui(
+                self.runtime,
+                None,
+                input_stream=_io.StringIO(),
+                output_stream=_io.StringIO(),
+                no_color=True,
+            )
+        finally:
+            cli._SessionsScreen = original_screen
+            cli.tui.run_curses_on_streams = original_runner
+        self.assertEqual(code, 0)
+        self.assertEqual(len(self.launches), 1)
+        self.assertEqual(self.launches[0].record["ordinary_model"], "glm52")
 
 
 class SessionEventAndDirectModeTests(CLITestCase):

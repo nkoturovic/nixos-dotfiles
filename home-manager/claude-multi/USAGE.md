@@ -80,6 +80,7 @@ Cycle them with **Tab** on the card, or pick one directly with
 claude-multi -c                 # continue the last session in this directory
 claude-multi -r <uuid>          # resume an exact session
 claude-multi -r cm:kimi-sol     # resume by composition name (if unique)
+claude-multi -r cm:kimi-sol@proj  # the qualified name the exit hint prints
 claude-multi -r                 # open the picker (managed + native sessions)
 ```
 
@@ -115,11 +116,12 @@ Managed sessions on top, plain-Claude (native) sessions below. Rows are
 **sorted by last used** (hooks keep it current) so recent work floats to
 the top. The *last used* age is always shown; *created* appears too when
 the terminal is wide enough — `sessions show` has every exact timestamp.
-Keys:
+The picker opens on **this directory's** sessions (harness-style). Keys:
 
-- **R** resume · **T** switch composition · **X** resolve fork ·
+- **R** resume · **T** switch composition (managed) / switch model
+  (ordinary gateway rows) · **X** resolve fork ·
   **E** end session (stop a live ● one) · **F** forget · **L** adopt a native
-  session · **C** filter to this directory · **?** help · **Esc** quit
+  session · **C** widen to all directories / re-filter · **?** help · **Esc** quit
 
 Row markers: **●** — the session is live right now, owned by the background
 daemon (reattaching to it from a Claude menu forks natively; exit it first or
@@ -182,12 +184,13 @@ Shows a semantic diff (what changes), asks you to confirm the session has
 composition. Model/agent/effort/workflow changes all go through this — a
 manual `/model` switch away from the lead is flagged by the identity
 machinery with the exact relaunch guidance. Note the native `/model`
-picker (2.1.220) does **not** list every allowed model: it shows the
-Default row, Anthropic-family entries (names containing opus/sonnet/haiku),
-and the current model. Third-party selectors (Kimi, Qwen, GLM, Sol) appear
-only while they are the session's current model — the scope's
-`availableModels` allow-list still governs what a switch may use, it is
-just not all displayed.
+picker (2.1.220) does **not** list every allowed model: it keeps the
+Default row (the pinned lead/route) and any allow-list-permitted
+built-in Anthropic rows (e.g. Fable 5), and always appends the current
+model as a Custom model row. Custom selectors (Kimi, Qwen, GLM, Sol)
+get no row of their own — but stay switchable by typing the selector
+(`/model claude-multi-kimi-k3[1m]`, binary-verified) or via
+`sessions transition`.
 
 ### Ordinary gateway sessions
 
@@ -208,10 +211,11 @@ Native `/model` works inside one safe context profile; switching profiles is
 an explicit relaunch (a note reminds you the old process must have exited).
 A CLI launch whose provider secret is missing prints a non-blocking warning
 first (the TUI picker asks for confirmation instead). The in-session `/model`
-picker shows the whole profile only for Anthropic-family names — third-party
-models (Kimi, Qwen, GLM) appear when they are the current model; switching
-to any model in the group still works by relaunching with
-`claude-gateway -r <uuid> --model <model>`.
+picker shows the Default row, allowed built-in Anthropic rows, and the
+current model (always appended) — custom selectors (Kimi, Qwen, GLM) get
+no row of their own but switch by typing the selector
+(`/model claude-multi-kimi-k3[1m]`), by **T** in the
+sessions screen, or by `claude-gateway -r <uuid> --model <model>`.
 
 ### Adopt an existing plain-Claude session
 
@@ -341,17 +345,18 @@ transcripts (always untouched).
   different things shape that menu. The allow-list is deliberately
   roster-shaped: the lead plus exactly the models your agent team uses, so
   subagent dispatch always resolves correctly. The display is native
-  (2.1.220): the picker lists the Default row, Anthropic-family names
-  (containing opus/sonnet/haiku), and the current model — third-party
-  selectors (Kimi, Qwen, GLM, Sol) appear only while current, allowed or
-  not. Switching the lead mid-session is still not the supported path
+  (2.1.220): the picker keeps the Default row (the pinned lead), any
+  allow-list-permitted built-in Anthropic rows (e.g. Fable 5), and the
+  current model (always appended) — custom selectors (Kimi, Qwen, GLM,
+  Sol) get no row of their own but stay switchable by typing the selector. Switching the lead mid-session
+  is still not the supported path
   (compaction thresholds and identity tracking are lead-shaped) — the
   session will flag it as an identity mismatch with the exact relaunch
   guidance; the supported model change is `sessions transition`. For
   model-flexible sessions use `claude-gateway`, whose allow-list is every
-  model inside one safe context profile (same display rule: third-party
-  names show when current, and `claude-gateway -r <uuid> --model X`
-  relaunches to any of them).
+  model inside one safe context profile (same display rule; **T** in the
+  sessions screen or `claude-gateway -r <uuid> --model X` relaunches to
+  any of them).
 - **A session forked when I came back to it — why?** — it was backgrounded
   and the supervisor daemon adopted it; reattaching from a menu forks
   natively. See "Native forks" above. The **●** marker in the sessions

@@ -18,10 +18,13 @@ Working as designed — the composition's native-agent policy
 instantly with zero tool uses; the lead then dispatches the correct
 `cm-*` types — the fence and the fallback both doing their job.
 
-The noise source: non-lead role prompts said delegates "may delegate" but
-never said WHICH agent types are legal, so nested agents guessed native
-types and ate the denial. The lead's sentinel ("never substitute a native
-or generic agent") existed only in the lead prompt.
+The noise source: non-lead role prompt BODIES said delegates "may
+delegate" but never said WHICH agent types are legal, so nested agents
+guessed native types and ate the denial. The lead's sentinel ("never
+substitute a native or generic agent") existed only in the lead prompt;
+durable-path agent descriptions already carried a weaker variant ("never
+substitute a generic agent", the U2 sentinel) — aimed at delegators, not
+delegates — so the prompt-body clause is the layer that was missing.
 
 ## Fix (surgical, prompt-only)
 

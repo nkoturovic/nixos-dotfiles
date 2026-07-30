@@ -464,7 +464,6 @@ def lead_prompt_path(
 
 
 def _extract_add_dirs(args: list[str]) -> tuple[str, ...]:
-
     """Passthrough ``--add-dir`` values (split and equals forms), in order."""
 
     add_dirs: list[str] = []

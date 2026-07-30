@@ -434,6 +434,15 @@ class ExecuteRelaunchTests(TransitionTestCase):
             outcome.compile_result.env_set[transition.SESSION_ENV_VAR], FIXED_ID
         )
 
+    def test_relaunch_name_carries_prior_record_basename(self) -> None:
+        # Issue 013 threading: the transition engine passes the record's cwd
+        # to the compile, so the relaunched --name stays project-qualified.
+        self._make_session()
+        plan = self._prepare(_lead_to_kimi)
+        outcome = transition.execute(plan, confirm_exited=True, environ={})
+        argv = outcome.compile_result.argv
+        self.assertEqual(argv[argv.index("--name") + 1], "cm:default@project")
+
     def test_swap_rename_and_fsync_ordering(self) -> None:
         self._make_session()
         plan = self._prepare(_lead_to_kimi)

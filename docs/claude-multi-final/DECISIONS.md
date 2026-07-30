@@ -798,10 +798,14 @@ OAuth-skip, flush-before-launch spy),
 contract completion, cwd-first sessions, distinguishable names (2.11.0).**
 Five items from one operator report, each root-caused before any edit
 (issues 009–013). **(009)** The in-session `/model` picker at 2.1.220
-displays only Anthropic-family `availableModels` entries
-(`^claude-[a-z0-9-]+$` AND name contains opus/sonnet/haiku, then
-equivalence-dedup into the Default/Fable rows) plus the current model —
-binary-verified in the option builder. The allow-list is intact; only the
+shows registry-derived rows (the Default row pinned by our env, any
+allow-list-permitted built-in Anthropic rows like Fable 5) and always
+appends the current model as a Custom model row; our custom selectors
+never become rows (kimi/qwen/glm fail the opus|sonnet|haiku substring
+rule, the opus aliases die at the registry-label lookup) — all
+binary-verified, and the typed `/model <selector>` path validates
+against the allow-list, so hidden selectors still switch in-session.
+The allow-list is intact; only the
 display is filtered, so the fix is documentation (USAGE both /model
 sections, UX §1.5, G-picker help) plus deleting the stale "managed
 /model menu is roster-shaped" claim — the same filter applies to managed
@@ -810,8 +814,9 @@ main session stops any task; a descendant cannot stop another agent's
 tasks (delegated children are not its own) and is refused — verified
 against the binary's refusal paths. The D43 abandon rule said nothing
 about descendants, so nested agents flailed; `cm-lead.md` now states the
-boundary (descendants report stuck agents upward; their own background
-shell/monitor tasks are unaffected). **(011)** `Agent(general-purpose)`
+boundary (descendants report stuck agents upward), and the non-lead
+delegation clause notes their own background shell/monitor tasks are
+unaffected. **(011)** `Agent(general-purpose)`
 denials were our own native-agent policy working exactly as designed
 (`--disallowedTools` in the argv goldens); the noise source was role
 prompts that said "may delegate" without naming the legal types — a
@@ -836,6 +841,35 @@ Catalog 13 (role prompts are catalog content); goldens re-blessed for
 the prompt additions only. Pins: `test_roles` keywords,
 `CwdFilterToggleTests`, `SessionDisplayNameTests`,
 `SessionNameWiringTests`, qualified-name `_resolve_resume_target` tests.
+
+**D48 — Ordinary model switch from the sessions screen (2.12.0).**
+The TUI had no model-switch path for ordinary sessions (T was refused
+with "relaunch with claude-gateway …"), leaving the CLI as the only
+route — a gap now that G makes ordinary sessions first-class. T on an
+ordinary row: refuses fork-blocked rows, opens the G picker
+(`_OrdinaryScreen`, purpose-aware: launch vs switch title/keybar/help/
+confirm copy) preselected on the current model, no-ops a same-model
+pick (and never asks the missing-secret confirm for it — no relaunch
+happens), confirms old → new with the same/cross-profile line, and only
+THEN runs the resume gate — picker/no-op/confirm are all cancellable
+before the gate's repair/stop actions can mutate (review major), and
+the full R gate modal gives repair/stop/force/transcript guidance
+parity (review must-fix), threading the refreshed record and decision
+into the resume intent whose new 4th element carries the picked model.
+Both resume consumers (card `_open_sessions`, standalone
+`_sessions_list_tui`) thread it into
+`prepare_direct(resume, model_id=picked)`, so the switch
+reuses the exact explicit-model relaunch the CLI performs. Same-model
+picks are a no-op message; every cancel step stays in the picker. The
+keybar reads "T switch" (composition for managed, model for ordinary);
+the row hint and SESSIONS_HELP say both. This also completes the issue
+009 answer: the in-session /model display filter is native, but the
+launcher now offers three switch paths for ordinary sessions — typed
+selector, T in the picker, CLI relaunch. Catalog stays 13 (code-only);
+launcher 2.12.0. Pins: `OrdinaryModelSwitchTests` (flow, preselection,
+no-op, cancels, daemon-owned gate resolution/cancel, force threading,
+cross-profile confirm text, card + driver consumers), `_OrdinaryScreen`
+purpose/fallback tests.
 
 ## User decision summary (what you're approving by accepting this design)
 

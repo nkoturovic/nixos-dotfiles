@@ -1,5 +1,28 @@
 # STATUS — live tracker
 
+## 2026-07-30 — v2.12.0: ordinary model switch + per-issue review batch (D48, pending activation)
+
+- **T switch model** on ordinary rows in the sessions screen (D48):
+  picker (preselected, purpose-aware) → same-model no-op → confirm
+  (same/cross-profile) → full R gate modal LAST (repair/stop/force/
+  transcript parity, mutation only after every cancellable step) →
+  explicit-model relaunch through both consumers. The /model answer is
+  now complete: typed selector, T in the picker, or CLI relaunch.
+- **Per-issue review batch** (5 parallel Sol xhigh reviews of 009–013):
+  009 README mechanism corrected (registry-gate, built-in Fable row,
+  typed selector binary-verified); effective-rule wording everywhere;
+  010 D47 attribution; 011 README + scope.py comment precision; 012
+  filter-aware empty state ("(no sessions in this directory — press C
+  to see all)", single native-discovery pass) + roundtrip/string pins;
+  013 qualified-name USAGE line + transition threading pin.
+- **Review loop**: Sol xhigh SHIP-WITH-FIXES (gate mutation ordering →
+  reordered picker→confirm→gate; picker purpose copy; doc
+  contradictions; discovery cost) → SHIP-WITH-FIXES (gate parity →
+  reordered design adopted; same-model confirm bypass) → **APPROVE**.
+- Evidence: 1,468 host tests OK (skipped=2), sandbox green (one
+  known-class PTY timing flake on first attempt, passed on re-run).
+  Catalog stays 13.
+
 ## 2026-07-30 — v2.11.0: operator-observation batch (D47, activated gen 117)
 
 - **Five items, each root-caused before any edit** (issues 009–013):

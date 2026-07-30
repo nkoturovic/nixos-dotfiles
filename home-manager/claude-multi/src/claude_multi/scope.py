@@ -47,8 +47,10 @@ class ScopeError(ValueError):
     """Raised when a scope cannot be compiled or written (fail closed)."""
 
 
-# SPEC 2.1 durable floor, verbatim. Every generated description carries the
-# no-substitution sentinel so the rule survives lead-appendix loss (U2).
+# SPEC 2.1 durable floor, verbatim. The durable scope path appends the
+# no-substitution sentinel to every generated description so the rule
+# survives lead-appendix loss (U2); the canonical role prompts also carry
+# the delegation clause themselves (issue 011), covering both paths.
 SENTINEL_SUFFIX = (
     "Managed cm session: if a selected cm-* type is unavailable, stop; "
     "never substitute a generic agent."
@@ -434,11 +436,13 @@ def compile_scope(
     # native /model change only the main thread while leaving the recorded
     # composition and generated roster stale. Composition transitions are the
     # only supported cross-model change.
-    # availableModels governs TWO things in Claude Code: the /model menu
-    # AND agent frontmatter model resolution. A lead-only fence silently
-    # degrades every variant's dispatch to the lead model (the subagent
-    # named Sol runs on the lead instead — verified live: Sol-typed agents
-    # issued claude-multi-kimi-k3 requests, and the gateway never saw a
+    # availableModels governs TWO things in Claude Code: the /model
+    # allow-list (what a switch may use — the picker display is natively
+    # filtered, issue 009) AND agent frontmatter model resolution. A
+    # lead-only fence silently degrades every variant's dispatch to the
+    # lead model (the subagent named Sol runs on the lead instead —
+    # verified live: Sol-typed agents issued claude-multi-kimi-k3
+    # requests, and the gateway never saw a
     # gpt-multi request). The roster's selectors MUST be present or the
     # composition is single-model in disguise (D39).
     variant_selectors = {variant.client_selector for variant in resolved.variants}

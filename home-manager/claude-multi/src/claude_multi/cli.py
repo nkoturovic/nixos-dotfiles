@@ -1594,7 +1594,7 @@ QUICK_HELP = (
     "Tab / Shift-Tab — cycle composition presets.\n"
     "W — toggle native workflows on/off for this launch.\n"
     "D — details (scalar, providers, catalog hashes, workers).\n"
-    "S — sessions: managed + native picker (resume, switch comp, adopt).\n"
+    "S — sessions: managed + native picker (resume, switch comp/model, adopt).\n"
     "G — new gateway session: ignores this card; pick a model, no composition.\n"
     "P (line mode) — cycle presets.\n"
     "? — this help, then the workflow guarantees below.\n"
@@ -2079,13 +2079,18 @@ class _QuickConfirmScreen:
             if record["session_type"] == sessions.SESSION_TYPE_ORDINARY:
                 # Ordinary records have no composition plan; mirror the
                 # standalone picker's branch (review must-fix: managed_plan
-                # on an ordinary record raised KeyError).
+                # on an ordinary record raised KeyError). A 4th element is
+                # the picked model from a T switch (D48).
                 prepared = self.runtime.prepare_direct(
                     action="resume",
                     model_id=(
-                        record.get("ordinary_model")
-                        if "observed_model" in record
-                        else None
+                        result[3]
+                        if len(result) > 3
+                        else (
+                            record.get("ordinary_model")
+                            if "observed_model" in record
+                            else None
+                        )
                     ),
                     passthrough=self.passthrough,
                     session_id=sessions.managed_id(record),
@@ -2683,7 +2688,7 @@ def _discover_native_sessions(
 SESSIONS_TITLE = "sessions"
 SESSIONS_KEYBAR = (
     ("R", "resume"),
-    ("T", "switch comp"),
+    ("T", "switch"),
     ("X", "resolve fork"),
     ("E", "end session"),
     ("F", "forget"),
@@ -2697,8 +2702,10 @@ SESSIONS_HELP = (
     "managed (claude-multi): sessions launched here or adopted; their agents,\n"
     "policy, and workflow mode are durable files that survive Claude restarts.\n"
     "  R resume — reopen with the same transcript and composition.\n"
-    "  T switch comp — transition: same transcript, different composition\n"
+    "  T switch — managed: transition, same transcript, different composition\n"
     "    (semantic diff first; the session must be exited; relaunches exactly).\n"
+    "    ordinary gateway rows: switch model — pick from the profile groups,\n"
+    "    same transcript, the resume gate applies as with R.\n"
     "  X resolve fork — clear/discard a native-fork marker that blocks resume\n"
     "    (the fork transcript is kept; exact commands: sessions show <uuid>).\n"
     "  E end session — stop a live (●) background-owned session with\n"
@@ -2725,6 +2732,7 @@ SESSIONS_HELP = (
     "Arrow keys move between and within sections; Esc closes this panel."
 )
 SESSIONS_EMPTY = "(no recorded sessions)"
+SESSIONS_EMPTY_FILTERED = "(no sessions in this directory — press C to see all)"
 FORGET_MODAL_TITLE = "Forget session {short}?"
 FORGET_MODAL_BODY = (
     "Deletes: session record + generated scope{scope_note}.\n"
@@ -2853,8 +2861,10 @@ class _SessionsScreen:
     discovered metadata-only (names + times; files never opened) and support
     exactly one action: ``l`` adopt (sessions link with a composition
     chooser), after which the row moves into the managed section.
-    Returns ("resume", record) or ("transition", record, composition) for the
-    CLI to execute after curses teardown; forget/adopt run inline.
+    Returns ("resume", record[, decision[, model]]) — the 4th element is an
+    ordinary T-switch's picked model (D48) — or ("transition", record,
+    composition) for the CLI to execute after curses teardown; forget/adopt
+    run inline.
     """
 
     def __init__(
@@ -2881,15 +2891,29 @@ class _SessionsScreen:
             key=_record_sort_key_last_used,
             reverse=True,
         )
-        self.native = _discover_native_sessions(
-            self.runtime,
-            cwd_filter=self.runtime.cwd if self.cwd_filter else None,
-        )
+        # One traversal for both the rows and the elsewhere flag (review):
+        # filter-before-limit is preserved by slicing after the in-memory
+        # filter, exactly as the function's own order does.
+        native_all = _discover_native_sessions(self.runtime, limit=None)
         self.live_prefixes = _live_background_prefixes()
         if self.cwd_filter:
+            all_records = self.records
             self.records = [
-                record for record in self.records if record["cwd"] == self.runtime.cwd
+                record for record in all_records if record["cwd"] == self.runtime.cwd
             ]
+            self.native = [
+                item for item in native_all if item["cwd"] == self.runtime.cwd
+            ][:20]
+            # For the empty-state copy: something exists OUTSIDE this
+            # directory.
+            self.empty_elsewhere = (
+                not self.records
+                and not self.native
+                and (bool(all_records) or bool(native_all))
+            )
+        else:
+            self.native = native_all[:20]
+            self.empty_elsewhere = False
         # Land on a non-empty section (zero-managed with native present, or
         # after forgetting the last managed record).
         if self.section == "managed" and not self.records and self.native:
@@ -2962,7 +2986,10 @@ class _SessionsScreen:
         row = 3
         managed_rows = self._managed_rows()
         if not managed_rows:
-            tui.safe_add(win, row, 2, SESSIONS_EMPTY, palette.attr("dim"))
+            empty_note = (
+                SESSIONS_EMPTY_FILTERED if self.empty_elsewhere else SESSIONS_EMPTY
+            )
+            tui.safe_add(win, row, 2, empty_note, palette.attr("dim"))
             row += 2
         else:
             tui.safe_add(win, row - 1, 2, "managed (claude-multi)", palette.attr("dim"))
@@ -3194,7 +3221,7 @@ class _SessionsScreen:
             0,
         )
 
-    def run(self, win: Any) -> tuple[str, dict[str, Any]] | tuple[str, dict[str, Any], str] | None:
+    def run(self, win: Any) -> tuple | None:
         tui.hide_cursor()
         while True:
             self._draw(win)
@@ -3294,10 +3321,9 @@ class _SessionsScreen:
                 continue
             if key.kind == "char" and key.ch.lower() == "t":
                 if record["session_type"] == sessions.SESSION_TYPE_ORDINARY:
-                    self.message = (
-                        "ordinary gateway sessions have no composition; relaunch "
-                        "with claude-gateway --resume ID --model MODEL"
-                    )
+                    outcome = self._switch_ordinary_model(win, record)
+                    if outcome is not None:
+                        return outcome
                     continue
                 name = self._choose_composition(win, record)
                 if name is not None:
@@ -3313,8 +3339,86 @@ class _SessionsScreen:
                 self._stop_live(win, record)
                 continue
 
+    def _switch_ordinary_model(self, win: Any, record: dict[str, Any]) -> tuple | None:
+        """Ordinary model switch (D48): gate, pick, confirm.
+
+        Returns a resume intent whose 4th element carries the picked model
+        as the explicit relaunch model; the caller prepares exactly as for
+        a plain ordinary resume. None means stay in the picker.
+        """
+
+        if record.get("pending_forks"):
+            self.message = (
+                "model switch is fork-blocked — press X to resolve the fork "
+                "(exact commands: sessions show)"
+            )
+            return None
+        picked = _OrdinaryScreen(
+            self.runtime,
+            palette=self.palette,
+            initial_model=record["ordinary_model"],
+            purpose="switch",
+        ).run(win)
+        if picked is None:
+            return None
+        current = record["ordinary_model"]
+        if picked == current:
+            self.message = f"already on {picked}"
+            return None
+        old_profile = record["context_profile"]
+        new_profile = compiler.direct_context_profile(
+            self.runtime.catalog.docs, picked
+        )
+        profile_line = (
+            f"same context profile ({old_profile})"
+            if new_profile == old_profile
+            else (
+                f"context profile {old_profile} → {new_profile} — the scope "
+                "fence and compaction policy are rebuilt"
+            )
+        )
+        confirmed = tui.Modal(
+            "Switch model?",
+            [
+                f"{current} → {picked}",
+                profile_line,
+                "Same transcript. Make sure the session's process has exited.",
+            ],
+            buttons=(("Switch", True), ("Cancel", False)),
+        ).run(win, self.palette, background=self._draw)
+        if not confirmed:
+            self.message = "Switch cancelled."
+            return None
+        # The gate runs LAST (review): its repair/stop actions mutate
+        # immediately, so they must come after every cancellable step — the
+        # switch is already confirmed here, and R's full gate modal gives
+        # repair/stop/force/transcript guidance parity.
+        decision: str | None = self.resume_decision
+        gate = _evaluate_resume_gate(self.runtime, record)
+        if gate.kind != "ok" and not (
+            gate.kind == "daemon-owned" and decision == "force"
+        ):
+            try:
+                resolved_gate = _run_resume_gate_modal(
+                    self.runtime,
+                    record,
+                    gate,
+                    win,
+                    self.palette,
+                    background=self._draw,
+                )
+            except (CLIError, sessions.SessionError) as exc:
+                self.message = str(exc)
+                return None
+            if resolved_gate is None:
+                self.message = "Switch cancelled."
+                return None
+            _, record, decision = resolved_gate
+        return ("resume", record, decision, picked)
+
 
 ORDINARY_TITLE = "gateway session — no composition"
+ORDINARY_TITLE_SWITCH = "switch model — gateway session"
 ORDINARY_SUBTITLE = (
     "plain Claude through the local gateway · native /model within a group · "
     "no roster, no workflow pins"
@@ -3329,27 +3433,43 @@ ORDINARY_KEYBAR = (
     ("?", "help"),
     ("Esc", "back"),
 )
-ORDINARY_HELP = (
-    "ordinary gateway sessions run plain Claude through the local gateway: no\n"
-    "composition, no agent roster, no workflow pins — you pick the model.\n"
-    "\n"
-    "  Enter — launch a fresh session with the selected model.\n"
-    "  Esc — back to the card.\n"
+ORDINARY_KEYBAR_SWITCH = (
+    ("Enter", "select"),
+    ("?", "help"),
+    ("Esc", "back"),
+)
+ORDINARY_HELP_INTRO = {
+    "launch": (
+        "ordinary gateway sessions run plain Claude through the local gateway: no\n"
+        "composition, no agent roster, no workflow pins — you pick the model.\n"
+        "\n"
+        "  Enter — launch a fresh session with the selected model.\n"
+        "  Esc — back to the card.\n"
+    ),
+    "switch": (
+        "you are switching this ordinary session's model: same plain Claude,\n"
+        "same transcript, no composition — the /model group rules still apply.\n"
+        "\n"
+        "  Enter — select the new model.\n"
+        "  Esc — back to the sessions screen.\n"
+    ),
+}
+ORDINARY_HELP_SHARED = (
     "\n"
     "Groups are context profiles: the launched session's /model allow-list is\n"
     "its group; switching across groups is an explicit relaunch\n"
     "(claude-gateway --resume ID --model MODEL) so a 1M transcript can never\n"
     "strand into a smaller context. The session starts on the model's default\n"
     "selector; lanes (e.g. sol high/xhigh) switch via /model in-session. The\n"
-    "native /model picker displays Anthropic-family names plus the current\n"
-    "model — the whole group stays allowed, shown or not.\n"
+    "native /model picker shows built-in Anthropic rows plus the current\n"
+    "model — typing a selector switches to anything the group allows.\n"
     "\n"
     "Rows marked (no secret) belong to a provider whose secret is missing: the\n"
     "gateway omits providers rendered without their secret, so the model will\n"
     "fail unless the running gateway still serves an older config. Enter asks\n"
-    "for explicit confirmation before launching anyway. The marking speaks for\n"
+    "for explicit confirmation first. The marking speaks for\n"
     "the initial model only — in-session /model allows the whole group\n"
-    "(its picker shows Anthropic-family names plus the current model).\n"
+    "(its picker shows built-in Anthropic rows plus the current model).\n"
     "\n"
     "The session is tracked as an ordinary record: resume it from the sessions\n"
     "screen (S) or with claude-gateway --continue, with the usual resume gate.\n"
@@ -3415,27 +3535,49 @@ def _print_ordinary_listing(runtime: Runtime, output_stream: Any) -> None:
 
 
 class _OrdinaryScreen:
-    """Fresh ordinary gateway launch picker (D46).
+    """Ordinary gateway model picker (D46/D48), launch or switch purpose.
 
     Sections are ordinary context profiles — the native /model fence of the
-    launched session. Rows are catalog models (lanes stay in-session via
-    /model). Rows whose provider secret is missing render dimmed with a
-    (no secret) marker: the marking is render-time availability (the
-    gateway omits providers rendered without their secret), so Enter on
-    one rechecks the file and asks for explicit confirmation before
-    launching anyway. Returns the picked catalog model id; None cancels.
+    session. Rows are catalog models (lanes stay in-session via /model).
+    Rows whose provider secret is missing render dimmed with a (no secret)
+    marker: the marking is render-time availability (the gateway omits
+    providers rendered without their secret), so Enter on one rechecks the
+    file and asks for explicit confirmation before launching/switching
+    anyway — except a same-model pick during a switch, which the caller
+    no-ops, so no confirm is shown. Returns the picked catalog model id;
+    None cancels.
     """
 
-    def __init__(self, runtime: Runtime, *, palette: tui.Palette) -> None:
+    def __init__(
+        self,
+        runtime: Runtime,
+        *,
+        palette: tui.Palette,
+        initial_model: str | None = None,
+        purpose: str = "launch",
+    ) -> None:
         self.runtime = runtime
         self.palette = palette
+        self.purpose = purpose
         self.groups = compiler.ordinary_launch_models(runtime.catalog.docs)
         self.rows = [
             model_id for model_ids in self.groups.values() for model_id in model_ids
         ]
         self.unavailable = _ordinary_unavailable(runtime)
-        # Match the CLI default (prepare_direct: model_id or "sol").
-        self.selected = self.rows.index("sol") if "sol" in self.rows else 0
+        self._initial_model = initial_model
+        # Preselect the given model (ordinary model switch, D48); otherwise
+        # match the CLI default (prepare_direct: model_id or "sol").
+        if initial_model in self.rows:
+            self.selected = self.rows.index(initial_model)
+        else:
+            self.selected = self.rows.index("sol") if "sol" in self.rows else 0
+
+    @property
+    def _action_verb(self) -> str:
+        return "launching" if self.purpose == "launch" else "switching"
+
+    def _title_text(self) -> str:
+        return ORDINARY_TITLE if self.purpose == "launch" else ORDINARY_TITLE_SWITCH
 
     def _row_reason(self, model_id: str) -> str | None:
         model = self.runtime.catalog.models[model_id]
@@ -3469,7 +3611,9 @@ class _OrdinaryScreen:
         win.erase()
         palette = self.palette
         height, width = win.getmaxyx()
-        keybar = tui.KeyBar(ORDINARY_KEYBAR)
+        keybar = tui.KeyBar(
+            ORDINARY_KEYBAR if self.purpose == "launch" else ORDINARY_KEYBAR_SWITCH
+        )
         bar_rows = keybar.rows(width)
         # Layout: title, separator, subtitle, blank, per group header + rows
         # (+ a blank after each), trailing blank, wrapped detail lines above
@@ -3480,7 +3624,7 @@ class _OrdinaryScreen:
         if height < needed or width < 44:
             # Minimum-size floor (same H6 contract as the sessions screen):
             # below this the list cannot render honestly.
-            tui.safe_add(win, 1, 2, ORDINARY_TITLE, palette.attr("accent") | curses.A_BOLD)
+            tui.safe_add(win, 1, 2, self._title_text(), palette.attr("accent") | curses.A_BOLD)
             tui.safe_add(
                 win, 3, 2, "terminal too small for the gateway picker;",
                 palette.attr("warn"),
@@ -3493,7 +3637,7 @@ class _OrdinaryScreen:
             win.refresh()
             return
         message_row = height - bar_rows - 1
-        tui.safe_add(win, 1, 2, ORDINARY_TITLE, palette.attr("accent") | curses.A_BOLD)
+        tui.safe_add(win, 1, 2, self._title_text(), palette.attr("accent") | curses.A_BOLD)
         tui.safe_add(win, 2, 2, "─" * min(width - 1, 62), palette.attr("dim"))
         tui.safe_add(win, 3, 2, ORDINARY_SUBTITLE, palette.attr("dim"))
         row = 5
@@ -3531,7 +3675,7 @@ class _OrdinaryScreen:
         )
         if selected_reason is not None:
             lines = textwrap.wrap(
-                f"{selected_reason} — Enter asks before launching anyway",
+                f"{selected_reason} — Enter asks before {self._action_verb} anyway",
                 max(20, width - 4),
             )
             start = message_row - len(lines) + 1
@@ -3553,8 +3697,8 @@ class _OrdinaryScreen:
                 return None
             if key.kind == "char" and key.ch == "?":
                 tui.Modal(
-                    "gateway session — help",
-                    ORDINARY_HELP.splitlines(),
+                    self._title_text() + " — help",
+                    (ORDINARY_HELP_INTRO[self.purpose] + ORDINARY_HELP_SHARED).splitlines(),
                     buttons=(("Close", True),),
                 ).run(win, self.palette, background=self._draw)
                 continue
@@ -3574,10 +3718,14 @@ class _OrdinaryScreen:
                 model_id = self.rows[self.selected]
                 # Recheck at Enter (not just at open): the secret file can
                 # change while the picker is up, and the marking is advisory
-                # renderability — never a stale verdict.
+                # renderability — never a stale verdict. A same-model pick
+                # during a switch skips the confirm: the caller no-ops it,
+                # so no risky-sounding ask for a relaunch that never happens.
                 self.unavailable = _ordinary_unavailable(self.runtime)
                 reason = self._row_reason(model_id)
-                if reason is not None:
+                if reason is not None and not (
+                    self.purpose == "switch" and model_id == self._initial_model
+                ):
                     model = self.runtime.catalog.models[model_id]
                     _height, modal_width = win.getmaxyx()
                     wrap_width = max(20, min(60, modal_width - 8))
@@ -3590,7 +3738,15 @@ class _OrdinaryScreen:
                     confirmed = tui.Modal(
                         ORDINARY_UNAVAILABLE_TITLE,
                         lines,
-                        buttons=(("Cancel", False), ("Launch anyway", True)),
+                        buttons=(
+                            ("Cancel", False),
+                            (
+                                "Launch anyway"
+                                if self.purpose == "launch"
+                                else "Switch anyway",
+                                True,
+                            ),
+                        ),
                     ).run(win, self.palette, background=self._draw)
                     if not confirmed:
                         continue
@@ -3766,13 +3922,18 @@ def _sessions_list_tui(
         if record["session_type"] == sessions.SESSION_TYPE_ORDINARY:
             prepared = runtime.prepare_direct(
                 action="resume",
-                # A leftover observed_model after a gate repair needs the
-                # explicit-model relaunch; otherwise the recorded model is
+                # A 4th element is the picked model from a T switch (D48).
+                # Otherwise: a leftover observed_model after a gate repair
+                # needs the explicit-model relaunch; the recorded model is
                 # implied (review should-fix 7).
                 model_id=(
-                    record.get("ordinary_model")
-                    if "observed_model" in record
-                    else None
+                    result[3]
+                    if len(result) > 3
+                    else (
+                        record.get("ordinary_model")
+                        if "observed_model" in record
+                        else None
+                    )
                 ),
                 passthrough=passthrough,
                 session_id=sessions.managed_id(record),
@@ -4191,7 +4352,7 @@ def _record_actions_label(record: dict[str, Any]) -> str:
             "`claude-multi sessions show " f"{sessions.managed_id(record)}`"
         )
     if record["session_type"] == sessions.SESSION_TYPE_ORDINARY:
-        return "[r]esume [f]orget · cross-profile model changes relaunch explicitly"
+        return "[r]esume [t] switch model [f]orget"
     if record["mode"] == "durable":
         return "[r]esume [t]ransition [f]orget"
     return "[r]esume (upgrades to durable) [f]orget"
