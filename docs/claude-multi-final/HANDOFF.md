@@ -69,7 +69,7 @@ untouched; `claude-gateway` is the ordinary non-composition entrypoint.
 
 ## Installed state (2026-07-29)
 
-- claude-multi **2.10.0** active (HM generation 116; rollback: gen 115/114),
+- claude-multi **2.11.0** active (HM generation 117; rollback: gen 116/115),
   Claude pinned at **2.1.220** (hash-verified, symlink-aligned).
   Resume gate live (D41): repair-needed records get one-keypress Repair &
   resume in the TUI, daemon-owned resumes gate with Stop & resume /
@@ -93,6 +93,12 @@ untouched; `claude-gateway` is the ordinary non-composition entrypoint.
   `(no secret)` rows reflect render-time availability; Enter rechecks and
   asks before launching anyway. CLI `direct` warns (non-blocking) on a
   missing provider secret; line-mode `g` lists the groups.
+- **D47 batch live** (2.11.0): sessions screen opens **cwd-filtered** (C
+  widens); session names carry the project (`cm:kimi-sol@project`,
+  `cg:glm52@project`; resume-by-name accepts the qualified form); role
+  prompts now bound nested delegation (cm-* types only, TaskStop ownership,
+  all 20 scopes converged via `doctor --repair-all`); `/model` docs match
+  the native 2.1.220 display filter (allow-list ≠ displayed subset).
 - `claude-multi doctor` → **Ready** (all 18 durable scopes on catalog 12 + D44 shim guard;
   watchdog pin + roster prompts live; D43 radar in the suite).
   Sessions screen sorts by last used with the created age alongside

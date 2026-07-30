@@ -1,6 +1,6 @@
 # STATUS — live tracker
 
-## 2026-07-30 — v2.11.0: operator-observation batch (D47, pending activation)
+## 2026-07-30 — v2.11.0: operator-observation batch (D47, activated gen 117)
 
 - **Five items, each root-caused before any edit** (issues 009–013):
   /model picker display filter (native — allow-list intact, display
@@ -15,9 +15,12 @@
   --agents 14KB/6 variants — healthy, nothing trimmed.
 - **Reviews**: cross-family Sol xhigh — BLOCK (qualified names broke
   resume-by-name; prompt wording overreach ×2; stale FAQ claims) → all
-  fixed → re-review. Evidence: 1,449 host tests OK (skipped=2), sandbox
-  green. Catalog 13 (role prompts are catalog content); goldens
-  re-blessed prompt-only.
+  fixed → re-review SHIP-WITH-FIXES (one doc line) → SHIP. Evidence:
+  1,449 host tests OK (skipped=2), sandbox green. Catalog 13 (role
+  prompts are catalog content); goldens re-blessed prompt-only.
+  Post-activation verified: launcher 2.11.0, gen 117, doctor exit 0,
+  `--name cg:sol@.claude` live, 20 durable scopes converged to the new
+  role prompts via `doctor --repair-all`.
 
 ## 2026-07-30 — v2.10.0: ordinary gateway sessions launch from the card (D46, activated gen 116)
 
