@@ -31,7 +31,9 @@ untouched; `claude-gateway` is the ordinary non-composition entrypoint.
   gateway status and the pinned version; **Esc** cancels everywhere.
 - `claude-multi -c` resumes the last managed composition in this directory;
   `-r <managed-id|runtime-id|name>` resolves exactly; bare `-r` opens the
-  unified picker (managed + native; **L** adopts, **C** filters by cwd,
+  unified picker (managed + native, opening on **this directory's**
+  sessions; **L** adopts, **T** switches composition (managed) / model
+  (gateway rows), **C** widens to all directories,
   **X** resolves a fork; row markers **●** = live/background-owned,
   **⚠** = fork-blocked).
 - **Debug skills (reusable, in `~/.claude/skills/`):** `model-routing-debug`
@@ -69,7 +71,7 @@ untouched; `claude-gateway` is the ordinary non-composition entrypoint.
 
 ## Installed state (2026-07-29)
 
-- claude-multi **2.11.0** active (HM generation 117; rollback: gen 116/115),
+- claude-multi **2.12.0** active (HM generation 118; rollback: gen 117/116),
   Claude pinned at **2.1.220** (hash-verified, symlink-aligned).
   Resume gate live (D41): repair-needed records get one-keypress Repair &
   resume in the TUI, daemon-owned resumes gate with Stop & resume /
@@ -99,6 +101,12 @@ untouched; `claude-gateway` is the ordinary non-composition entrypoint.
   prompts now bound nested delegation (cm-* types only, TaskStop ownership,
   all 20 scopes converged via `doctor --repair-all`); `/model` docs match
   the native 2.1.220 display filter (allow-list ≠ displayed subset).
+- **Ordinary model switch live** (2.12.0, D48): **T** on a gateway row
+  switches model in the TUI — picker preselected on the current model,
+  same/cross-profile confirm, full resume gate afterwards (R parity).
+  Switch paths for ordinary sessions: typed `/model <selector>`, **T** in
+  the picker, or `claude-gateway -r <id> --model X`. Sessions screen
+  empty state names the filter when sessions exist elsewhere.
 - `claude-multi doctor` → **Ready** (all 18 durable scopes on catalog 12 + D44 shim guard;
   watchdog pin + roster prompts live; D43 radar in the suite).
   Sessions screen sorts by last used with the created age alongside

@@ -1,6 +1,6 @@
 # STATUS — live tracker
 
-## 2026-07-30 — v2.12.0: ordinary model switch + per-issue review batch (D48, pending activation)
+## 2026-07-30 — v2.12.0: ordinary model switch + per-issue review batch (D48, activated gen 118)
 
 - **T switch model** on ordinary rows in the sessions screen (D48):
   picker (preselected, purpose-aware) → same-model no-op → confirm
@@ -21,7 +21,8 @@
   reordered design adopted; same-model confirm bypass) → **APPROVE**.
 - Evidence: 1,468 host tests OK (skipped=2), sandbox green (one
   known-class PTY timing flake on first attempt, passed on re-run).
-  Catalog stays 13.
+  Catalog stays 13. Post-activation verified: launcher 2.12.0, gen 118,
+  doctor exit 0.
 
 ## 2026-07-30 — v2.11.0: operator-observation batch (D47, activated gen 117)
 
