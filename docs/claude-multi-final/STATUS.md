@@ -1,6 +1,6 @@
 # STATUS — live tracker
 
-## 2026-07-30 — v2.12.1: opus5 unscoped + two roster-rich profiles (D49, pending activation)
+## 2026-07-30 — v2.12.1: opus5 unscoped + two roster-rich profiles (D49, activated gen 119)
 
 - **`compatible_roles` for opus5 widened to all four** (catalog 14):
   the D31 lead+reviewer restriction was positioning, not safety —
@@ -13,8 +13,9 @@
 - **`fable-sol-qwen-glm`**: fable lead, default-shaped; sol preferred;
   opus5/kimi/glm52/qwen38 alternates — enriched sibling of `fable`.
   Trusted `default` seed untouched.
-- Evidence: 1,468 host tests OK (skipped=2), sandbox green; both
-  compositions resolve live (18 and 15 variants).
+- Evidence: 1,469 host tests OK (skipped=2), sandbox green; both
+  compositions resolve live (18 and 15 variants, leads verified
+  post-activation: Kimi K3 / Fable 5).
 
 ## 2026-07-30 — v2.12.0: ordinary model switch + per-issue review batch (D48, activated gen 118)
 

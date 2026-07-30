@@ -71,7 +71,7 @@ untouched; `claude-gateway` is the ordinary non-composition entrypoint.
 
 ## Installed state (2026-07-29)
 
-- claude-multi **2.12.0** active (HM generation 118; rollback: gen 117/116),
+- claude-multi **2.12.1** active (HM generation 119; rollback: gen 118/117),
   Claude pinned at **2.1.220** (hash-verified, symlink-aligned).
   Resume gate live (D41): repair-needed records get one-keypress Repair &
   resume in the TUI, daemon-owned resumes gate with Stop & resume /
@@ -81,8 +81,9 @@ untouched; `claude-gateway` is the ordinary non-composition entrypoint.
   recover automatically — subagents and backgrounded turns no longer die
   waiting for a typed "continue".
 - **Opus 5 is the default lead** (default = opus5+sol+kimi; profiles
-  `opus-sol`, `opus-kimi`, `fable`, `kimi-sol`, `kimi-sol-qwen`,
-  `kimi-sol-qwen-glm`, `qwen-sol`, `glm-sol`, `sol-direct`
+  `opus-sol`, `opus-kimi`, `fable`, `fable-sol-qwen-glm`, `kimi-sol`,
+  `kimi-sol-qwen`, `kimi-sol-qwen-glm`, `kimi-sol-qwen-glm-fable`,
+  `qwen-sol`, `glm-sol`, `sol-direct`
   all live); gateway serves `claude-opus-5` and `claude-multi-opus-5`
   (CLIProxy registry patched); binary pinned at 2.1.220 and symlink-matched.
 - **GLM-5.2 live on the qwen provider** (2.9.0, D45): wire `glm-5.2` at the
