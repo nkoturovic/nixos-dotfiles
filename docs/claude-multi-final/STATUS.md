@@ -1,5 +1,21 @@
 # STATUS — live tracker
 
+## 2026-07-30 — v2.12.1: opus5 unscoped + two roster-rich profiles (D49, pending activation)
+
+- **`compatible_roles` for opus5 widened to all four** (catalog 14):
+  the D31 lead+reviewer restriction was positioning, not safety —
+  operator-requested as a general agent option, treated like any other
+  model; slot order + no analyst/implementer hints keep it understated.
+- **`kimi-sol-qwen-glm-fable`**: kimi lead; per role sol preferred →
+  opus5 → kimi → glm52 → qwen38 → **fable tail specialist** (hardest
+  scope + finalization; its "exceptional end-to-end scope" hint does
+  the routing).
+- **`fable-sol-qwen-glm`**: fable lead, default-shaped; sol preferred;
+  opus5/kimi/glm52/qwen38 alternates — enriched sibling of `fable`.
+  Trusted `default` seed untouched.
+- Evidence: 1,468 host tests OK (skipped=2), sandbox green; both
+  compositions resolve live (18 and 15 variants).
+
 ## 2026-07-30 — v2.12.0: ordinary model switch + per-issue review batch (D48, activated gen 118)
 
 - **T switch model** on ordinary rows in the sessions screen (D48):

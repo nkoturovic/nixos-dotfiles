@@ -127,8 +127,20 @@ class SeedLoadTests(unittest.TestCase):
 
     def test_version_json_matches_v2_2_schema_and_catalog_change(self) -> None:
         bundle = catalog.load_catalog(CATALOG_ROOT)
-        self.assertEqual(bundle.docs["version"]["launcher_version"], "2.12.0")
-        self.assertEqual(bundle.docs["version"]["catalog_version"], 13)
+        self.assertEqual(bundle.docs["version"]["launcher_version"], "2.12.1")
+        self.assertEqual(bundle.docs["version"]["catalog_version"], 14)
+
+    def test_opus5_all_roles_opus_stays_lead_reviewer(self) -> None:
+        # D49: opus5 serves every role (operator-requested general option);
+        # the sibling opus keeps its deliberate lead+reviewer scoping.
+        bundle = catalog.load_catalog(CATALOG_ROOT)
+        self.assertEqual(
+            bundle.models["opus5"]["compatible_roles"],
+            ["cm-lead", "cm-analyst", "cm-implementer", "cm-reviewer"],
+        )
+        self.assertEqual(
+            bundle.models["opus"]["compatible_roles"], ["cm-lead", "cm-reviewer"]
+        )
 
 
 class ReferenceViolationTests(unittest.TestCase):

@@ -871,6 +871,24 @@ no-op, cancels, daemon-owned gate resolution/cancel, force threading,
 cross-profile confirm text, card + driver consumers), `_OrdinaryScreen`
 purpose/fallback tests.
 
+**D49 — Opus 5 unscoped to all roles; two roster-rich profiles (2.12.1).**
+`compatible_roles` for opus5 widened from lead+reviewer to all four
+roles (catalog 14): the D31 restriction was positioning, not a safety
+boundary, and the operator asked for opus5 as a general agent option —
+treated like any other model. Slot order and the absence of
+analyst/implementer routing hints keep it deliberately understated
+(cost sits with the router, not the gate). Two user compositions built
+on it: `kimi-sol-qwen-glm-fable` (kimi lead; per role sol preferred →
+opus5 → kimi → glm52 → qwen38, with **fable as the tail specialist** —
+its existing implementer hint "exceptional end-to-end scope requiring
+sustained coordination" plus the tail position route only the hardest
+work there, reviewer-tail = finalizer) and `fable-sol-qwen-glm`
+(fable lead, default-shaped; sol preferred; opus5/kimi/glm52/qwen38
+alternates — the enriched sibling of the plain `fable` profile).
+Naming follows the lead+preferred+pool convention; the trusted
+`default` seed is deliberately untouched (a named profile is one Tab
+away). No hint changes in models.json (they are global).
+
 ## User decision summary (what you're approving by accepting this design)
 
 1. Selected agents become **real files** in a per-session scope; the failure

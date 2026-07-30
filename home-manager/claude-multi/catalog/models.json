@@ -40,7 +40,9 @@
       },
       "provider": "anthropic",
       "role_hints": {
-        "cm-implementer": "Use for exceptional end-to-end scope requiring sustained coordination."
+        "cm-analyst": "Use for the hardest, most complex analysis and synthesis tasks.",
+        "cm-implementer": "Use for exceptional end-to-end scope requiring sustained coordination.",
+        "cm-reviewer": "Use as the finalizer for the hardest, most consequential verdicts."
       },
       "routing_note": "Sustained long-horizon, high-complexity synthesis and coordination.",
       "wire_model": "claude-fable-5"
@@ -183,6 +185,8 @@
       "client_selector": "claude-multi-opus-5[1m]",
       "compatible_roles": [
         "cm-lead",
+        "cm-analyst",
+        "cm-implementer",
         "cm-reviewer"
       ],
       "context": {
