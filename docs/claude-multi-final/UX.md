@@ -41,7 +41,7 @@ Elements and their honesty semantics:
   status. Exact `cm-*` collision blocks launch with the path named.
 - **Policy line**: one compact sentence, durable-by-settings.
 
-## 1.5 Gateway picker (G, 2.10.0)
+## 1.5 Gateway picker (G, 2.10.0; providers pane P, 2.13.0)
 
 **G new gateway** (shared keybar tail, available on every card state) opens
 the ordinary-session launch picker — the TUI twin of `claude-gateway`:
@@ -57,13 +57,42 @@ large · 1M context · /model switches freely within this group
   kimi-k3 — Kimi K3 · 1M selector · moonshot
   opus — Opus 4.8 · 1M selector · anthropic
   opus5 — Opus 5 · 1M selector · anthropic
-  qwen38 — Qwen3.8 Max · Preview · alibaba  (no secret)
+  qwen38 — Qwen3.8 Max · alibaba  (no secret)
 
 sol · 372K context · lanes high/xhigh via /model
 > sol — GPT-5.6 Sol · openai
 
-Enter launch · ? help · Esc back
+in-session: /model gpt-multi-sol-high · /model gpt-multi-sol-xhigh
+Enter launch · P providers · ? help · Esc back
 ```
+
+2.13.0 additions (D50): the selected row's detail line shows the exact typed
+`/model` selectors (the native picker display-filters custom aliases — typed
+selectors hit the allow-list, issue 009), and **P** opens the providers pane:
+
+```
+providers — local status
+────────────────────────────────────────────────────────────
+served = registered by the running local gateway; upstream auth, quota, and reachability stay unknown
+
+> Anthropic · OAuth pool · 1 credential record
+    selectors 6 rendered · 6/6 served · sign in: `claude-multi-proxy claude-login`
+  OpenAI · OAuth pool · no credential record
+    selectors 5 rendered · unknown · sign in: `claude-multi-proxy codex-device-login`
+  Kimi · direct key · KIMI_CLAUDE_API_KEY present
+    selectors 1 rendered · 1/1 served · set KIMI_CLAUDE_API_KEY (masked) with Enter
+  Qwen · direct key · QWEN_CLAUDE_API_KEY missing
+    selectors 0 rendered · unknown · set QWEN_CLAUDE_API_KEY (masked) with Enter
+
+Enter setup · R refresh · Esc back
+```
+
+Enter on a direct provider opens masked key entry (value never echoed;
+written to the standard `~/.config/secrets/claude.env`, 0600 atomic,
+parse-preserving; the confirmation shows name + length only). Enter on an
+OAuth pool shows the exact `claude-multi-proxy` login command. The pane never
+auto-runs init/restart and never claims "connected": present/rendered/served
+are separate facts.
 
 Honesty semantics (D46):
 
@@ -99,8 +128,11 @@ sections, role→model/lane SelectLists (Space toggle, P prefer), workflows
 checkbox, native-agent policy checkbox group, name/description TextInputs,
 save/cancel Modals, availability-invalidation confirm Modal. `Ctrl+G` opens
 the raw composition JSON in `$EDITOR` (the only external-editor integration;
-validated on reload). `TERM=dumb`/no-curses prints the plan read-only plus
-the exact `$EDITOR` command — no second interactive implementation.
+validated on reload). `Ctrl+O` opens the Save-or-launch menu from anywhere
+(2.13.0; text rows keep every printable key, so the save chord is a control
+key — ^S was rejected as IXON/XOFF-hazardous). `TERM=dumb`/no-curses prints
+the plan read-only plus the exact `$EDITOR` command — no second interactive
+implementation.
 
 ## 2.1 Key and layout conventions (2.4.0)
 

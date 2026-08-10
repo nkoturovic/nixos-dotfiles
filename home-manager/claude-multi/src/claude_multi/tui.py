@@ -121,7 +121,10 @@ _PAIR_FG = {
         "ok": curses.COLOR_GREEN,
         "warn": curses.COLOR_YELLOW,
         "error": curses.COLOR_RED,
-        "dim": curses.COLOR_BLACK,
+        # 8-color fallback only; init_curses_colors overrides with a 256-color
+        # gray when the terminal has one. Never black: bold black renders as
+        # nearly-invisible dark gray on dark backgrounds (017).
+        "dim": curses.COLOR_WHITE,
     },
     "light": {
         "accent": curses.COLOR_BLUE,
@@ -141,14 +144,14 @@ _ANSI_SGR = {
         "ok": "32",
         "warn": "33",
         "error": "1;31",
-        "dim": "90",
+        "dim": "38;5;245",
     },
     "light": {
         "accent": "1;34",
         "ok": "32",
         "warn": "33",
         "error": "31",
-        "dim": "90",
+        "dim": "38;5;240",
     },
 }
 
@@ -307,6 +310,20 @@ def detect_palette(
     return DARK_PALETTE
 
 
+def _dim_foreground(palette_name: str) -> int:
+    """Muted-text gray (017): 256-color mid gray when the terminal has it.
+
+    245 (#8a8a8a) on dark, 240 (#585858) on light — muted but readable on
+    each. 8-color fallback is white on dark palettes and black on light
+    ones — never black on dark, and never the old black-on-black trap when
+    the terminal has no default-colors support either.
+    """
+
+    if getattr(curses, "COLORS", 0) >= 256:
+        return 245 if palette_name == "dark" else 240
+    return curses.COLOR_WHITE if palette_name == "dark" else curses.COLOR_BLACK
+
+
 def init_curses_colors(palette: Palette) -> None:
     """Initialize color pairs for a palette inside a live curses session."""
 
@@ -320,8 +337,11 @@ def init_curses_colors(palette: Palette) -> None:
         except curses.error:
             background = curses.COLOR_BLACK
         for role, pair in _PAIR_BY_ROLE.items():
+            foreground = _PAIR_FG[palette.name][role]
+            if role == "dim":
+                foreground = _dim_foreground(palette.name)
             try:
-                curses.init_pair(pair, _PAIR_FG[palette.name][role], background)
+                curses.init_pair(pair, foreground, background)
             except curses.error:
                 continue
     except curses.error:
@@ -661,10 +681,19 @@ class TextInput:
     parent form can move focus.
     """
 
-    def __init__(self, value: str = "", *, max_length: int | None = None):
+    def __init__(
+        self,
+        value: str = "",
+        *,
+        max_length: int | None = None,
+        mask: str | None = None,
+    ):
         self.value = value
         self.cursor = len(value)
         self.max_length = max_length
+        # Render-only echo replacement for secret entry (018): the value is
+        # drawn as mask glyphs and never reaches a rendered frame.
+        self.mask = mask
         self.offset = 0  # horizontal scroll: first visible character index
 
     def handle(self, key: Key) -> bool:
@@ -726,6 +755,8 @@ class TextInput:
 
         inner = max(1, width - 2)
         visible = self._visible(inner)
+        if self.mask is not None:
+            visible = self.mask * len(visible)
         attr = palette.attr("normal") | (curses.A_REVERSE if focused else 0)
         safe_add(win, row, col, "[", palette.attr("dim"))
         safe_add(win, row, col + 1, visible.ljust(inner), attr)
@@ -1528,6 +1559,7 @@ FORM_KEYBAR = (
     ("Space", "toggle"),
     ("?", "help"),
     ("^G", "JSON editor"),
+    ("^O", "save"),
     ("Esc", "cancel"),
 )
 FORM_DISCARD_TITLE = "Discard unsaved changes?"
@@ -1568,6 +1600,7 @@ EDITOR_HELP = (
     "Space — toggle checkboxes and multi-select variants.\n"
     "P — prefer a variant (roles).\n"
     "^G — open the raw composition JSON in the JSON editor.\n"
+    "^O — open the Save or launch menu from anywhere (nano's WriteOut chord).\n"
     "Esc — back out; asks before discarding unsaved edits.\n"
     "? — this help, then the workflow guarantees below.\n"
     "\n"
@@ -2131,6 +2164,15 @@ class FormEditorScreen:
                 show_cursor()
                 self._edit_json(win)
                 hide_cursor()
+                continue
+            if key.kind == "ctrl" and key.ch == "o":
+                # Convenience save chord (014): opens the same Save-or-launch
+                # menu the actions row opens, focus-independent. Global like
+                # ?/^G/Esc so text rows keep every printable key; ^O has no
+                # terminal flow-control meaning (unlike ^S = XOFF).
+                outcome = self._open_actions(win)
+                if outcome is not None:
+                    return outcome
                 continue
             if key.kind == "esc":
                 if self.state.dirty:

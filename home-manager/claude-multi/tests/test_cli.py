@@ -8,6 +8,7 @@ import io
 import os
 import re
 import shutil
+import stat
 import subprocess
 import sys
 import tempfile
@@ -1281,7 +1282,10 @@ class SecretReadinessSurfaceTests(CLITestCase):
         self.secret_file.write_bytes(b"not-an-assignment\n")
         code, output = self.run_cli([], text="q\n")
         self.assertEqual(code, 0)
-        self.assertIn("unsafe or malformed", output)
+        # The phrase may wrap around the inserted file path; match parts.
+        self.assertIn("unsafe", output)
+        self.assertIn("malformed", output)
+        self.assertIn(str(self.secret_file), output)
         self.assertNotIn("not-an-assignment", output)
 
 
@@ -3909,6 +3913,554 @@ class PresetCycleTests(CLITestCase):
         code, out = self.run_cli([], "p\nq\n", interactive=True)
         self.assertEqual(code, 0)
         self.assertIn("Composition    second · Selected preset 2/2", out)
+
+
+class CompositionPickOrderTests(CLITestCase):
+    """015 D-a: MRU derivation and pick order (no new state)."""
+
+    NEXT_ID = 0
+
+    def _save_named(self, name: str) -> None:
+        document = self.runtime.compositions.load("default")
+        document["name"] = name
+        self.runtime.compositions.save(document)
+
+    def _record(
+        self,
+        name: str,
+        *,
+        cwd: str | None = None,
+        created: str = "2026-07-20T00:00:00Z",
+        last_seen: str | None = None,
+    ):
+        CompositionPickOrderTests.NEXT_ID += 1
+        managed_id = f"22222222-2222-4222-8222-{CompositionPickOrderTests.NEXT_ID:012d}"
+        document = self.runtime.compositions.load("default")
+        resolved = self.runtime.resolve_document(document)
+        record = sessions.make_record(
+            managed_id=managed_id,
+            cwd=cwd if cwd is not None else self.runtime.cwd,
+            composition_name=name,
+            snapshot=composition.snapshot(resolved),
+            catalog_version=self.runtime.catalog_version,
+            catalog_hash=self.runtime.catalog.bundle_sha256,
+            launcher_version=self.runtime.launcher_version,
+            now=created,
+        )
+        if last_seen is not None:
+            record["last_seen_at"] = last_seen
+        self.runtime.session_store.save(record)
+        return record
+
+    def test_never_launched_fall_to_alphabetical_tail(self) -> None:
+        self._two_presets_order()
+        self.assertEqual(
+            cli.composition_pick_order(self.runtime), ["default", "second"]
+        )
+
+    def _two_presets_order(self) -> None:
+        self._save_named("second")
+
+    def test_mru_orders_by_last_seen(self) -> None:
+        self._two_presets_order()
+        self._record("second", last_seen="2026-08-09T10:00:00Z")
+        self._record("default", last_seen="2026-08-01T10:00:00Z")
+        self.assertEqual(
+            cli.composition_pick_order(self.runtime), ["second", "default"]
+        )
+
+    def test_this_cwd_beats_global_recency(self) -> None:
+        self._save_named("alpha")
+        self._save_named("second")
+        # alpha used elsewhere MORE recently; second used here older.
+        self._record("alpha", cwd="/elsewhere", last_seen="2026-08-09T10:00:00Z")
+        self._record("second", last_seen="2026-08-01T10:00:00Z")
+        self.assertEqual(
+            cli.composition_pick_order(self.runtime),
+            ["second", "alpha", "default"],
+        )
+
+    def test_ties_break_by_name_ascending(self) -> None:
+        self._save_named("alpha")
+        self._save_named("second")
+        stamp = "2026-08-09T10:00:00Z"
+        self._record("second", cwd="/elsewhere", last_seen=stamp)
+        self._record("alpha", cwd="/elsewhere", last_seen=stamp)
+        self.assertEqual(
+            cli.composition_pick_order(self.runtime),
+            ["alpha", "second", "default"],
+        )
+
+    def test_used_here_and_elsewhere_appears_once(self) -> None:
+        self._save_named("alpha")
+        # alpha used in BOTH this directory (older) and elsewhere (newer):
+        # the here tier wins and the name appears exactly once.
+        self._record("alpha", last_seen="2026-08-01T10:00:00Z")
+        self._record("alpha", cwd="/elsewhere", last_seen="2026-08-09T10:00:00Z")
+        order = cli.composition_pick_order(self.runtime)
+        self.assertEqual(order, ["alpha", "default"])
+        self.assertEqual(order.count("alpha"), 1)
+
+    def test_deleted_composition_is_not_resurrected(self) -> None:
+        self._record("ghost", last_seen="2026-08-09T10:00:00Z")
+        self.assertEqual(cli.composition_pick_order(self.runtime), ["default"])
+
+    def test_ordinary_records_are_ignored(self) -> None:
+        self._two_presets_order()
+        record = sessions.make_ordinary_record(
+            managed_id="33333333-3333-4333-8333-333333333333",
+            runtime_session_id=None,
+            cwd=self.runtime.cwd,
+            model="kimi-k3",
+            context_profile="large",
+            catalog_version=self.runtime.catalog_version,
+            catalog_hash=self.runtime.catalog.bundle_sha256,
+            launcher_version=self.runtime.launcher_version,
+            now="2026-08-09T10:00:00Z",
+        )
+        self.runtime.session_store.save(record)
+        self.assertEqual(
+            cli.composition_pick_order(self.runtime), ["default", "second"]
+        )
+
+    def test_unreadable_record_does_not_poison_order(self) -> None:
+        self._two_presets_order()
+        self._record("second", last_seen="2026-08-09T10:00:00Z")
+        bad = self.runtime.session_store.sessions_dir / "44444444-4444-4444-8444-444444444444.json"
+        state.atomic_write(bad, b"{not json")
+        self.assertEqual(
+            cli.composition_pick_order(self.runtime), ["second", "default"]
+        )
+
+    def test_cycle_follows_mru_not_alphabetical(self) -> None:
+        self._save_named("aaa")  # alphabetically first, never launched
+        self._record("default", last_seen="2026-08-09T10:00:00Z")
+        document = self.runtime.compositions.load("aaa")
+        plan = cli.build_quick_plan(self.runtime, document, action="fresh", source="t")
+        cycled = cli._cycle_preset(self.runtime, plan, 1)
+        # MRU order: default (used), then aaa (never launched). From aaa,
+        # forward wraps to the MRU head.
+        self.assertEqual(cycled.document["name"], "default")
+        self.assertIn("1/2", cycled.source)
+
+    def test_cycle_from_unsaved_document_lands_on_mru_head(self) -> None:
+        self._record("default", last_seen="2026-08-09T10:00:00Z")
+        self._save_named("second")
+        document = self.runtime.compositions.load("default")
+        document["name"] = "unsaved-experiment"
+        plan = cli.build_quick_plan(self.runtime, document, action="fresh", source="t")
+        cycled = cli._cycle_preset(self.runtime, plan, 1)
+        self.assertEqual(cycled.document["name"], "default")
+
+
+class ComposeListOrderTests(CLITestCase):
+    """015 D-a: compose list is MRU-ordered with a last-used column."""
+
+    def test_order_and_last_used_column(self) -> None:
+        document = self.runtime.compositions.load("default")
+        document["name"] = "second"
+        self.runtime.compositions.save(document)
+        record = sessions.make_record(
+            managed_id="55555555-5555-4555-8555-555555555555",
+            cwd=self.runtime.cwd,
+            composition_name="second",
+            snapshot=composition.snapshot(
+                self.runtime.resolve_document(self.runtime.compositions.load("default"))
+            ),
+            catalog_version=self.runtime.catalog_version,
+            catalog_hash=self.runtime.catalog.bundle_sha256,
+            launcher_version=self.runtime.launcher_version,
+            now="2026-08-09T10:00:00Z",
+        )
+        self.runtime.session_store.save(record)
+        code, out = self.run_cli(["compose", "list"], interactive=False)
+        self.assertEqual(code, 0)
+        lines = [line for line in out.splitlines() if line.strip()]
+        self.assertEqual(lines[0].split("\t")[0], "second")
+        self.assertEqual(lines[1].split("\t")[0], "default")
+        self.assertEqual(lines[0].split("\t")[1], "user")
+        self.assertNotEqual(lines[0].split("\t")[2], "-")
+        self.assertEqual(lines[1].split("\t")[2], "-")
+
+
+class CompositionFileTests(CLITestCase):
+    """015 D-b: --composition-file on-the-fly ingestion."""
+
+    def _write_document(self, name="fly-by-night") -> Path:
+        document = self.runtime.compositions.load("default")
+        document["name"] = name
+        path = self.root / "fly.json"
+        state.atomic_write(path, strict_json.pretty_file_bytes(document))
+        return path
+
+    def test_valid_file_launches_noninteractive(self) -> None:
+        path = self._write_document()
+        code, out = self.run_cli(
+            ["--composition-file", str(path)], interactive=False
+        )
+        self.assertEqual(code, 0)
+        self.assertEqual(len(self.launches), 1)
+        record = self.launches[0].record
+        self.assertEqual(record["composition_name"], "fly-by-night")
+
+    def test_file_plan_resumes_from_snapshot_when_never_saved(self) -> None:
+        path = self._write_document()
+        code, _out = self.run_cli(["--composition-file", str(path)], interactive=False)
+        self.assertEqual(code, 0)
+        record = self.launches[0].record
+        # The name was never saved to the store: resume rebuilds intent from
+        # the recorded snapshot (R1 P2 drift stays informational).
+        plan = cli.managed_plan(self.runtime, record)
+        self.assertTrue(plan.ready, "; ".join(plan.errors))
+
+    def test_stdin_dash_forces_noninteractive(self) -> None:
+        document = self.runtime.compositions.load("default")
+        document["name"] = "piped-in"
+        payload = strict_json.pretty_file_bytes(document).decode("utf-8")
+        with unittest.mock.patch("sys.stdin", io.StringIO(payload)):
+            code, _out = self.run_cli(
+                ["--composition-file", "-"], interactive=False
+            )
+        self.assertEqual(code, 0)
+        self.assertEqual(len(self.launches), 1)
+        self.assertEqual(self.launches[0].record["composition_name"], "piped-in")
+
+    def test_schema_invalid_file_is_exit_2(self) -> None:
+        path = self.root / "bad.json"
+        state.atomic_write(path, b'{"version": 1, "name": "x"}')
+        code, out = self.run_cli(
+            ["--composition-file", str(path)], interactive=False
+        )
+        self.assertEqual(code, 2)
+        self.assertIn("cannot load composition file", out)
+
+    def test_wrong_version_is_exit_2(self) -> None:
+        document = self.runtime.compositions.load("default")
+        document["version"] = 999
+        path = self.root / "wrongver.json"
+        state.atomic_write(path, strict_json.pretty_file_bytes(document))
+        code, out = self.run_cli(
+            ["--composition-file", str(path)], interactive=False
+        )
+        self.assertEqual(code, 2)
+        # The schema's version const rejects before the version gate runs.
+        self.assertIn("must equal 1", out)
+
+    def test_mutually_exclusive_with_composition_flag(self) -> None:
+        path = self._write_document()
+        with self.assertRaises(SystemExit):
+            cli.build_parser().parse_args(
+                ["--composition", "default", "--composition-file", str(path)]
+            )
+
+    def test_resume_refuses_composition_file(self) -> None:
+        self.save_session()
+        path = self._write_document()
+        code, out = self.run_cli(
+            ["-r", FIXED_ID, "--composition-file", str(path)], interactive=False
+        )
+        self.assertEqual(code, 2)
+        self.assertIn("resume always uses the recorded composition", out)
+
+    def test_resume_refuses_same_named_composition_file(self) -> None:
+        # R1 P1: a file is ALWAYS an unverifiable override — even when its
+        # document name equals the recorded composition (save_session records
+        # the default composition).
+        self.save_session()
+        path = self._write_document(name="default")
+        code, out = self.run_cli(
+            ["-r", FIXED_ID, "--composition-file", str(path)], interactive=False
+        )
+        self.assertEqual(code, 2)
+        self.assertIn("never verifiably", out)
+
+    def test_oversized_stdin_rejected_before_unbounded_read(self) -> None:
+        limit = strict_json.DEFAULT_LIMITS.max_bytes
+        payload = " " * (limit + 2)
+        with unittest.mock.patch("sys.stdin", io.StringIO(payload)):
+            code, out = self.run_cli(
+                ["--composition-file", "-"], interactive=False
+            )
+        self.assertEqual(code, 2)
+        self.assertIn("byte limit", out)
+
+    def test_print_launch_accepts_composition_file(self) -> None:
+        path = self._write_document()
+        code, out = self.run_cli(
+            ["--composition-file", str(path), "--print-launch"], interactive=False
+        )
+        self.assertEqual(code, 0)
+        self.assertIn("claude argv", out)
+        self.assertEqual(self.launches, [])
+
+
+class OrdinarySelectorDetailTests(CLITestCase):
+    """015 D-c: typed /model selectors shown per row (009 discoverability)."""
+
+    def _run(self, keys, **win_kwargs):
+        from test_tui import FakeWindow
+
+        screen = cli._OrdinaryScreen(self.runtime, palette=tui.MONO_PALETTE)
+        win = FakeWindow(keys, **win_kwargs)
+        result = screen.run(win)
+        return result, win, screen
+
+    def test_selected_row_shows_typed_selector(self) -> None:
+        _result, win, _screen = self._run(["k", "\x1b"])  # sol -> qwen38
+        self.assertIn("in-session: /model claude-multi-qwen38-max[1m]", win.text())
+
+    def test_sol_row_shows_both_lane_selectors(self) -> None:
+        _result, win, _screen = self._run(["\x1b"])  # starts on sol
+        self.assertIn("/model gpt-multi-sol-high", win.text())
+        self.assertIn("/model gpt-multi-sol-xhigh", win.text())
+
+    def test_unavailable_row_shows_reason_then_selector(self) -> None:
+        _result, win, _screen = self._run(["k", "\x1b"])  # qwen38: no secret
+        text = win.text()
+        reason_at = text.find("missing required secret")
+        selector_at = text.find("in-session: /model claude-multi-qwen38-max[1m]")
+        self.assertNotEqual(reason_at, -1)
+        self.assertNotEqual(selector_at, -1)
+        self.assertLess(reason_at, selector_at)
+
+    def test_detail_reserve_covers_selector_lines(self) -> None:
+        screen = cli._OrdinaryScreen(self.runtime, palette=tui.MONO_PALETTE)
+        for width in (44, 60, 90):
+            reserve = screen._detail_reserve(width)
+            longest = max(
+                len(cli._ordinary_typed_selectors(screen.runtime.catalog.models[m]))
+                for m in screen.rows
+            )
+            self.assertGreaterEqual(reserve, 1 if longest + 13 <= width - 4 else 2)
+
+    def test_text_listing_includes_selectors(self) -> None:
+        out = io.StringIO()
+        cli._print_ordinary_listing(self.runtime, out)
+        text = out.getvalue()
+        self.assertIn("/model claude-multi-kimi-k3[1m]", text)
+        self.assertIn("/model gpt-multi-sol-high · /model gpt-multi-sol-xhigh", text)
+
+
+class DoctorServedCrossCheckTests(CLITestCase):
+    """015 D-d: served-vs-rendered selector cross-check (loopback only)."""
+
+    def _report(self, served):
+        with unittest.mock.patch.object(
+            cli.launch, "served_models", return_value=served
+        ):
+            return cli._doctor_served_report(self.runtime, "t" * 64)
+
+    def _expected(self):
+        home = Path(self.runtime.environ["HOME"])
+        document, _available, _unavailable = cli.render.build_config_document(
+            self.runtime.catalog.docs["gateway"],
+            self.runtime.catalog.docs["providers"]["providers"],
+            self.runtime.catalog.docs["models"]["models"],
+            home=home,
+            gateway_token="t" * 64,
+            resolve_secret=lambda name: cli.proxy_mod.resolve_secret(
+                name, environ=self.runtime.environ
+            ),
+        )
+        return cli.render.rendered_selectors(document)
+
+    def test_full_match_is_silent(self) -> None:
+        problems, info = self._report(set(self._expected()))
+        self.assertEqual(problems, [])
+        self.assertEqual(info, [])
+
+    def test_missing_selector_is_a_problem_naming_restart(self) -> None:
+        expected = set(self._expected())
+        # A DIRECT-provider alias: no OAuth-record disambiguation applies.
+        missing_one = "claude-multi-kimi-k3"
+        self.assertIn(missing_one, expected)
+        problems, _info = self._report(expected - {missing_one})
+        self.assertEqual(len(problems), 1)
+        self.assertIn(missing_one, problems[0])
+        self.assertIn("restart cli-proxy-api", problems[0])
+
+    def test_missing_oauth_alias_without_record_points_to_login(self) -> None:
+        expected = set(self._expected())
+        self.assertIn("claude-multi-opus-5", expected)
+        # Fixture has no OAuth credential records: login guidance, not restart.
+        problems, info = self._report(expected - {"claude-multi-opus-5"})
+        self.assertEqual(problems, [])
+        self.assertEqual(len(info), 1)
+        self.assertIn("claude-login", info[0])
+        self.assertIn("claude-multi-opus-5", info[0])
+
+    def test_missing_oauth_alias_with_record_is_a_restart_problem(self) -> None:
+        expected = set(self._expected())
+        auth_dir = (
+            Path(self.runtime.environ["HOME"])
+            / self.runtime.catalog.docs["gateway"]["gateway"]["auth_dir"]
+        )
+        state.ensure_private_dir(auth_dir)
+        state.atomic_write(auth_dir / "claude-fixture.json", b"{}")
+        problems, _info = self._report(expected - {"claude-multi-opus-5"})
+        self.assertEqual(len(problems), 1)
+        self.assertIn("claude-multi-opus-5", problems[0])
+        self.assertIn("restart cli-proxy-api", problems[0])
+
+    def test_config_drift_is_a_problem_naming_init_and_restart(self) -> None:
+        config_dir = cli.proxy_mod.config_dir(Path(self.runtime.environ["HOME"]))
+        state.ensure_private_dir(config_dir)
+        state.atomic_write(config_dir / "config.yaml", b"stale: true\n")
+        problems, _info = self._report(set(self._expected()))
+        self.assertEqual(len(problems), 1)
+        self.assertIn("claude-multi-proxy init", problems[0])
+        self.assertIn("restart cli-proxy-api", problems[0])
+
+    def test_fresh_config_match_produces_no_drift_problem(self) -> None:
+        config_dir = cli.proxy_mod.config_dir(Path(self.runtime.environ["HOME"]))
+        state.ensure_private_dir(config_dir)
+        home = Path(self.runtime.environ["HOME"])
+        document, _a, _u = cli.render.build_config_document(
+            self.runtime.catalog.docs["gateway"],
+            self.runtime.catalog.docs["providers"]["providers"],
+            self.runtime.catalog.docs["models"]["models"],
+            home=home,
+            gateway_token="t" * 64,
+            resolve_secret=lambda name: cli.proxy_mod.resolve_secret(
+                name, environ=self.runtime.environ
+            ),
+        )
+        state.atomic_write(
+            config_dir / "config.yaml",
+            cli.render.emit_yaml(document).encode("utf-8"),
+        )
+        problems, info = self._report(set(self._expected()))
+        self.assertEqual(problems, [])
+        self.assertEqual(info, [])
+
+    def test_stale_our_shaped_selector_is_info(self) -> None:
+        served = set(self._expected()) | {"claude-multi-retired-max"}
+        problems, info = self._report(served)
+        self.assertEqual(problems, [])
+        self.assertEqual(len(info), 1)
+        self.assertIn("claude-multi-retired-max", info[0])
+
+    def test_registry_extras_are_ignored(self) -> None:
+        served = set(self._expected()) | {"claude-sonnet-4-5", "gpt-5.6-codex-mini"}
+        problems, info = self._report(served)
+        self.assertEqual(problems, [])
+        self.assertEqual(info, [])
+
+    def test_non_200_is_one_info_line(self) -> None:
+        with unittest.mock.patch.object(
+            cli.launch, "served_models", return_value=None
+        ):
+            problems, info = cli._doctor_served_report(self.runtime, "t" * 64)
+        self.assertEqual(problems, [])
+        self.assertEqual(len(info), 1)
+        self.assertIn("non-200", info[0])
+
+    def test_connection_failure_is_silent(self) -> None:
+        with unittest.mock.patch.object(
+            cli.launch,
+            "served_models",
+            side_effect=cli.launch.LaunchError("connection refused"),
+        ):
+            problems, info = cli._doctor_served_report(self.runtime, "t" * 64)
+        self.assertEqual((problems, info), ([], []))
+
+    def test_expected_covers_fixture_secret_omissions(self) -> None:
+        # The fixture secret file holds only the Kimi key: qwen selectors
+        # are not rendered, so they are not expected either.
+        expected = self._expected()
+        self.assertIn("claude-multi-kimi-k3", expected)
+        self.assertNotIn("claude-multi-qwen38-max", expected)
+        self.assertIn("claude-multi-opus-5", expected)
+        # Aliases only: upstream wire names are NOT served (verified live
+        # against a disposable loopback proxy during review).
+        self.assertNotIn("k3", expected)
+
+
+class ProvidersPaneTests(CLITestCase):
+    """018: the providers pane inside the G picker."""
+
+    def _open(self, keys, **win_kwargs):
+        from test_tui import FakeWindow
+
+        screen = cli._ProvidersScreen(self.runtime, palette=tui.MONO_PALETTE)
+        win = FakeWindow(keys, **win_kwargs)
+        screen.run(win)
+        return win, screen
+
+    def test_rows_render_with_honest_vocabulary(self) -> None:
+        win, _screen = self._open(["\x1b"])
+        text = win.text()
+        self.assertIn("providers — local status", text)
+        self.assertIn("upstream auth, quota", text)
+        self.assertIn("Anthropic · OAuth pool ·", text)
+        self.assertIn("OpenAI · OAuth pool ·", text)
+        # Fixture secret file holds only the Kimi key.
+        self.assertIn("KIMI_CLAUDE_API_KEY present", text)
+        self.assertIn("QWEN_CLAUDE_API_KEY missing", text)
+        # No gateway in the fixture: route fields say unknown, never "down".
+        self.assertIn("unknown", text)
+        self.assertNotIn("connected", text.lower())
+
+    def test_oauth_row_setup_shows_login_command(self) -> None:
+        # First row is Anthropic (sorted): Enter opens the guidance modal.
+        win, _screen = self._open(["\n", "\x1b", "\x1b"])
+        self.assertIn("claude-multi-proxy claude-login", win.text())
+
+    def test_masked_entry_writes_secret_and_never_echoes(self) -> None:
+        # Qwen row is last: three downs, Enter, type, Enter to buttons,
+        # Right to Save, Enter.
+        import curses as _curses
+
+        secret = "sk-test-qwen-key-123"
+        script = ["j", "j", "j", "\n"] + list(secret)
+        script += ["\n", _curses.KEY_RIGHT, "\n", "\x1b"]
+        win, screen = self._open(script)
+        content = self.secret_file.read_text()
+        self.assertIn(f"QWEN_CLAUDE_API_KEY={secret}", content)
+        self.assertIn("KIMI_CLAUDE_API_KEY=cli-test-dummy", content)
+        self.assertEqual(
+            stat.S_IMODE(self.secret_file.stat().st_mode), 0o600
+        )
+        for frame in win.frames:
+            self.assertNotIn(secret, frame)
+        self.assertIn("saved QWEN_CLAUDE_API_KEY (20 chars)", screen.message or "")
+
+    def test_masked_entry_invalid_value_writes_nothing(self) -> None:
+        import curses as _curses
+
+        script = ["j", "j", "j", "\n"] + list("bad key with spaces")
+        script += ["\n", _curses.KEY_RIGHT, "\n", "\x1b"]
+        _win, screen = self._open(script)
+        self.assertIn("unsupported shape", screen.message or "")
+        self.assertNotIn("QWEN", self.secret_file.read_text())
+
+    def test_masked_entry_cancel_writes_nothing(self) -> None:
+        script = ["j", "j", "j", "\n"] + list("sk-whatever") + ["\x1b", "\x1b"]
+        _win, screen = self._open(script)
+        self.assertEqual(screen.message, "Set key cancelled.")
+        self.assertNotIn("QWEN", self.secret_file.read_text())
+
+    def test_refresh_reloads_facts(self) -> None:
+        _win, screen = self._open(["r", "\x1b"])
+        self.assertEqual(screen.message, "refreshed.")
+
+    def test_listing_includes_providers_section(self) -> None:
+        out = io.StringIO()
+        cli._print_ordinary_listing(self.runtime, out)
+        text = out.getvalue()
+        self.assertIn("providers (local status; names only):", text)
+        self.assertIn("KIMI_CLAUDE_API_KEY present", text)
+        self.assertIn("QWEN_CLAUDE_API_KEY missing", text)
+
+    def test_picker_p_key_opens_pane(self) -> None:
+        from test_tui import FakeWindow
+
+        screen = cli._OrdinaryScreen(self.runtime, palette=tui.MONO_PALETTE)
+        win = FakeWindow(["p", "\x1b", "\x1b"])
+        screen.run(win)
+        self.assertTrue(
+            any("providers — local status" in frame for frame in win.frames)
+        )
 
 
 class PolishBatchTests(CLITestCase):

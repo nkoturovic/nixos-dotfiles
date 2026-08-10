@@ -284,6 +284,9 @@ class Runtime:
         doctor_daemon_callback: Callable[
             [], launch.DaemonStatus
         ] = launch.inspect_shared_daemon,
+        doctor_served_callback: Callable[
+            ["Runtime", str], tuple[list[str], list[str]]
+        ] | None = None,
     ):
         self.asset_root = Path(asset_root)
         self.environ = dict(os.environ if environ is None else environ)
@@ -335,6 +338,9 @@ class Runtime:
         self.doctor_callback = doctor_callback
         self.doctor_binary_callback = doctor_binary_callback
         self.doctor_daemon_callback = doctor_daemon_callback
+        # None = built-in served-selector cross-check (015); tests inject a
+        # stub here (or a doctor_callback, which skips the whole branch).
+        self.doctor_served_callback = doctor_served_callback
 
     @property
     def launcher_version(self) -> str:
@@ -721,7 +727,9 @@ def build_parser() -> argparse.ArgumentParser:
         prog="claude-multi",
         description="Compile and launch a trusted multi-model Claude composition.",
     )
-    parser.add_argument("--composition", metavar="NAME", help="use a named composition")
+    composition_group = parser.add_mutually_exclusive_group()
+    composition_group.add_argument("--composition", metavar="NAME", help="use a named composition")
+    composition_group.add_argument("--composition-file", metavar="PATH", help="launch an unsaved composition document from a JSON file ('-' reads stdin and forces noninteractive); nothing is written to the composition store")
     session_group = parser.add_mutually_exclusive_group()
     session_group.add_argument("-c", "--continue", dest="continue_last", action="store_true", help="continue the last managed session in this directory")
     session_group.add_argument("-r", "--resume", nargs="?", const="", metavar="UUID", help="resume a managed session (exact UUID or name; no value opens the sessions picker)")
@@ -1364,7 +1372,7 @@ def _cycle_preset(
 
     if plan.record is not None or plan.action != "fresh":
         return plan
-    names = runtime.compositions.names()
+    names = composition_pick_order(runtime)
     if len(names) < 2:
         return plan
     current = plan.document.get("name")
@@ -1591,9 +1599,11 @@ def _apply_outcome_or_failure(
 QUICK_HELP = (
     "Enter — launch this composition (durable scope).\n"
     "E — edit the composition (form editor; ^G opens the JSON editor there).\n"
-    "Tab / Shift-Tab — cycle composition presets.\n"
+    "Tab / Shift-Tab — cycle composition presets (most-recently-used first).\n"
     "W — toggle native workflows on/off for this launch.\n"
     "D — details (scalar, providers, catalog hashes, workers).\n"
+    "H — doctor in place (health: Ready / Attention / BLOCKED).\n"
+    "U — re-pin Claude when the update badge shows (curses only).\n"
     "S — sessions: managed + native picker (resume, switch comp/model, adopt).\n"
     "G — new gateway session: ignores this card; pick a model, no composition.\n"
     "P (line mode) — cycle presets.\n"
@@ -1774,7 +1784,8 @@ class _QuickConfirmScreen:
             tui.safe_add(win, row, 2, "health    ", palette.attr("dim"))
             tui.safe_add(
                 win, row, 12,
-                f"gateway unreachable — launches will fail: {self.gateway_problem}",
+                f"gateway unreachable — launches will fail: {self.gateway_problem} "
+                "— start: `systemctl --user start cli-proxy-api`",
                 palette.attr("error"),
             )
             row += 1
@@ -2610,6 +2621,76 @@ def _session_records(runtime: Runtime) -> list[dict[str, Any]]:
     return records
 
 
+def _composition_recency(runtime: Runtime) -> tuple[dict[str, str], dict[str, str]]:
+    """Per-composition effective last-used, split this-cwd vs other cwds.
+
+    Derived from managed session records (015 D-a): no new state — D3 keeps
+    records the intent authority, and hooks keep ``last_seen_at`` current.
+    Ordinary records carry no composition and are ignored.
+    """
+
+    here: dict[str, str] = {}
+    elsewhere: dict[str, str] = {}
+    for record in _session_records(runtime):
+        if record["session_type"] != sessions.SESSION_TYPE_MANAGED:
+            continue
+        name = record.get("composition_name")
+        if not name:
+            continue
+        target = here if record.get("cwd") == runtime.cwd else elsewhere
+        stamp = _record_last_seen(record)
+        if stamp > target.get(name, ""):
+            target[name] = stamp
+    return here, elsewhere
+
+
+def _merged_recency(
+    here: dict[str, str], elsewhere: dict[str, str]
+) -> dict[str, str]:
+    """this-cwd and other-cwd recency tables merged by max stamp."""
+
+    merged = dict(elsewhere)
+    for name, stamp in here.items():
+        if stamp > merged.get(name, ""):
+            merged[name] = stamp
+    return merged
+
+
+def _pick_order_from(
+    names: list[str], here: dict[str, str], elsewhere: dict[str, str]
+) -> list[str]:
+    """Most-recently-used pick order: this directory's compositions first
+    (recency desc, name asc on ties), then globally-recent ones, then
+    never-launched names alphabetically. Store names are the namespace —
+    records of deleted compositions never resurrect them.
+    """
+
+    namespace = set(names)
+    recent_here = {k: v for k, v in here.items() if k in namespace}
+    # "Elsewhere" is strictly compositions used ONLY in other directories —
+    # a name used here AND elsewhere appears once, in the here tier.
+    recent_else = {
+        k: v
+        for k, v in elsewhere.items()
+        if k in namespace and k not in recent_here
+    }
+
+    def _rank(table: dict[str, str]) -> list[str]:
+        # stable sort: names ascending, then stamps descending over that
+        return sorted(sorted(table), key=lambda n: table[n], reverse=True)
+
+    ranked = _rank(recent_here) + _rank(recent_else)
+    remainder = sorted(namespace - set(recent_here) - set(recent_else))
+    return ranked + remainder
+
+
+def composition_pick_order(runtime: Runtime) -> list[str]:
+    """MRU ordering for every composition pick surface (cycle, choosers)."""
+
+    here, elsewhere = _composition_recency(runtime)
+    return _pick_order_from(runtime.compositions.names(), here, elsewhere)
+
+
 def _discover_native_sessions(
     runtime: Runtime, *, limit: int = 20, cwd_filter: str | None = None
 ) -> list[dict[str, Any]]:
@@ -2813,10 +2894,9 @@ def _record_last_seen(record: dict[str, Any]) -> str:
     return created
 
 
-def _record_last_used_age(record: dict[str, Any], *, now: datetime | None = None) -> str:
-    """Relative age of the effective last-used timestamp (same value as sort)."""
+def _last_used_age(effective: str, *, now: datetime | None = None) -> str:
+    """Relative age of an effective last-used timestamp (ISO string on failure)."""
 
-    effective = _record_last_seen(record)
     try:
         stamp = datetime.strptime(effective, "%Y-%m-%dT%H:%M:%SZ").replace(
             tzinfo=timezone.utc
@@ -2826,6 +2906,12 @@ def _record_last_used_age(record: dict[str, Any], *, now: datetime | None = None
     current = now or datetime.now(timezone.utc)
     seconds = max(0, int((current - stamp).total_seconds()))
     return _age_from_seconds(seconds)
+
+
+def _record_last_used_age(record: dict[str, Any], *, now: datetime | None = None) -> str:
+    """Relative age of the effective last-used timestamp (same value as sort)."""
+
+    return _last_used_age(_record_last_seen(record), now=now)
 
 
 def _record_sort_key_last_used(record: dict[str, Any]) -> str:
@@ -3164,7 +3250,7 @@ class _SessionsScreen:
 
     def _choose_composition(self, win: Any, record: dict[str, Any]) -> str | None:
         short = f"{sessions.managed_id(record)[:8]}…"
-        names = self.runtime.compositions.names()
+        names = composition_pick_order(self.runtime)
         chooser = tui.SelectList(
             TRANSITION_SELECT_TITLE.format(short=short),
             [tui.SelectItem(name) for name in names],
@@ -3181,7 +3267,7 @@ class _SessionsScreen:
     def _adopt(self, win: Any, item: dict[str, Any]) -> None:
         """Adopt a native session into the managed set (sessions link inline)."""
 
-        names = self.runtime.compositions.names()
+        names = composition_pick_order(self.runtime)
         chooser = tui.SelectList(
             f"Adopt {item['session_id'][:8]}… into composition",
             [tui.SelectItem(name) for name in names],
@@ -3430,11 +3516,13 @@ ORDINARY_PROFILE_NOTES = {
 ORDINARY_PROFILE_NOTE_DEFAULT = "/model switches freely within this group"
 ORDINARY_KEYBAR = (
     ("Enter", "launch"),
+    ("P", "providers"),
     ("?", "help"),
     ("Esc", "back"),
 )
 ORDINARY_KEYBAR_SWITCH = (
     ("Enter", "select"),
+    ("P", "providers"),
     ("?", "help"),
     ("Esc", "back"),
 )
@@ -3462,7 +3550,8 @@ ORDINARY_HELP_SHARED = (
     "strand into a smaller context. The session starts on the model's default\n"
     "selector; lanes (e.g. sol high/xhigh) switch via /model in-session. The\n"
     "native /model picker shows built-in Anthropic rows plus the current\n"
-    "model — typing a selector switches to anything the group allows.\n"
+    "model — typing a selector switches to anything the group allows; the\n"
+    "exact string for the selected row is shown under the list.\n"
     "\n"
     "Rows marked (no secret) belong to a provider whose secret is missing: the\n"
     "gateway omits providers rendered without their secret, so the model will\n"
@@ -3473,6 +3562,10 @@ ORDINARY_HELP_SHARED = (
     "\n"
     "The session is tracked as an ordinary record: resume it from the sessions\n"
     "screen (S) or with claude-gateway --continue, with the usual resume gate.\n"
+    "\n"
+    "P opens the providers pane: per-provider local status (credential source,\n"
+    "rendered/served selectors), exact connect instructions, and masked key\n"
+    "entry for direct providers (written to the standard secret env file).\n"
     "\n"
     "Arrow keys move; Esc closes this panel."
 )
@@ -3513,6 +3606,26 @@ def _ordinary_unavailable(runtime: Runtime) -> dict[str, str]:
     return {entry["provider"]: entry["reason"] for entry in entries}
 
 
+def _model_client_selectors(model: dict[str, Any]) -> list[str]:
+    """Sorted client selectors (base + lanes) for one catalog model."""
+
+    return sorted(
+        {model["client_selector"]}
+        | {lane["client_selector"] for lane in model["lanes"].values()}
+    )
+
+
+def _ordinary_typed_selectors(model: dict[str, Any]) -> str:
+    """Typed /model selector strings for one ordinary model (015 D-c).
+
+    The native /model picker display-filters custom aliases (issue 009), but
+    a typed selector hits the allow-list — showing the exact strings keeps
+    in-session switching discoverable without fighting the native filter.
+    """
+
+    return " · ".join(f"/model {s}" for s in _model_client_selectors(model))
+
+
 def _print_ordinary_listing(runtime: Runtime, output_stream: Any) -> None:
     """Text-mode ordinary launch listing (mirrors the G picker, D46)."""
 
@@ -3530,8 +3643,16 @@ def _print_ordinary_listing(runtime: Runtime, output_stream: Any) -> None:
             reason = unavailable.get(model["provider"])
             suffix = f"  (unavailable: {reason})" if reason is not None else ""
             output_stream.write(
-                f"    {model_id}\t{tui.visible_text(model['display'])}{suffix}\n"
+                f"    {model_id}\t{tui.visible_text(model['display'])}\t"
+                f"{_ordinary_typed_selectors(model)}{suffix}\n"
             )
+    output_stream.write("  providers (local status; names only):\n")
+    for fact in _provider_facts(runtime):
+        kind_label = "OAuth pool" if fact["kind"] == "oauth-pool" else "direct key"
+        output_stream.write(
+            f"    {fact['id']}\t{kind_label} · {fact['credential']} · "
+            f"{fact['expected']} rendered · {fact['served_note']}\n"
+        )
 
 
 class _OrdinaryScreen:
@@ -3587,7 +3708,8 @@ class _OrdinaryScreen:
         """Wrapped-line worst case for the selected-row detail (floor math).
 
         Computed over every reason any direct provider could produce at
-        this width, so the size floor never flaps while browsing.
+        this width plus every row's typed-selector line, so the size floor
+        never flaps while browsing.
         """
 
         providers = self.runtime.catalog.docs["providers"]["providers"]
@@ -3598,14 +3720,28 @@ class _OrdinaryScreen:
         ]
         candidates.append(ORDINARY_SECRET_FILE_ERROR)
         wrap_width = max(20, width - 4)
-        return max(
+        reason_lines = max(
             len(
                 textwrap.wrap(
-                    f"{reason} — Enter asks before launching anyway", wrap_width
+                    f"{reason} — Enter asks before {self._action_verb} anyway",
+                    wrap_width,
                 )
             )
             for reason in candidates
         )
+        selector_lines = max(
+            (
+                len(
+                    textwrap.wrap(
+                        f"in-session: {_ordinary_typed_selectors(self.runtime.catalog.models[m])}",
+                        wrap_width,
+                    )
+                )
+                for m in self.rows
+            ),
+            default=0,
+        )
+        return reason_lines + selector_lines
 
     def _draw(self, win: Any) -> None:
         win.erase()
@@ -3670,17 +3806,29 @@ class _OrdinaryScreen:
                 win, row, 2, "(no ordinary-capable models in this catalog)",
                 palette.attr("dim"),
             )
-        selected_reason = (
-            self._row_reason(self.rows[self.selected]) if self.rows else None
-        )
-        if selected_reason is not None:
-            lines = textwrap.wrap(
-                f"{selected_reason} — Enter asks before {self._action_verb} anyway",
-                max(20, width - 4),
+        if self.rows:
+            selected = self.rows[self.selected]
+            selected_reason = self._row_reason(selected)
+            wrap_width = max(20, width - 4)
+            detail: list[tuple[str, str]] = []
+            if selected_reason is not None:
+                detail.extend(
+                    (line, "warn")
+                    for line in textwrap.wrap(
+                        f"{selected_reason} — Enter asks before {self._action_verb} anyway",
+                        wrap_width,
+                    )
+                )
+            detail.extend(
+                (line, "dim")
+                for line in textwrap.wrap(
+                    f"in-session: {_ordinary_typed_selectors(models[selected])}",
+                    wrap_width,
+                )
             )
-            start = message_row - len(lines) + 1
-            for offset, line in enumerate(lines):
-                tui.safe_add(win, start + offset, 2, line, palette.attr("warn"))
+            start = message_row - len(detail) + 1
+            for offset, (line, role) in enumerate(detail):
+                tui.safe_add(win, start + offset, 2, line, palette.attr(role))
         keybar.draw(win, height - 1, palette)
         win.refresh()
 
@@ -3701,6 +3849,9 @@ class _OrdinaryScreen:
                     (ORDINARY_HELP_INTRO[self.purpose] + ORDINARY_HELP_SHARED).splitlines(),
                     buttons=(("Close", True),),
                 ).run(win, self.palette, background=self._draw)
+                continue
+            if key.kind == "char" and key.ch == "p":
+                _ProvidersScreen(self.runtime, palette=self.palette).run(win)
                 continue
             if key.kind == "up" or (key.kind == "char" and key.ch == "k"):
                 if self.selected > 0:
@@ -3735,6 +3886,12 @@ class _OrdinaryScreen:
                     ]
                     for raw in [reason + ".", *ORDINARY_UNAVAILABLE_BODY.splitlines()]:
                         lines.extend(textwrap.wrap(raw, wrap_width))
+                    lines.extend(
+                        textwrap.wrap(
+                            "connect: " + _connect_hint(self.runtime, model["provider"]),
+                            wrap_width,
+                        )
+                    )
                     confirmed = tui.Modal(
                         ORDINARY_UNAVAILABLE_TITLE,
                         lines,
@@ -3751,6 +3908,249 @@ class _OrdinaryScreen:
                     if not confirmed:
                         continue
                 return model_id
+
+
+PROVIDERS_TITLE = "providers — local status"
+PROVIDERS_LEGEND = (
+    "served = registered by the running local gateway; upstream auth, quota, "
+    "and reachability stay unknown"
+)
+PROVIDERS_KEYBAR = (
+    ("Enter", "setup"),
+    ("R", "refresh"),
+    ("Esc", "back"),
+)
+
+
+def _connect_hint(runtime: Runtime, provider_id: str) -> str:
+    """Exact per-provider connect instruction (018) — names/paths, no values."""
+
+    provider = runtime.catalog.providers[provider_id]
+    transport = provider["transport"]
+    if transport["kind"] == "oauth-pool":
+        pool = transport["pool"]
+        command = _OAUTH_LOGIN_COMMANDS.get(pool, f"{pool}-login")
+        return f"run `claude-multi-proxy {command}` (OAuth sign-in)"
+    name = transport["auth"]["secret_ref"].removeprefix("env:")
+    path = proxy_mod.secret_env_path(runtime.environ)
+    return (
+        f"set {name} in {path} (P providers here offers masked entry), then "
+        "`claude-multi-proxy init` and `systemctl --user restart cli-proxy-api`"
+    )
+
+
+def _provider_facts(runtime: Runtime) -> list[dict[str, Any]]:
+    """Per-provider local status facts (018): names and counts only.
+
+    Shared by the providers screen and the line-mode listing so both tell
+    the same story. No provider calls; secret values never read into facts.
+    """
+
+    providers = runtime.catalog.providers
+    models = runtime.catalog.models
+    unavailable = _ordinary_unavailable(runtime)
+    try:
+        token = launch.read_gateway_token(runtime.catalog.docs["gateway"])
+    except launch.LaunchError:
+        token = None
+    if token is not None:
+        snap = _gateway_snapshot(runtime, token)
+    else:
+        snap = GatewaySnapshot(
+            served=None,
+            gateway_down=True,
+            expected=frozenset(),
+            oauth_alias_pools={},
+            render_error=None,
+            config_drift=None,
+            oauth_records=_oauth_credential_records(runtime),
+        )
+    facts: list[dict[str, Any]] = []
+    for provider_id in sorted(providers):
+        provider = providers[provider_id]
+        transport = provider["transport"]
+        kind = transport["kind"]
+        if kind == "oauth-pool":
+            pool = transport["pool"]
+            records = snap.oauth_records.get(pool, 0)
+            credential = (
+                f"{records} credential record" + ("s" if records != 1 else "")
+            )
+            command = _OAUTH_LOGIN_COMMANDS.get(pool, f"{pool}-login")
+            guidance = f"sign in: `claude-multi-proxy {command}`"
+            expected = render.provider_selectors(provider_id, provider, models)
+        else:
+            secret_ref = transport["auth"]["secret_ref"]
+            name = secret_ref.removeprefix("env:")
+            reason = unavailable.get(provider_id)
+            if reason is None:
+                credential = f"{name} present"
+            elif reason == f"missing required secret {secret_ref}":
+                credential = f"{name} missing"
+            else:
+                credential = reason
+            guidance = f"set {name} (masked) with Enter"
+            expected = render.provider_selectors(
+                provider_id, provider, models, available=reason is None
+            )
+        if snap.served is None:
+            served_note = "unknown" if snap.gateway_down else "unknown (non-200)"
+        else:
+            served_note = f"{len(expected & snap.served)}/{len(expected)} served"
+        facts.append(
+            {
+                "id": provider_id,
+                "display": provider["display"],
+                "kind": kind,
+                "credential": credential,
+                "expected": len(expected),
+                "served_note": served_note,
+                "guidance": guidance,
+            }
+        )
+    return facts
+
+
+class _ProvidersScreen:
+    """Read-only provider status + setup actions (018), opened from G with P.
+
+    Facts are names/counts only; the one write action is masked direct-key
+    entry into the standard secret env file. OAuth sign-in is guidance (the
+    exact claude-multi-proxy login command), never an in-TUI flow.
+    """
+
+    def __init__(self, runtime: Runtime, *, palette: tui.Palette):
+        self.runtime = runtime
+        self.palette = palette
+        self.selected = 0
+        self.message: str | None = None
+        self.facts = _provider_facts(runtime)
+
+    def _draw(self, win: Any) -> None:
+        win.erase()
+        palette = self.palette
+        height, width = win.getmaxyx()
+        keybar = tui.KeyBar(PROVIDERS_KEYBAR)
+        bar_rows = keybar.rows(width)
+        wrap_width = max(20, width - 4)
+        legend_lines = textwrap.wrap(PROVIDERS_LEGEND, wrap_width)
+        message_lines = (
+            textwrap.wrap(self.message, wrap_width) if self.message else []
+        )
+        needed = 4 + len(legend_lines) + 2 * len(self.facts) + len(message_lines) + 2
+        if height < needed or width < 44:
+            tui.safe_add(win, 1, 2, PROVIDERS_TITLE, palette.attr("accent") | curses.A_BOLD)
+            tui.safe_add(
+                win, 3, 2, "terminal too small; resize or press Esc.",
+                palette.attr("warn"),
+            )
+            keybar.draw(win, height - 1, palette)
+            win.refresh()
+            return
+        tui.safe_add(win, 1, 2, PROVIDERS_TITLE, palette.attr("accent") | curses.A_BOLD)
+        tui.safe_add(win, 2, 2, "─" * min(width - 1, 62), palette.attr("dim"))
+        row = 3
+        for line in legend_lines:
+            tui.safe_add(win, row, 2, line, palette.attr("dim"))
+            row += 1
+        row += 1
+        for index, fact in enumerate(self.facts):
+            kind_label = "OAuth pool" if fact["kind"] == "oauth-pool" else "direct key"
+            head = f"{fact['display']} · {kind_label} · {fact['credential']}"
+            attr = palette.attr("normal")
+            if index == self.selected:
+                attr |= curses.A_REVERSE
+            prefix = "> " if index == self.selected else "  "
+            tui.safe_add(win, row, 2, prefix + head, attr)
+            row += 1
+            detail = (
+                f"selectors {fact['expected']} rendered · {fact['served_note']} · "
+                f"{fact['guidance']}"
+            )
+            tui.safe_add(win, row, 4, detail, palette.attr("dim"))
+            row += 1
+        if message_lines:
+            row += 1
+            for line in message_lines:
+                tui.safe_add(win, row, 2, line, palette.attr("accent"))
+                row += 1
+        keybar.draw(win, height - 1, palette)
+        win.refresh()
+
+    def _setup(self, win: Any) -> None:
+        fact = self.facts[self.selected]
+        provider = self.runtime.catalog.providers[fact["id"]]
+        transport = provider["transport"]
+        if transport["kind"] == "oauth-pool":
+            pool = transport["pool"]
+            command = _OAUTH_LOGIN_COMMANDS.get(pool, f"{pool}-login")
+            tui.Modal(
+                f"{fact['display']} — OAuth sign-in",
+                [
+                    "OAuth sign-in runs outside the TUI (browser/device flow):",
+                    f"    claude-multi-proxy {command}",
+                    "New credential records load via the gateway auth-dir "
+                    "watcher; if routes stay absent, restart cli-proxy-api.",
+                ],
+                buttons=(("Close", True),),
+            ).run(win, self.palette, background=self._draw)
+            return
+        name = transport["auth"]["secret_ref"].removeprefix("env:")
+        path = proxy_mod.secret_env_path(self.runtime.environ)
+        modal = tui.Modal(
+            f"{fact['display']} — set {name}",
+            [
+                f"The key is typed masked and written to {path}",
+                "(0600, atomic; the value is never shown or logged).",
+                "Apply afterwards: claude-multi-proxy init, then",
+                "systemctl --user restart cli-proxy-api.",
+            ],
+            buttons=(("Cancel", False), ("Save", True)),
+            input=tui.TextInput(mask="•"),
+        )
+        confirmed = modal.run(win, self.palette, background=self._draw)
+        value = modal.input.value
+        modal.input.value = ""  # never let a typed secret linger in widgets
+        if not confirmed:
+            self.message = "Set key cancelled."
+            return
+        try:
+            length = proxy_mod.set_secret_value(path, name, value)
+        except proxy_mod.ProxyError as exc:
+            self.message = str(exc)
+            return
+        self.facts = _provider_facts(self.runtime)
+        self.message = (
+            f"saved {name} ({length} chars) to {path} — apply: "
+            "`claude-multi-proxy init`, then restart cli-proxy-api"
+        )
+
+    def run(self, win: Any) -> None:
+        tui.hide_cursor()
+        while True:
+            self._draw(win)
+            key = tui.read_key(win)
+            if key.kind == "resize":
+                continue
+            if key.kind == "ctrl" and key.ch == "c":
+                raise KeyboardInterrupt
+            if key.kind == "esc":
+                return
+            if key.kind == "up" or (key.kind == "char" and key.ch == "k"):
+                if self.selected > 0:
+                    self.selected -= 1
+                continue
+            if key.kind == "down" or (key.kind == "char" and key.ch == "j"):
+                if self.selected < len(self.facts) - 1:
+                    self.selected += 1
+                continue
+            if key.kind == "char" and key.ch == "r":
+                self.facts = _provider_facts(self.runtime)
+                self.message = "refreshed."
+                continue
+            if key.kind == "enter":
+                self._setup(win)
+                continue
 
 
 TRANSITION_HELP = (
@@ -4855,6 +5255,197 @@ def _subagent_model_override_paths(runtime: Runtime) -> list[str]:
     return hits
 
 
+@dataclass(frozen=True)
+class GatewaySnapshot:
+    """One shared read of local gateway state (015 D-d, 018 providers modal).
+
+    Loopback probe + names-only filesystem facts; no provider call, and no
+    secret or auth-file contents. ``served`` is None when the daemon is down
+    or answered non-200; ``config_drift`` is None when the on-disk config is
+    unreadable; ``oauth_records`` maps pool -> credential-record count.
+    """
+
+    served: frozenset[str] | None
+    gateway_down: bool
+    expected: frozenset[str]
+    oauth_alias_pools: dict[str, str]
+    render_error: str | None
+    config_drift: bool | None
+    oauth_records: dict[str, int]
+
+
+_OAUTH_LOGIN_COMMANDS = {"claude": "claude-login", "codex": "codex-device-login"}
+
+
+def _oauth_credential_records(runtime: Runtime) -> dict[str, int]:
+    """Pool -> credential-record count (names-only, symlink-refusing)."""
+
+    gateway_info = runtime.catalog.docs["gateway"]["gateway"]
+    providers = runtime.catalog.docs["providers"]["providers"]
+    pools = sorted(
+        {
+            provider["transport"]["pool"]
+            for provider in providers.values()
+            if provider["transport"]["kind"] == "oauth-pool"
+        }
+    )
+    counts = {pool: 0 for pool in pools}
+    home = Path(runtime.environ.get("HOME") or Path.home())
+    try:
+        entries = list((home / gateway_info["auth_dir"]).iterdir())
+    except OSError:
+        return counts
+    for entry in entries:
+        if entry.is_symlink() or not entry.is_file():
+            continue
+        for pool in pools:
+            if entry.name.startswith(f"{pool}-") and entry.name.endswith(".json"):
+                counts[pool] += 1
+    return counts
+
+
+def _gateway_snapshot(runtime: Runtime, token: str) -> GatewaySnapshot:
+    """Collect the shared snapshot; each fact degrades independently."""
+
+    try:
+        served = launch.served_models(runtime.catalog.docs["gateway"], token)
+        down = False
+    except launch.LaunchError:
+        served, down = None, True
+    home = Path(runtime.environ.get("HOME") or Path.home())
+    expected: frozenset[str] = frozenset()
+    alias_pools: dict[str, str] = {}
+    render_error: str | None = None
+    drift: bool | None = None
+    try:
+        document, _available, _unavailable = render.build_config_document(
+            runtime.catalog.docs["gateway"],
+            runtime.catalog.docs["providers"]["providers"],
+            runtime.catalog.docs["models"]["models"],
+            home=home,
+            gateway_token=token,
+            resolve_secret=lambda name: proxy_mod.resolve_secret(
+                name, environ=runtime.environ
+            ),
+        )
+        expected = render.rendered_selectors(document)
+        alias_pools = {
+            entry["alias"]: pool
+            for pool, entries in document.get("oauth-model-alias", {}).items()
+            for entry in entries
+        }
+        try:
+            on_disk = state.read_private(proxy_mod.config_dir(home) / "config.yaml")
+            # Byte equality only — the deterministic render makes drift
+            # detection exact; contents (which carry secrets) are compared,
+            # never displayed.
+            drift = on_disk != render.emit_yaml(document).encode("utf-8")
+        except (OSError, ValueError):
+            drift = None
+    except (
+        render.RenderError,
+        proxy_mod.ProxyError,
+        UnicodeDecodeError,
+        OSError,
+        ValueError,
+    ) as exc:
+        render_error = str(exc)
+    return GatewaySnapshot(
+        served=None if down else served,
+        gateway_down=down,
+        expected=expected,
+        oauth_alias_pools=alias_pools,
+        render_error=render_error,
+        config_drift=drift,
+        oauth_records=_oauth_credential_records(runtime),
+    )
+
+
+def _doctor_served_report(runtime: Runtime, token: str) -> tuple[list[str], list[str]]:
+    """Served-vs-rendered selector cross-check (015 D-d). Loopback only.
+
+    The running gateway's /v1/models is its in-process registry — with
+    --local-model it mirrors the config the daemon started with. Three
+    distinct diagnoses, in order: on-disk config drift (init not run),
+    unserved rendered selectors (daemon not restarted — or, for OAuth pools
+    without a credential record, login missing), and stale claude-multi-shaped
+    served selectors (removed aliases). Embedded-registry extras (unrelated
+    Anthropic/Codex models) are ignored by design. Wire-name remappings are
+    invisible to /v1/models — the config-drift byte check covers those.
+    """
+
+    snap = _gateway_snapshot(runtime, token)
+    if snap.gateway_down:
+        return [], []  # readiness already reports the dead gateway
+    problems: list[str] = []
+    info: list[str] = []
+    if snap.render_error is not None:
+        info.append(f"served-selector cross-check skipped: {snap.render_error}")
+        return problems, info
+    if snap.config_drift:
+        problems.append(
+            "the on-disk gateway config differs from a fresh render of the "
+            "installed catalog (a catalog edit or secret rotation is not "
+            "applied): run `claude-multi-proxy init`, then `systemctl --user "
+            "restart cli-proxy-api`"
+        )
+    if snap.served is None:
+        info.append(
+            "local gateway: /v1/models returned a non-200 status; the "
+            "served-selector cross-check was skipped"
+        )
+        return problems, info
+    missing = sorted(snap.expected - snap.served)
+    oauth_missing: dict[str, list[str]] = {}
+    direct_missing: list[str] = []
+    for selector in missing:
+        pool = snap.oauth_alias_pools.get(selector)
+        if pool is None:
+            direct_missing.append(selector)
+        else:
+            oauth_missing.setdefault(pool, []).append(selector)
+    restart_note = (
+        "restart cli-proxy-api (the daemon does not hot-reload a re-rendered config)"
+    )
+    for selector in direct_missing[:3]:
+        problems.append(
+            f"the running gateway does not serve rendered selector "
+            f"{selector!r}: {restart_note}"
+        )
+    if len(direct_missing) > 3:
+        problems.append(
+            f"…and {len(direct_missing) - 3} more unserved rendered selectors: "
+            "restart cli-proxy-api"
+        )
+    for pool, selectors in sorted(oauth_missing.items()):
+        shown = ", ".join(selectors[:3]) + ("…" if len(selectors) > 3 else "")
+        if snap.oauth_records.get(pool, 0) == 0:
+            command = _OAUTH_LOGIN_COMMANDS.get(pool, f"{pool}-login")
+            info.append(
+                f"the {pool} OAuth pool has no credential record: rendered "
+                f"selector(s) {shown} stay unserved until "
+                f"`claude-multi-proxy {command}`"
+            )
+        else:
+            problems.append(
+                f"the running gateway does not serve rendered selector(s) "
+                f"{shown} although a {pool} credential record exists: {restart_note}"
+            )
+    stale = [
+        selector
+        for selector in sorted(snap.served - snap.expected)
+        if selector.startswith(("claude-multi-", "gpt-multi-"))
+    ]
+    if stale:
+        info.append(
+            "gateway serves selector(s) absent from the current render: "
+            + ", ".join(stale[:3])
+            + ("…" if len(stale) > 3 else "")
+            + " — a stale daemon (restart cli-proxy-api) or a removed catalog alias"
+        )
+    return problems, info
+
+
 def _collect_doctor_reports(
     runtime: Runtime,
 ) -> tuple[list[str], list[str], list[str]]:
@@ -4912,9 +5503,17 @@ def _collect_doctor_reports(
         problems.extend(runtime.doctor_callback(runtime))
     else:
         try:
-            launch.check_readiness(runtime.catalog.docs["gateway"])
+            gateway_token = launch.check_readiness(runtime.catalog.docs["gateway"])
         except launch.LaunchError as exc:
-            problems.append(f"local gateway: {exc}")
+            problems.append(
+                f"local gateway: {exc} — start it with `systemctl --user "
+                "start cli-proxy-api`"
+            )
+        else:
+            served_callback = runtime.doctor_served_callback or _doctor_served_report
+            served_problems, served_info = served_callback(runtime, gateway_token)
+            problems.extend(served_problems)
+            info_lines.extend(served_info)
     scope_info, scope_problems, scope_attention = _doctor_scope_report(runtime)
     info_lines.extend(scope_info)
     problems.extend(scope_problems)
@@ -5028,9 +5627,14 @@ def handle_command(
     if args.command == "compose":
         command = args.compose_command
         if command == "list":
-            for name in runtime.compositions.names():
+            here, elsewhere = _composition_recency(runtime)
+            merged = _merged_recency(here, elsewhere)
+            order = _pick_order_from(runtime.compositions.names(), here, elsewhere)
+            for name in order:
                 origin = "user" if runtime.compositions.has_user(name) else "trusted seed"
-                output_stream.write(f"{tui.visible_text(name)}\t{origin}\n")
+                stamp = merged.get(name)
+                last_used = _last_used_age(stamp) if stamp else "-"
+                output_stream.write(f"{tui.visible_text(name)}\t{origin}\t{last_used}\n")
             return 0
         if command == "show":
             _print_composition(runtime, runtime.compositions.load(args.name), output_stream)
@@ -5336,10 +5940,11 @@ def handle_command(
             context = model["context"]
             scalar = context["scalar_tokens"] or "none"
             profile = context["ordinary_profile"] or "agents-only"
+            selectors = ",".join(_model_client_selectors(model))
             output_stream.write(
                 f"{model_id}\t{model['display']}\t{provider}\t{capabilities}\t"
                 f"client={context['client_tokens']} provider={context['provider_tokens']} "
-                f"scalar={scalar} profile={profile}\n"
+                f"scalar={scalar} profile={profile}\tselectors={selectors}\n"
             )
         return 0
 
@@ -5956,22 +6561,66 @@ def _resolve_resume_target(runtime: Runtime, value: str) -> str:
     )
 
 
+RESUME_FILE_OVERRIDE_REFUSAL = (
+    "resume always uses the recorded composition; --composition-file {path!r} "
+    "does not apply to session {uuid} — a file's content is never verifiably "
+    "the recorded intent. To change composition: `claude-multi sessions "
+    "transition {uuid} --composition NAME`"
+)
+
+
 def _refuse_resume_override(
-    composition_name: str | None, record: dict[str, Any]
+    composition_name: str | None,
+    record: dict[str, Any],
+    *,
+    composition_file: str | None = None,
 ) -> None:
     """R1 P1: ordinary resume never accepts a changed composition.
 
     A name equal to the recorded one is not an override (the recorded intent
     is re-resolved anyway); anything else is refused with the transition
-    command named as the one path.
+    command named as the one path. A composition FILE is refused
+    unconditionally: its content is never verifiably the recorded intent,
+    even when its name matches.
     """
 
+    if composition_file is not None:
+        raise CLIError(
+            RESUME_FILE_OVERRIDE_REFUSAL.format(
+                path=composition_file, uuid=sessions.managed_id(record)
+            )
+        )
     if composition_name is not None and composition_name != record["composition_name"]:
         raise CLIError(
             RESUME_OVERRIDE_REFUSAL.format(
                 name=composition_name, uuid=sessions.managed_id(record)
             )
         )
+
+
+def _load_composition_argument(
+    runtime: Runtime, value: str, inp: TextIO
+) -> dict[str, Any]:
+    """Load an unsaved composition document from a file path or stdin ('-').
+
+    The stdin read is bounded at the strict-JSON byte limit plus one, so an
+    oversized pipe is rejected before an unbounded allocation.
+    """
+
+    try:
+        if value == "-":
+            limit = strict_json.DEFAULT_LIMITS.max_bytes
+            data = inp.read(limit + 1)
+            if len(data.encode("utf-8")) > limit:
+                raise composition.CompositionError(
+                    f"$: input exceeds the {limit}-byte limit"
+                )
+            return composition.validate_document(
+                strict_json.loads(data), runtime.compositions.schema
+            )
+        return composition.load_composition_file(value, runtime.compositions.schema)
+    except (OSError, ValueError) as exc:
+        raise CLIError(f"cannot load composition file {value!r}: {exc}") from exc
 
 
 # Commands whose output is a report: honor stdout redirection/pipes instead
@@ -6040,6 +6689,10 @@ def main(
             # Never open /dev/tty for this internal command or it can block
             # waiting for terminal input instead of consuming the event pipe.
             interactive = False
+        if getattr(args, "composition_file", None) == "-" and interactive is not False:
+            # stdin carries the document, so it cannot also feed key input:
+            # '-' forces noninteractive (the --help promise), unconditionally.
+            interactive = False
         if interactive is None:
             if input_stream is not None:
                 interactive = True
@@ -6101,7 +6754,9 @@ def main(
                     "this is an ordinary gateway session; resume it with "
                     "`claude-gateway --resume ID` or `claude-multi direct --resume ID`"
                 )
-            _refuse_resume_override(args.composition, record)
+            _refuse_resume_override(
+                args.composition, record, composition_file=args.composition_file
+            )
             plan = managed_plan(runtime, record)
             plan.legacy_requested = args.legacy
         elif args.continue_last:
@@ -6116,17 +6771,24 @@ def main(
                     "the remembered session is an ordinary gateway session; use "
                     "`claude-gateway --continue` or `claude-multi direct --continue`"
                 )
-            _refuse_resume_override(args.composition, record)
+            _refuse_resume_override(
+                args.composition, record, composition_file=args.composition_file
+            )
             plan = managed_plan(runtime, record)
             plan.legacy_requested = args.legacy
         else:
             # Only a FRESH launch can need an explicit composition: resume and
             # continue take the recorded intent, so they must never demand one.
-            if not interactive and args.composition is None:
+            if not interactive and args.composition is None and args.composition_file is None:
                 raise CLIError(
-                    "noninteractive launch requires --composition NAME; no default was selected"
+                    "noninteractive launch requires --composition NAME or --composition-file PATH; no default was selected"
                 )
-            if args.composition is not None:
+            if args.composition_file is not None:
+                document = _load_composition_argument(
+                    runtime, args.composition_file, inp
+                )
+                source = f"Composition file {args.composition_file}"
+            elif args.composition is not None:
                 document = runtime.compositions.load(args.composition)
                 source = "Explicit composition"
             else:

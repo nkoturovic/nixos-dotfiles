@@ -14,6 +14,7 @@ import os
 import pty
 import threading
 import unittest
+import unittest.mock
 
 from claude_multi import tui
 
@@ -24,6 +25,7 @@ ESC = "\x1b"
 TAB = "\t"
 BACKSPACE = "\x7f"
 CTRL_G = "\x07"
+CTRL_O = "\x0f"
 DOWN = curses.KEY_DOWN
 UP = curses.KEY_UP
 LEFT = curses.KEY_LEFT
@@ -220,6 +222,77 @@ class PaletteTests(unittest.TestCase):
         # has_colors() raises before initscr; the helper must swallow it.
         tui.init_curses_colors(tui.DARK_PALETTE)
         tui.init_curses_colors(tui.MONO_PALETTE)
+
+
+class DimVisibilityTests(unittest.TestCase):
+    """017: muted text must stay readable on dark terminal backgrounds."""
+
+    def test_dim_ansi_is_mid_gray_not_bright_black(self):
+        self.assertEqual(
+            tui.DARK_PALETTE.ansi("x", "dim"), "\x1b[38;5;245mx\x1b[0m"
+        )
+
+    def test_dim_foreground_256_color_gray(self):
+        with unittest.mock.patch.object(tui.curses, "COLORS", 256, create=True):
+            self.assertEqual(tui._dim_foreground("dark"), 245)
+            # Light palettes get a darker muted gray: 245 on white is too
+            # faint (review nit: ~2.7:1 contrast).
+            self.assertEqual(tui._dim_foreground("light"), 240)
+
+    def test_dim_foreground_8_color_fallback_never_black_on_dark(self):
+        with unittest.mock.patch.object(tui.curses, "COLORS", 8, create=True):
+            self.assertEqual(tui._dim_foreground("dark"), curses.COLOR_WHITE)
+            self.assertEqual(tui._dim_foreground("light"), curses.COLOR_BLACK)
+
+    def test_init_pair_uses_capability_aware_dim(self):
+        pairs = {}
+
+        def fake_init_pair(pair, fg, bg):
+            pairs[pair] = (fg, bg)
+
+        with (
+            unittest.mock.patch.object(tui.curses, "has_colors", return_value=True),
+            unittest.mock.patch.object(tui.curses, "start_color"),
+            unittest.mock.patch.object(tui.curses, "use_default_colors"),
+            unittest.mock.patch.object(tui.curses, "init_pair", fake_init_pair),
+            unittest.mock.patch.object(tui.curses, "COLORS", 256, create=True),
+        ):
+            tui.init_curses_colors(tui.DARK_PALETTE)
+        self.assertEqual(pairs[tui._PAIR_BY_ROLE["dim"]], (245, -1))
+        self.assertEqual(
+            pairs[tui._PAIR_BY_ROLE["accent"]], (curses.COLOR_CYAN, -1)
+        )
+
+    def test_init_pair_dim_falls_back_to_white_on_dark_8_color(self):
+        pairs = {}
+
+        def fake_init_pair(pair, fg, bg):
+            pairs[pair] = (fg, bg)
+
+        with (
+            unittest.mock.patch.object(tui.curses, "has_colors", return_value=True),
+            unittest.mock.patch.object(tui.curses, "start_color"),
+            unittest.mock.patch.object(
+                tui.curses, "use_default_colors", side_effect=curses.error
+            ),
+            unittest.mock.patch.object(tui.curses, "init_pair", fake_init_pair),
+            unittest.mock.patch.object(tui.curses, "COLORS", 8, create=True),
+        ):
+            tui.init_curses_colors(tui.DARK_PALETTE)
+        # No default-colors support: background falls back to black, so the
+        # dim foreground must NOT be black (the old black-on-black trap).
+        self.assertEqual(
+            pairs[tui._PAIR_BY_ROLE["dim"]], (curses.COLOR_WHITE, curses.COLOR_BLACK)
+        )
+
+    def test_table_headers_render_with_dim_role(self):
+        win = FakeWindow()
+        table = tui.Table(("name", "state"), [("alpha", "ok")])
+        table.draw(win, 0, 2, 80, tui.DARK_PALETTE)
+        self.assertEqual(
+            win.attr_at(0, 2), tui.DARK_PALETTE.attr("dim") | curses.A_BOLD
+        )
+        self.assertIn("name", win.line(0))
 
     def test_streams_curses_capable(self):
         class Tty(io.StringIO):

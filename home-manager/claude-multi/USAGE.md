@@ -32,9 +32,11 @@ claude-multi
 A card shows the composition (lead, team, policy, context). Then:
 
 - **Enter** — launch
-- **Tab / P** — cycle presets (`default` (Opus 5 + Sol + Kimi), `opus-sol` (Opus 5 + Sol), `opus-kimi` (Opus 5 + Kimi), `fable`, `fable-sol-qwen-glm`, `kimi-sol`, `kimi-sol-qwen`, `kimi-sol-qwen-glm`, `kimi-sol-qwen-glm-fable`, `qwen-sol`, `glm-sol`, `sol-direct`)
+- **Tab / P** — cycle presets, most-recently-used first (this directory's
+  recent compositions lead, then globally recent, then the rest). Current
+  set: `default` (Opus 5 + Sol + Kimi), `opus-sol` (Opus 5 + Sol), `opus-kimi` (Opus 5 + Kimi), `fable`, `fable-sol-qwen-glm`, `kimi-sol`, `kimi-sol-qwen`, `kimi-sol-qwen-glm`, `kimi-sol-qwen-glm-fable`, `qwen-sol`, `glm-sol`, `sol-direct`
 - **W** — toggle workflows on/off
-- **G** — new gateway session: pick a model, launch with no composition (see "Ordinary gateway sessions")
+- **G** — new gateway session: pick a model, launch with no composition (see "Ordinary gateway sessions"); the picker's selected row shows the exact typed `/model` selectors, and **P** opens the providers pane (per-provider local status, connect instructions, masked key entry)
 - **E** — edit the composition (form editor; `?` explains each field)
 - **S** — open the sessions picker
 - **H** — health: doctor in place (with an optional repair-all prompt)
@@ -48,7 +50,14 @@ Claude is installed than the pin — an **update badge** naming the version
 and the U key. That badge is the update notification: you will see it the
 next time you open the launcher after an upstream Claude update.
 
-Non-interactive (scripts): `claude-multi --composition kimi-sol`.
+Non-interactive (scripts): `claude-multi --composition kimi-sol`. To launch a
+composition document that is not saved in the store:
+`claude-multi --composition-file ./my-comp.json` (or `-` to read stdin, which
+forces non-interactive) — launch-once semantics: nothing is written to the
+store, and the session record snapshots what actually launched, so resume
+works even though the name was never saved. The two flags are mutually
+exclusive, and neither applies to `-r`/`-c` (recorded sessions change
+composition only via `sessions transition`).
 
 ### The composition profiles
 
@@ -67,7 +76,7 @@ on this machine (all creatable in seconds with `compose new` /
 | `kimi-sol-qwen` | Kimi K3 | Sol preferred · Kimi alternates · Qwen alternates | Kimi lead with a Qwen escape lane |
 | `kimi-sol-qwen-glm` | Kimi K3 | Sol preferred · Kimi · GLM-5.2 · Qwen alternates | Kimi lead, GLM and Qwen as comparable escalations |
 | `kimi-sol-qwen-glm-fable` | Kimi K3 | Sol preferred · Opus 5 option · Kimi · GLM · Qwen · **Fable specialist** | hardest tasks + finalization go to Fable |
-| `qwen-sol` | Qwen3.8 Max (preview) | Sol preferred · Qwen alternates | Qwen lead work |
+| `qwen-sol` | Qwen3.8 Max | Sol preferred · Qwen alternates | Qwen lead work |
 | `glm-sol` | GLM-5.2 | Sol preferred · GLM alternates | GLM 1M lead work (max reasoning) |
 | `sol-direct` | GPT 5.6 Sol | — | single-model direct sessions |
 
@@ -198,8 +207,14 @@ get no row of their own — but stay switchable by typing the selector
 
 Press **G** on the composition card for the TUI picker: models grouped by
 context profile (the group is the `/model` fence), Enter launches, rows
-whose provider secret is missing are marked and ask for confirmation.
-The CLI equivalent:
+whose provider secret is missing are marked and ask for confirmation (the
+confirm names the exact connect fix). The selected row's detail line shows
+the exact typed in-session selectors (`in-session: /model …`), and **P**
+opens the **providers pane**: per-provider local status (credential source
+by name/count only, rendered/served selector counts), the exact connect
+command per provider, masked key entry for direct providers (written to the
+standard `~/.config/secrets/claude.env`, 0600 atomic, value never shown),
+and OAuth sign-in command guidance. The CLI equivalent:
 
 ```bash
 claude-gateway                       # ordinary session, default model (sol)
@@ -234,7 +249,7 @@ The presets cover the common shapes; your own compositions live in
 `~/.config/claude-multi/compositions/` (owner-only files):
 
 ```bash
-claude-multi compose list                       # your compositions + trusted seeds
+claude-multi compose list                       # MRU-first: your compositions + seeds + last-used
 claude-multi compose show <name>                # effective summary (lead, team, policy)
 claude-multi compose edit <name>                # the form editor (same as E on the card)
 claude-multi compose new <name>                 # new composition from the default shape
@@ -246,7 +261,9 @@ claude-multi compose restore-default            # reset 'default' to the trusted
 ```
 
 The editor edits slots (lead, per-role model/lane/preferred), workflow
-mode, and native-agent policy, with `?` explaining each field. Compositions
+mode, and native-agent policy, with `?` explaining each field; **^O** opens
+the Save-or-launch menu from anywhere (update / save as / launch once —
+launch once writes nothing to the store). Compositions
 are schema-validated at save and fail closed at resolve (an unknown model,
 lane, or role is an error, never a silent default). The shipped presets
 also follow the house conventions — workflows native, worktree isolation
@@ -263,7 +280,12 @@ claude-multi sessions forget <uuid>  # delete a session's record + generated fil
 ```
 
 `Attention` lines always name the exact fix command. `BLOCKED` means
-something is actually broken and says what.
+something is actually broken and says what. Doctor's gateway checks are
+loopback-only: process readiness, the on-disk config vs a fresh render
+(drift → `claude-multi-proxy init` + restart), the running gateway's served
+selectors vs the rendered set (missing → restart; an OAuth pool without a
+credential record → the login command instead), and stale claude-multi
+aliases (info). It never calls a provider and never prints secrets.
 
 ### Supported vs not-recommended vs never
 

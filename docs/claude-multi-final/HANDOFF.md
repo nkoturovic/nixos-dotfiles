@@ -20,12 +20,14 @@ untouched; `claude-gateway` is the ordinary non-composition entrypoint.
 ## Daily use
 
 - `claude-multi` → composition card → **Enter** to launch.
-  **Tab/P** cycles presets (e.g. `default`, `kimi-sol`, `qwen-sol`,
-  `glm-sol`, `sol-direct` — full table in USAGE.md), **G** opens the
-  ordinary gateway picker (profile-grouped models, no composition —
-  the TUI twin of `claude-gateway`),
+  **Tab/P** cycles presets most-recently-used first (e.g. `default`,
+  `kimi-sol`, `qwen-sol`, `glm-sol`, `sol-direct` — full table in USAGE.md),
+  **G** opens the ordinary gateway picker (profile-grouped models, typed
+  `/model` selectors per row, **P** inside it = providers pane with local
+  status + masked key entry + connect instructions),
   **W** toggles workflows native/off, **S** opens the sessions picker,
-  **?** explains workflow guarantees, **E** edits the composition,
+  **?** explains workflow guarantees, **E** edits the composition (**^O**
+  there opens Save-or-launch from anywhere),
   **H** runs doctor in place, **U** appears when a Claude update is
   available and re-pins in place. The card's health strip always shows
   gateway status and the pinned version; **Esc** cancels everywhere.
@@ -108,6 +110,18 @@ untouched; `claude-gateway` is the ordinary non-composition entrypoint.
   Switch paths for ordinary sessions: typed `/model <selector>`, **T** in
   the picker, or `claude-gateway -r <id> --model X`. Sessions screen
   empty state names the filter when sessions exist elsewhere.
+- **2.13.0 batch built, awaiting activation** (D50; blueprints 014–018):
+  qwen38 production wire (`qwen3.8-max`, catalog 15) + qwen38-ahead-of-glm52
+  slot order in the three authored profiles; MRU-first composition picking
+  everywhere (derived from records — no new state); `--composition-file`
+  on-the-fly ingestion; **P providers pane** in the G picker (status,
+  connect instructions, masked key entry to the standard env file); doctor
+  gateway radar (served-vs-rendered aliases + config byte-drift + OAuth
+  record disambiguation); typed `/model` selectors on picker rows; editor
+  **^O** save chord; readable dark-theme muted color. Activation runs the
+  usual: HM switch (re-render + gateway restart) + `doctor --repair-all`
+  (scope display-string convergence) + the approval-gated live
+  `qwen3.8-max` call.
 - `claude-multi doctor` → **Ready** (all 18 durable scopes on catalog 12 + D44 shim guard;
   watchdog pin + roster prompts live; D43 radar in the suite).
   Sessions screen sorts by last used with the created age alongside
@@ -127,12 +141,12 @@ untouched; `claude-gateway` is the ordinary non-composition entrypoint.
 
 ## Composition: qwen-sol
 
-Qwen3.8 Max Preview lead (ultracode, thinking always on, `reasoning_effort: xhigh`
+Qwen3.8 Max lead (production since 2026-08-03 GA; ultracode, thinking always on, `reasoning_effort: xhigh`
 — the provider maximum), Sol preferred analyst/implementer/reviewer
 variants, Qwen-max alternates. Cross-family review: Sol (openai) reviews
 Qwen (alibaba) work and vice versa. Sol variants retain the process-wide 372K
 scalar, while the `[1m]` Qwen lead uses a provider-safe 983,616 compaction
-capacity plus the explicit 90% override. Pinned 2.1.217 reserves 20K output,
+capacity plus the explicit 90% override. Pinned 2.1.220 reserves 20K output,
 so the deterministic reactive trigger is 867,254; proactive preparation is
 runtime-controlled and may occur earlier. Wire:
 Token Plan `apps/anthropic`, bearer auth, key in

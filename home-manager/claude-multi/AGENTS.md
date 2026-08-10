@@ -157,8 +157,8 @@ Two modes:
 | `upgrade.py` | evidence-gated re-pin (`update`) | detect (version-key ordered, invalid candidates skipped) → offline inspect → promote + version-pin sync (boundary-anchored) → suite → override; crash-atomic `_write_repo_file` for promotion AND restore; redundant override removed only when ≤ packaged baseline (`packaged_contract`, `override_broken`); `--activate` retries land the baseline; FileLock-serialized; `[N/M]` progress + heartbeat |
 | `tui.py` | curses widget layer | every external string through `visible_text`; `read_key` does not re-merge Alt+chords (ncurses splits them by design); Esc is the only exit key; uniform col-2 margin; KeyBar wraps upward (≤2 rows) and past that compacts middle bindings behind an ellipsis — the exit binding is unclippable; screens must reserve `KeyBar.rows(width)` above the bar |
 | `catalog.py` | trusted JSON load + validate | closed schemas; `version.json` single source of version |
-| `render.py` | gateway YAML | secrets resolve only at runtime into mode-0600 artifacts |
-| `proxy.py` | gateway process control | loopback only; token file 0600 |
+| `render.py` | gateway YAML | secrets resolve only at runtime into mode-0600 artifacts; `rendered_selectors`/`provider_selectors` are the served-set authority (aliases only — wire names are never served) |
+| `proxy.py` | gateway process control | loopback only; token file 0600; `set_secret_value` = parse-preserving 0600 masked-entry writer (018) |
 | `dev.py` | draft→check→review→promote | promotes only models/providers; dummy secrets in checks; pretty post-images |
 | `probe.py` | dev-only loopback harness | never touches live daemon/providers/transcripts; fixture roots only |
 
@@ -186,6 +186,11 @@ full): run with a disk-backed temp dir, e.g.
 - **PTY tests** (`tests/test_tui_pty.py`) drive the real TUI in pseudo-terminals
   (line + curses modes, no-ctty fallback). The bare-launch child arms a 20s
   `faulthandler` so a hang self-diagnoses into the captured output.
+  The real-binary probes (`tests/test_scope_probe.py` RealPinnedBinaryTests)
+  are timing-sensitive under machine-wide load: a timeout-class error there
+  that passes on an isolated re-run is the documented flake signature
+  (seen once 2026-08-10 with the suite running alongside heavy agent fan-out);
+  re-run the class before distrusting the pin.
 - **Version**: bump `version.json.launcher_version` for behavior changes;
   `catalog_version` only for trusted-catalog content changes. Records carry
   both; old launchers fail closed on newer record versions.

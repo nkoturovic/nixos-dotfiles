@@ -256,6 +256,55 @@ def _alias_entries(
     return entries
 
 
+def provider_selectors(
+    provider_id: str,
+    provider: dict[str, Any],
+    models: dict[str, Any],
+    *,
+    available: bool = True,
+) -> frozenset[str]:
+    """The selectors one provider renders (015/018 shared rule).
+
+    OAuth pools always render (passthrough names + lane-derived aliases);
+    direct providers render their lane aliases only when available (secret
+    resolved) — matching the config sections exactly.
+    """
+
+    if provider["transport"]["kind"] == "oauth-pool":
+        return frozenset(
+            entry["alias"] for entry in _alias_entries(provider_id, provider, models)
+        )
+    if not available:
+        return frozenset()
+    return frozenset(
+        _selector_base(lane["client_selector"])
+        for model in models.values()
+        if model["provider"] == provider_id
+        for lane in model["lanes"].values()
+    )
+
+
+def rendered_selectors(document: dict[str, Any]) -> frozenset[str]:
+    """Every public selector a rendered config document serves (015 D-d).
+
+    OAuth sections serve each entry's alias (passthrough names alias
+    themselves); direct sections serve the lane alias only — the gateway
+    registers the alias as the public id, NOT the upstream wire name
+    (verified live against a disposable loopback proxy: k3/qwen3.8-max/
+    glm-5.2 do not appear in /v1/models). The doctor served-models
+    cross-check compares this set against the running gateway's /v1/models.
+    """
+
+    selectors: set[str] = set()
+    for entries in document.get("oauth-model-alias", {}).values():
+        for entry in entries:
+            selectors.add(entry["alias"])
+    for section in document.get("claude-api-key", []):
+        for entry in section.get("models", []):
+            selectors.add(entry["alias"])
+    return frozenset(selectors)
+
+
 def build_config_document(
     gateway: dict[str, Any],
     providers: dict[str, Any],

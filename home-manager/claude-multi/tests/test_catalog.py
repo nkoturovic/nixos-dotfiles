@@ -127,8 +127,17 @@ class SeedLoadTests(unittest.TestCase):
 
     def test_version_json_matches_v2_2_schema_and_catalog_change(self) -> None:
         bundle = catalog.load_catalog(CATALOG_ROOT)
-        self.assertEqual(bundle.docs["version"]["launcher_version"], "2.12.1")
-        self.assertEqual(bundle.docs["version"]["catalog_version"], 14)
+        self.assertEqual(bundle.docs["version"]["launcher_version"], "2.13.0")
+        self.assertEqual(bundle.docs["version"]["catalog_version"], 15)
+
+    def test_qwen38_production_no_preview_residue(self) -> None:
+        # D50: qwen3.8-max shipped production 2026-08-03; the D21 revision
+        # sequence is executed — no preview residue in the qwen38 entry.
+        bundle = catalog.load_catalog(CATALOG_ROOT)
+        qwen = bundle.models["qwen38"]
+        self.assertEqual(qwen["wire_model"], "qwen3.8-max")
+        self.assertEqual(qwen["display"], "Qwen3.8 Max")
+        self.assertNotIn("preview", json.dumps(qwen).lower())
 
     def test_opus5_all_roles_opus_stays_lead_reviewer(self) -> None:
         # D49: opus5 serves every role (operator-requested general option);

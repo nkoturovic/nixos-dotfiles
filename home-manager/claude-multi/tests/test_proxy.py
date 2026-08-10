@@ -13,6 +13,7 @@ import json
 import os
 import shutil
 import socket
+import stat
 import subprocess
 import tempfile
 import threading
@@ -680,3 +681,52 @@ class TokenStateErrorTests(unittest.TestCase):
         self.assertEqual(code, 1)
         self.assertIn("claude-multi-proxy:", err.getvalue())
         self.assertNotIn("Traceback", err.getvalue())
+
+
+class SetSecretValueTests(unittest.TestCase):
+    """018: proxy.set_secret_value — parse-preserving 0600 secret writes."""
+
+    def setUp(self) -> None:
+        self.root = Path(tempfile.mkdtemp(prefix="claude-multi-secret-"))
+        os.chmod(self.root, 0o700)
+        self.addCleanup(shutil.rmtree, self.root, True)
+        self.path = self.root / "claude.env"
+
+    def _write(self, text: str) -> None:
+        state.ensure_private_dir(self.root)
+        state.atomic_write(self.path, text.encode("utf-8"))
+
+    def test_append_to_new_file(self) -> None:
+        length = proxy.set_secret_value(self.path, "QWEN_CLAUDE_API_KEY", "sk-new")
+        self.assertEqual(length, 6)
+        self.assertEqual(self.path.read_text(), "QWEN_CLAUDE_API_KEY=sk-new\n")
+        self.assertEqual(stat.S_IMODE(self.path.stat().st_mode), 0o600)
+
+    def test_replace_preserves_other_lines_byte_identical(self) -> None:
+        self._write("# comment\nKIMI_CLAUDE_API_KEY=old-kimi\nexport EXTRA=1\n")
+        proxy.set_secret_value(self.path, "KIMI_CLAUDE_API_KEY", "new-kimi")
+        self.assertEqual(
+            self.path.read_text(),
+            "# comment\nKIMI_CLAUDE_API_KEY=new-kimi\nexport EXTRA=1\n",
+        )
+
+    def test_replace_keeps_export_prefix(self) -> None:
+        self._write("export QWEN_CLAUDE_API_KEY=old\n")
+        proxy.set_secret_value(self.path, "QWEN_CLAUDE_API_KEY", "new")
+        self.assertEqual(self.path.read_text(), "export QWEN_CLAUDE_API_KEY=new\n")
+
+    def test_invalid_name_and_value_rejected(self) -> None:
+        with self.assertRaises(proxy.ProxyError):
+            proxy.set_secret_value(self.path, "lower-case", "x")
+        with self.assertRaises(proxy.ProxyError):
+            proxy.set_secret_value(self.path, "QWEN_CLAUDE_API_KEY", "has spaces")
+        with self.assertRaises(proxy.ProxyError):
+            proxy.set_secret_value(self.path, "QWEN_CLAUDE_API_KEY", "")
+        self.assertFalse(self.path.exists())
+
+    def test_symlink_target_refused(self) -> None:
+        target = self.root / "real.env"
+        state.atomic_write(target, b"KIMI_CLAUDE_API_KEY=x\n")
+        os.symlink(target, self.path)
+        with self.assertRaises(proxy.ProxyError):
+            proxy.set_secret_value(self.path, "QWEN_CLAUDE_API_KEY", "sk-x")

@@ -240,12 +240,12 @@
         "declared_tokens": 983616,
         "ordinary_profile": "large",
         "provider_tokens": 983616,
-        "qualification": "Provider-documented bound: the official Token Plan Claude Code doc recommends 983616 for qwen3.8-max-preview. The [1m] client selector gives Claude Code extended-context classification while the compiler applies a 90% auto-compaction percentage to the 983616-token provider window. Selector suffix stripping and exact wire-model mapping are covered offline; near-limit real-provider behavior remains unverified.",
+        "qualification": "Provider-documented bound: the official Token Plan Claude Code doc recommends 983616 for qwen3.8-max. The [1m] client selector gives Claude Code extended-context classification while the compiler applies a 90% auto-compaction percentage to the 983616-token provider window. Selector suffix stripping and exact wire-model mapping are covered offline; near-limit real-provider behavior remains unverified until a live acceptance call.",
         "scalar_tokens": 983616,
         "validated_tokens": 983616
       },
       "default_lane": "max",
-      "display": "Qwen3.8 Max \u00b7 Preview",
+      "display": "Qwen3.8 Max",
       "lanes": {
         "max": {
           "agent_effort": "max",
@@ -267,8 +267,8 @@
         "cm-implementer": "Use when implementation requires broad context across many files.",
         "cm-reviewer": "Use for architecture/plan validation, security review, and broad cross-cutting, complex, high-risk, or large-context changes."
       },
-      "routing_note": "Qwen flagship preview; thinking always on (reasoning_effort pinned xhigh, provider max). PREVIEW: on production release revise wire_model, context, effort tiers, display; one live call. Checklist in DECISIONS D21.",
-      "wire_model": "qwen3.8-max-preview"
+      "routing_note": "Qwen flagship; thinking always on (reasoning_effort pinned xhigh, provider max). Preferred max-lane escalation ahead of glm52.",
+      "wire_model": "qwen3.8-max"
     },
     "sol": {
       "capabilities": [

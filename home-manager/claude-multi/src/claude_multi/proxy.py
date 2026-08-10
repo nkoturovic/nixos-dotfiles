@@ -115,6 +115,49 @@ def resolve_secret(
     return parse_secret_env(path).get(name)
 
 
+def set_secret_value(path: Path, name: str, value: str) -> int:
+    """Insert or replace ``NAME=value`` in the secret env file (018).
+
+    Parse-preserving: unrelated lines stay byte-identical; every existing
+    assignment of the name (with or without an ``export `` prefix) is
+    replaced in place, otherwise the assignment is appended. The write is
+    atomic 0600 via ``state.atomic_write``; an existing file must pass the
+    ``read_private`` safety checks (owner-private, no symlink). The value is
+    shape-validated and never logged or returned — only its length, so
+    callers can confirm without echoing.
+    """
+
+    if not re.fullmatch(r"[A-Z0-9_]+", name):
+        raise ProxyError(f"invalid secret variable name {name!r}")
+    if not value or not _VALUE_SHAPE.fullmatch(value):
+        raise ProxyError(
+            "secret value has an unsupported shape "
+            "(letters, digits, and . _ ~ + / = @ : - only)"
+        )
+    out_lines: list[str] = []
+    if os.path.lexists(path):
+        try:
+            raw = state.read_private(path)
+        except state.StateError as exc:
+            raise ProxyError(f"secret env file unavailable or unsafe: {exc}") from exc
+        try:
+            out_lines = raw.decode("utf-8").splitlines()
+        except UnicodeDecodeError as exc:
+            raise ProxyError(f"secret env file {path} is not valid UTF-8") from exc
+    replaced = False
+    for index, line in enumerate(out_lines):
+        match = _ASSIGNMENT.match(line)
+        if match and match.group(1) == name:
+            prefix = "export " if line.lstrip().startswith("export ") else ""
+            out_lines[index] = f"{prefix}{name}={value}"
+            replaced = True
+    if not replaced:
+        out_lines.append(f"{name}={value}")
+    state.ensure_private_dir(path.parent)
+    state.atomic_write(path, ("\n".join(out_lines) + "\n").encode("utf-8"))
+    return len(value)
+
+
 def selected_secret_problems(
     resolved: Any,
     models: dict[str, Any],
@@ -153,7 +196,7 @@ def selected_secret_problems(
         if not path.exists():
             problems.append(
                 f"provider {display} ({provider_id}): required secret {secret_ref} "
-                "unavailable (secret env file missing)"
+                f"unavailable (secret env file {path} missing)"
             )
             continue
         if parsed is None and parse_error is None:
@@ -163,14 +206,14 @@ def selected_secret_problems(
                 parse_error = str(exc)
         if parse_error is not None:
             problems.append(
-                f"provider {display} ({provider_id}): secret env file unsafe or "
-                f"malformed: {parse_error}"
+                f"provider {display} ({provider_id}): secret env file {path} "
+                f"unsafe or malformed: {parse_error}"
             )
             continue
         if name not in parsed:
             problems.append(
                 f"provider {display} ({provider_id}): required variable {name} "
-                "missing from the secret env file"
+                f"missing from the secret env file {path}"
             )
     return problems
 

@@ -347,13 +347,70 @@ def _default_health_get(base_url: str, health_path: str, timeout: float = 1.5) -
         connection.close()
 
 
-def check_readiness(
+MODELS_PATH = "/v1/models"
+
+
+def _default_models_get(
+    base_url: str, token: str, timeout: float = 1.5
+) -> tuple[int, set[str]]:
+    """Loopback GET /v1/models; (status, served selector ids).
+
+    No claude-cli User-Agent is sent, so the codex cloak cannot cosmetically
+    hide gpt-multi-* aliases (gateway-ops skill). Bearer auth; the gateway's
+    access provider also accepts x-api-key.
+    """
+
+    parts = urllib.parse.urlsplit(base_url)
+    if parts.scheme != "http" or parts.hostname != "127.0.0.1":
+        raise LaunchError(f"gateway base_url {base_url!r} is not loopback http")
+    connection = http.client.HTTPConnection(parts.hostname, parts.port, timeout=timeout)
+    try:
+        connection.request(
+            "GET", MODELS_PATH, headers={"Authorization": f"Bearer {token}"}
+        )
+        response = connection.getresponse()
+        body = response.read()
+        if response.status != 200:
+            return response.status, set()
+        payload = strict_json.loads(body.decode("utf-8"))
+        ids = {
+            item["id"]
+            for item in payload.get("data", [])
+            if isinstance(item, dict) and isinstance(item.get("id"), str)
+        }
+        return 200, ids
+    finally:
+        connection.close()
+
+
+def served_models(
     gateway: dict[str, Any],
+    token: str,
     *,
-    home: Path | None = None,
-    health_get: Callable[[str, str], int] | None = None,
-) -> str:
-    """Loopback-only readiness: gateway token file + /healthz. Never upstream."""
+    models_get: Callable[[str, str], tuple[int, set[str]]] | None = None,
+) -> set[str] | None:
+    """Selector ids the running gateway serves now (015 doctor cross-check).
+
+    Loopback-local registry state — never an upstream provider call. Returns
+    None on a non-200 response (advisory check; the caller reports one info
+    line); connection failures raise LaunchError like the readiness probe.
+    """
+
+    gateway_info = gateway["gateway"]
+    getter = models_get or _default_models_get
+    try:
+        status, ids = getter(gateway_info["base_url"], token)
+    except LaunchError:
+        raise
+    except Exception as exc:  # connection refused, timeout, etc.
+        raise LaunchError(f"local gateway models check failed: {exc}") from exc
+    if status != 200:
+        return None
+    return ids
+
+
+def read_gateway_token(gateway: dict[str, Any], *, home: Path | None = None) -> str:
+    """Read + shape-check the loopback gateway token (never upstream)."""
 
     gateway_info = gateway["gateway"]
     base = home if home is not None else Path.home()
@@ -365,6 +422,19 @@ def check_readiness(
     token = raw.decode("utf-8").strip()
     if not _TOKEN_SHAPE.fullmatch(token):
         raise LaunchError("gateway key file has an invalid token shape")
+    return token
+
+
+def check_readiness(
+    gateway: dict[str, Any],
+    *,
+    home: Path | None = None,
+    health_get: Callable[[str, str], int] | None = None,
+) -> str:
+    """Loopback-only readiness: gateway token file + /healthz. Never upstream."""
+
+    gateway_info = gateway["gateway"]
+    token = read_gateway_token(gateway, home=home)
     getter = health_get or _default_health_get
     try:
         status = getter(gateway_info["base_url"], gateway_info["health_path"])

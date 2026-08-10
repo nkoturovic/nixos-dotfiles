@@ -138,14 +138,13 @@ def _lead_context_policy(model: dict[str, Any]) -> tuple[int, int, int]:
     return client_tokens, provider_tokens, auto_compact_trigger(provider_tokens)
 
 
-def load_composition_file(
-    path: Path | str, schema: dict[str, Any]
+def validate_document(
+    document: dict[str, Any], schema: dict[str, Any]
 ) -> dict[str, Any]:
-    """Strictly load and schema-validate a composition document."""
+    """Schema + version validation shared by file and stdin ingestion."""
 
     from . import validate as schema_validate
 
-    document = strict_json.load(path)
     problems = schema_validate.validate(document, schema, "$")
     if problems:
         raise CompositionError("; ".join(problems))
@@ -154,6 +153,14 @@ def load_composition_file(
             f"unsupported composition version {document.get('version')!r}"
         )
     return document
+
+
+def load_composition_file(
+    path: Path | str, schema: dict[str, Any]
+) -> dict[str, Any]:
+    """Strictly load and schema-validate a composition document."""
+
+    return validate_document(strict_json.load(path), schema)
 
 
 def resolve(docs: dict[str, Any], composition: dict[str, Any]) -> ResolvedComposition:

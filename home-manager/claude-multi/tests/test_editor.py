@@ -18,6 +18,7 @@ from claude_multi.tui import EditorError, EditorState
 
 from test_tui import (
     CTRL_G,
+    CTRL_O,
     DOWN,
     ENTER,
     ESC,
@@ -495,6 +496,48 @@ class FormEditorActionTests(unittest.TestCase):
         outcome, win, _ = run_form(state, script)
         self.assertIsNone(outcome)
         self.assertTrue(any(tui.FORM_DISCARD_TITLE in frame for frame in win.frames))
+
+
+class EditorSaveHotkeyTests(unittest.TestCase):
+    """014: ^O opens the Save-or-launch menu from anywhere on the form."""
+
+    def test_ctrl_o_opens_menu_with_text_row_focused(self) -> None:
+        state = make_state()
+        screen = tui.FormEditorScreen(state)
+        # ^O (opens actions), Esc (backs out of the menu), Esc (leaves editor).
+        win = FakeWindow([CTRL_O, ESC, ESC], height=30, width=90)
+        outcome = screen.run(win)
+        self.assertIsNone(outcome)
+        menu_frames = [f for f in win.frames if "Save or launch" in f]
+        self.assertTrue(menu_frames, "actions menu must open on ^O")
+        self.assertNotIn("o", state.document["name"].replace("default", ""))
+        # The editor was still open after the menu closed (no bounce).
+        self.assertIn("claude-multi / Edit default", win.frames[-1])
+
+    def test_ctrl_o_update_matches_actions_row_path(self) -> None:
+        state = make_state()
+        outcome, _win, _ = run_form(state, [CTRL_O, ENTER])
+        self.assertIsNotNone(outcome)
+        self.assertEqual(outcome.action, "update")
+        self.assertEqual(outcome.document["name"], "default")
+
+    def test_printable_letters_still_reach_text_fields(self) -> None:
+        state = make_state()
+        # Typing s/o on the focused Name row must insert, never open the menu.
+        script = list("so") + [ESC, ENTER]  # then discard the dirty edit
+        outcome, win, _ = run_form(state, script)
+        self.assertIsNone(outcome)
+        self.assertTrue(state.document["name"].startswith("defaultso"))
+        menu_frames = [f for f in win.frames if "Update current composition" in f]
+        self.assertFalse(menu_frames, "printable keys must not open the menu")
+
+    def test_keybar_lists_ctrl_o_save(self) -> None:
+        state = make_state()
+        _outcome, win, _ = run_form(state, [ESC])
+        self.assertTrue(
+            any("^O" in frame and "save" in frame for frame in win.frames),
+            "keybar must advertise ^O save",
+        )
 
 
 class FormEditorJsonTests(unittest.TestCase):

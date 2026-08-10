@@ -1,5 +1,34 @@
 # STATUS — live tracker
 
+## 2026-08-10 — v2.13.0: operator batch (D50, blueprints 014–018) — built, reviewed, AWAITING ACTIVATION
+
+- **016 qwen38 production** (D21 sequence): wire `qwen3.8-max`, display
+  drops "· Preview", lean routing note; qwen38 slots ahead of glm52 in the
+  three authored profiles (slot order = presentation; `preferred`
+  untouched). Golden delta = the two intended lines. Live acceptance call
+  stays approval-gated.
+- **015 dynamic model/composition selection**: MRU-first pick order on all
+  surfaces (derived from records, no new state; here+elsewhere dedup);
+  `--composition-file PATH|-` on-the-fly ingestion (bounded stdin, R1 P1
+  file refusal); typed `/model` selectors on G picker rows + listing +
+  `models` command; doctor gateway radar (`_gateway_snapshot`:
+  served-vs-rendered ALIASES — wire names are never served, live-verified —
+  + on-disk config byte-drift + OAuth no-record → login guidance).
+- **018 providers pane** (4-lens design): **P** in the G picker — honest
+  per-provider local status, exact connect instructions, masked direct-key
+  entry to the standard env file (0600 atomic, value never echoed),
+  OAuth login-command guidance. No new card key, no gateway mutations.
+- **014** editor **^O** opens Save-or-launch anywhere (text rows keep
+  printable keys; ^O delivery pty-verified). **017** dark `dim` readable
+  (256-color 245/240, safe 8-color fallbacks, black-on-black trap closed).
+- **Review**: cross-family fan-out (sol-xhigh: 3 must-fix + 1 should-fix —
+  all fixed and re-pinned; glm52: approve with nits — addressed; qwen38
+  system sweep: GOOD + lows — addressed) with adversarial verification;
+  critical finding confirmed fixed against the final tree by the verifier.
+- Evidence: 1,509+ host tests green, sandbox green (2.13.0 derivation).
+  Activation: HM switch (re-render + gateway restart) + `doctor
+  --repair-all` + approval-gated live `qwen3.8-max` call.
+
 ## 2026-07-30 — v2.12.1: opus5 unscoped + two roster-rich profiles (D49, activated gen 119)
 
 - **`compatible_roles` for opus5 widened to all four** (catalog 14):

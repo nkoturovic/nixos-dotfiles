@@ -98,9 +98,9 @@ claude-api-key:
         owned-by: "alibaba"
         context-length: 1000000
         force-mapping: true
-      - name: "qwen3.8-max-preview"
+      - name: "qwen3.8-max"
         alias: "claude-multi-qwen38-max"
-        display-name: "Qwen3.8 Max · Preview"
+        display-name: "Qwen3.8 Max"
         owned-by: "alibaba"
         context-length: 983616
         force-mapping: true

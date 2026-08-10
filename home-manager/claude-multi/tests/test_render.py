@@ -115,7 +115,7 @@ class DirectProviderLaneTests(unittest.TestCase):
 
     def test_qwen_1m_client_suffix_is_stripped_from_exact_wire_mapping(self) -> None:
         yaml = _render().yaml
-        block = yaml.split('name: "qwen3.8-max-preview"', 1)[1]
+        block = yaml.split('name: "qwen3.8-max"', 1)[1]
         self.assertIn('alias: "claude-multi-qwen38-max"', block)
         self.assertNotIn('alias: "claude-multi-qwen38-max[1m]"', block)
         self.assertIn("context-length: 983616", block)

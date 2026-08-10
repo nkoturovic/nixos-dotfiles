@@ -889,6 +889,78 @@ Naming follows the lead+preferred+pool convention; the trusted
 `default` seed is deliberately untouched (a named profile is one Tab
 away). No hint changes in models.json (they are global).
 
+**D50 — Operator batch 2026-08-10: qwen3.8 production, MRU composition
+order, on-the-fly ingestion, providers pane, TUI fixes (2.13.0).**
+Blueprints `blueprints/014-018` (one folder per item). Five landings:
+
+1. **qwen38 production flip (016, the D21 sequence executed).** Wire id
+   `qwen3.8-max-preview` → `qwen3.8-max` (GA 2026-08-03; the official
+   Token Plan Claude Code doc's examples now name the production id, and
+   its 983616 context recommendation stands unchanged). Display drops
+   "· Preview"; routing_note is lean production language (operator:
+   configs stay production-ready, no process/dates residue). Effort
+   tiers unchanged (xhigh stays the provider max). Per the D45 parity
+   note, qwen38 slots now list **ahead of glm52** in the three
+   claude-multi-authored profiles that carry both (slot order is
+   presentation order — D45's "moves ahead" executed; `preferred` flags
+   untouched, Sol stays the workhorse). Operator-authored compositions
+   were not reordered (reported instead). Golden re-bless delta = the
+   two intended lines only. The one live acceptance call stays
+   approval-gated at activation.
+2. **MRU composition pick order (015 D-a).** All pick surfaces — Tab/P
+   cycling, transition/adopt choosers, `compose list` (which gains a
+   last-used column) — order by most-recently-used, derived from session
+   records (per-cwd tier first, then global, then never-launched
+   alphabetical). **Zero new state** (D3): `last_seen_at` is
+   hook-refreshed; records of deleted compositions never resurrect them;
+   a composition used here AND elsewhere appears exactly once (review
+   must-fix).
+3. **On-the-fly ingestion: `--composition-file PATH|-`.** Launch-once
+   semantics with file provenance: schema+version validated, resume
+   rebuilds from the recorded snapshot (R1 P2), nothing is written to
+   the store. `-` reads stdin and forces noninteractive; the read is
+   bounded at the strict-JSON limit + 1 (review should-fix). Mutually
+   exclusive with `--composition`; refused unconditionally with
+   `-r`/`-c` (R1 P1 — a file is never verifiably the recorded intent,
+   even when its name matches; review must-fix). Rejected: a TUI
+   "pick model → generate composition" generator (availability mutation
+   would be silent state change; the editor path is already short).
+4. **Providers pane inside G (018).** Four-lens design evaluation
+   (UX/gateway/critic + lead-finalized secrets lens) converged: no new
+   card key, no global active-model state (a third intent authority),
+   no gateway mutations, no management API, no live provider discovery.
+   What landed: **P** in the G picker opens a read-only provider status
+   pane (credential-source facts by name/count only, rendered/served
+   selector counts, exact remediation) with **masked direct-key entry**
+   into the standard `~/.config/secrets/claude.env` (operator steer;
+   0600 atomic parse-preserving `proxy.set_secret_value`, value
+   shape-validated, never echoed — confirmation shows name+length only)
+   and OAuth login-command guidance. The missing-secret confirm modal
+   and line-mode listing gain the exact connect instructions. Honesty
+   vocabulary everywhere: present/rendered/served are separate claims;
+   "served" never means "connected".
+5. **Doctor gateway radar + small surfaces (015 C/D + sweep fixes).**
+   `_gateway_snapshot` (shared by doctor and the providers pane):
+   loopback `/v1/models` served-set vs rendered aliases — aliases ONLY
+   (cross-family review + live verification proved CLIProxyAPI 7.2.80
+   never serves direct wire names; the first cut would have BLOCKED
+   forever on a healthy gateway); on-disk-config byte-drift vs fresh
+   render (catches wire-only remappings like 016, which /v1/models
+   cannot see); OAuth no-credential-record → login command instead of
+   restart advice. G picker rows show typed `/model` selectors (009
+   discoverability; the native display filter is binary-fixed).
+   `compose list` last-used column; `models` gains selector ids;
+   QUICK_HELP names H/U; gateway-down messages name the start command;
+   secret problems name the env file path. Editor gains **^O** for the
+   Save-or-launch menu (014; ^S rejected — IXON/XOFF; bare letters
+   rejected — text rows own printable keys; reviewer empirically
+   verified ^O delivery on pty). Dark-theme `dim` becomes readable
+   (017: 256-color 245 dark / 240 light, 8-color fallbacks white/black —
+   the bold-black black-on-black trap closed; ANSI mirror 38;5;245/240).
+Suite: 1,509+ tests green; sandbox green; cross-family review
+(sol-xhigh revise→fixed; glm52 approve; qwen38 sweep GOOD) with
+adversarial verification of the critical finding.
+
 ## User decision summary (what you're approving by accepting this design)
 
 1. Selected agents become **real files** in a per-session scope; the failure
