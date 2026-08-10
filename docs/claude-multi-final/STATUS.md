@@ -1,6 +1,13 @@
 # STATUS — live tracker
 
-## 2026-08-10 — v2.13.0: operator batch (D50, blueprints 014–018) — built, reviewed, AWAITING ACTIVATION
+## 2026-08-10 — v2.13.0: operator batch (D50, blueprints 014–018, activated gen 120)
+
+- **Activated**: HM gen 120 (re-render + gateway restart), `doctor
+  --repair-all` converged all 33 durable sessions, doctor **Ready**.
+  **Live acceptance (approved call)**: `claude-multi-qwen38-max` routed
+  through the gateway answered 200 — upstream identifies as Qwen3.8
+  production; live config maps the alias to `qwen3.8-max` with zero
+  preview residue (structural grep, names only). D21 sequence complete.
 
 - **016 qwen38 production** (D21 sequence): wire `qwen3.8-max`, display
   drops "· Preview", lean routing note; qwen38 slots ahead of glm52 in the
@@ -25,9 +32,8 @@
   all fixed and re-pinned; glm52: approve with nits — addressed; qwen38
   system sweep: GOOD + lows — addressed) with adversarial verification;
   critical finding confirmed fixed against the final tree by the verifier.
-- Evidence: 1,509+ host tests green, sandbox green (2.13.0 derivation).
-  Activation: HM switch (re-render + gateway restart) + `doctor
-  --repair-all` + approval-gated live `qwen3.8-max` call.
+- Evidence: 1,530 host tests OK (skipped=2), sandbox green (2.13.0
+  derivation), post-activation doctor Ready (gen 120).
 
 ## 2026-07-30 — v2.12.1: opus5 unscoped + two roster-rich profiles (D49, activated gen 119)
 

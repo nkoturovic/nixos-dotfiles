@@ -73,7 +73,7 @@ untouched; `claude-gateway` is the ordinary non-composition entrypoint.
 
 ## Installed state (2026-07-29)
 
-- claude-multi **2.12.1** active (HM generation 119; rollback: gen 118/117),
+- claude-multi **2.13.0** active (HM generation 120; rollback: gen 119/118),
   Claude pinned at **2.1.220** (hash-verified, symlink-aligned).
   Resume gate live (D41): repair-needed records get one-keypress Repair &
   resume in the TUI, daemon-owned resumes gate with Stop & resume /
@@ -110,18 +110,17 @@ untouched; `claude-gateway` is the ordinary non-composition entrypoint.
   Switch paths for ordinary sessions: typed `/model <selector>`, **T** in
   the picker, or `claude-gateway -r <id> --model X`. Sessions screen
   empty state names the filter when sessions exist elsewhere.
-- **2.13.0 batch built, awaiting activation** (D50; blueprints 014–018):
-  qwen38 production wire (`qwen3.8-max`, catalog 15) + qwen38-ahead-of-glm52
-  slot order in the three authored profiles; MRU-first composition picking
+- **2.13.0 batch live** (D50; blueprints 014–018; gen 120): qwen38
+  production wire (`qwen3.8-max`, catalog 15) + qwen38-ahead-of-glm52 slot
+  order in the three authored profiles; MRU-first composition picking
   everywhere (derived from records — no new state); `--composition-file`
   on-the-fly ingestion; **P providers pane** in the G picker (status,
   connect instructions, masked key entry to the standard env file); doctor
   gateway radar (served-vs-rendered aliases + config byte-drift + OAuth
   record disambiguation); typed `/model` selectors on picker rows; editor
-  **^O** save chord; readable dark-theme muted color. Activation runs the
-  usual: HM switch (re-render + gateway restart) + `doctor --repair-all`
-  (scope display-string convergence) + the approval-gated live
-  `qwen3.8-max` call.
+  **^O** save chord; readable dark-theme muted color. Live acceptance call
+  proved `qwen3.8-max` routing; `doctor --repair-all` converged all 33
+  durable sessions; doctor Ready.
 - `claude-multi doctor` → **Ready** (all 18 durable scopes on catalog 12 + D44 shim guard;
   watchdog pin + roster prompts live; D43 radar in the suite).
   Sessions screen sorts by last used with the created age alongside

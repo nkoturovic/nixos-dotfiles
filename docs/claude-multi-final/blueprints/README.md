@@ -6,11 +6,11 @@ shared across both so every work item has a unique id.
 
 | # | Item | Target | Status |
 |---|------|--------|--------|
-| 014 | [Edit-tab save hotkey](014-edit-tab-save-hotkey/) | 2.13.0 | landed (awaiting activation) |
-| 015 | [Dynamic composition/model selection](015-dynamic-model-selection/) | 2.13.0 | landed (awaiting activation) |
-| 016 | [Qwen3.8 Max production flip](016-qwen38-production/) | 2.13.0 | landed (awaiting activation) |
-| 017 | [Muted color visibility](017-muted-color-visibility/) | 2.13.0 | landed (awaiting activation) |
-| 018 | [Providers pane](018-providers-pane/) | 2.13.0 | landed (awaiting activation) |
+| 014 | [Edit-tab save hotkey](014-edit-tab-save-hotkey/) | 2.13.0 | landed (activated, gen 120) |
+| 015 | [Dynamic composition/model selection](015-dynamic-model-selection/) | 2.13.0 | landed (activated, gen 120) |
+| 016 | [Qwen3.8 Max production flip](016-qwen38-production/) | 2.13.0 | landed (activated, gen 120) |
+| 017 | [Muted color visibility](017-muted-color-visibility/) | 2.13.0 | landed (activated, gen 120) |
+| 018 | [Providers pane](018-providers-pane/) | 2.13.0 | landed (activated, gen 120) |
 
 Batch approval flow: blueprints → implementation → per-item review → full suite
 → commits on `feature/term-only` → **operator green light** → HM activation
