@@ -211,8 +211,9 @@ full): run with a disk-backed temp dir, e.g.
   a rename-replaced config.yaml on 7.2.80; without the restart it serves the
   old routes), and one consent-gated live call.
   Only `models.json` / `providers.json` / compositions are ever edited.
-  When `qwen3.8-max` ships, follow DECISIONS D21 (wire_model → context
-  re-verify → effort tiers → one live call → drop "· Preview").
+  A preview→production flip follows DECISIONS D21 (wire_model → context
+  re-verify → effort tiers → one live call → display) — executed for
+  qwen3.8-max in 2.13.0 (D50/016).
 - **Add a model the gateway doesn't know (like Opus 5):** CLIProxyAPI's
   embedded registry may predate the model — aliases then drop from
   `/v1/models` (routing still works). Add a local registry patch under
@@ -340,6 +341,7 @@ full): run with a disk-backed temp dir, e.g.
   misalign tables (cosmetic; escape injection is sanitized separately).
 - **`--legacy`** is a compatibility hatch, not a durability answer; legacy
   (v1) records upgrade on resume. Do not extend it.
-- **Qwen preview→production**: when `qwen3.8-max` ships, follow DECISIONS
-  D21 (wire_model → context re-verify → effort tiers → one live call →
-  drop "· Preview").
+- **Qwen preview→production**: DONE (2.13.0, D50/016): wire
+  `qwen3.8-max`, live call verified. The D21 sequence (wire_model →
+  context re-verify → effort tiers → one live call → display) is the
+  template for any future preview flip.
