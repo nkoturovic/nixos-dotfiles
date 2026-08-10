@@ -730,3 +730,106 @@ class SetSecretValueTests(unittest.TestCase):
         os.symlink(target, self.path)
         with self.assertRaises(proxy.ProxyError):
             proxy.set_secret_value(self.path, "QWEN_CLAUDE_API_KEY", "sk-x")
+
+    def test_duplicate_keys_collapse_to_one_consumable_file(self) -> None:
+        self._write("QWEN_CLAUDE_API_KEY=old\nexport QWEN_CLAUDE_API_KEY=older\n")
+        proxy.set_secret_value(self.path, "QWEN_CLAUDE_API_KEY", "new")
+        # The first occurrence wins (its prefix), the duplicate is dropped.
+        self.assertEqual(self.path.read_text(), "QWEN_CLAUDE_API_KEY=new\n")
+        # The saved file passes the strict parser (duplicates are rejected).
+        self.assertEqual(
+            proxy.parse_secret_env(self.path), {"QWEN_CLAUDE_API_KEY": "new"}
+        )
+
+    def test_export_tab_prefix_preserved_exactly(self) -> None:
+        self._write("export\tQWEN_CLAUDE_API_KEY=old\n")
+        proxy.set_secret_value(self.path, "QWEN_CLAUDE_API_KEY", "new")
+        self.assertEqual(self.path.read_text(), "export\tQWEN_CLAUDE_API_KEY=new\n")
+
+    def test_preexisting_malformed_other_line_rejects_the_save(self) -> None:
+        self._write("garbage line\nKIMI_CLAUDE_API_KEY=x\n")
+        with self.assertRaises(proxy.ProxyError):
+            proxy.set_secret_value(self.path, "QWEN_CLAUDE_API_KEY", "sk-x")
+        # Nothing written: the file still holds the original bytes.
+        self.assertEqual(
+            self.path.read_text(), "garbage line\nKIMI_CLAUDE_API_KEY=x\n"
+        )
+
+    def test_concurrent_saves_serialize_through_the_lock(self) -> None:
+        self._write("KIMI_CLAUDE_API_KEY=x\n")
+        lock = state.FileLock(self.path)
+        lock.acquire(blocking=True)
+        outcome: list[str] = []
+
+        def writer() -> None:
+            try:
+                proxy.set_secret_value(self.path, "QWEN_CLAUDE_API_KEY", "sk-later")
+            except proxy.ProxyError as exc:
+                outcome.append(str(exc))
+
+        thread = threading.Thread(target=writer)
+        thread.start()
+        # While the lock is held the writer must still be waiting.
+        self.assertTrue(thread.is_alive())
+        lock.release()
+        thread.join(timeout=5)
+        self.assertFalse(thread.is_alive())
+        self.assertEqual(outcome, [])
+        self.assertEqual(
+            proxy.parse_secret_env(self.path),
+            {"KIMI_CLAUDE_API_KEY": "x", "QWEN_CLAUDE_API_KEY": "sk-later"},
+        )
+
+    def test_unrelated_blank_lines_survive_a_duplicate_collapse(self) -> None:
+        self._write(
+            "# header\n\nQWEN_CLAUDE_API_KEY=old\n\nexport QWEN_CLAUDE_API_KEY=older\n"
+        )
+        proxy.set_secret_value(self.path, "QWEN_CLAUDE_API_KEY", "new")
+        self.assertEqual(
+            self.path.read_text(),
+            "# header\n\nQWEN_CLAUDE_API_KEY=new\n\n",
+        )
+
+
+class ListProviderModelsTests(unittest.TestCase):
+    """2.14.0: the explicit-invocation provider listing (discover)."""
+
+    def _providers(self):
+        from claude_multi import catalog
+
+        return catalog.load_catalog(
+            Path(__file__).resolve().parents[1]
+        ).docs["providers"]["providers"]
+
+    def test_secret_never_leaks_into_fetch_errors(self) -> None:
+        secret = "topsecret-fixture"
+
+        def bad_fetch(url, headers):
+            raise RuntimeError(f"headers={headers}")  # carries the secret
+
+        with mock.patch.dict(
+            os.environ, {}, clear=False
+        ):
+            with mock.patch.object(
+                proxy, "resolve_secret", return_value=secret
+            ):
+                with self.assertRaises(proxy.ProxyError) as ctx:
+                    proxy.list_provider_models(
+                        "kimi", self._providers(), fetch=bad_fetch
+                    )
+        self.assertNotIn(secret, str(ctx.exception))
+        self.assertIn("RuntimeError", str(ctx.exception))
+
+    def test_malformed_payload_entries_are_skipped(self) -> None:
+        payload = b'{"data": [{"id": "k3"}, {"no_id": 1}, "junk", 42]}'
+        with mock.patch.object(proxy, "resolve_secret", return_value="x"):
+            entries = proxy.list_provider_models(
+                "kimi", self._providers(), fetch=lambda url, headers: payload
+            )
+        self.assertEqual([e["id"] for e in entries], ["k3"])
+
+    def test_missing_secret_is_a_clean_error(self) -> None:
+        with mock.patch.object(proxy, "resolve_secret", return_value=None):
+            with self.assertRaises(proxy.ProxyError) as ctx:
+                proxy.list_provider_models("kimi", self._providers())
+        self.assertIn("KIMI_CLAUDE_API_KEY", str(ctx.exception))

@@ -1,7 +1,7 @@
 {
   "version": 1,
   "type": "object",
-  "required": ["version", "kind", "entry", "fixtures", "created_at"],
+  "required": ["version", "kind", "entry", "created_at"],
   "additionalProperties": false,
   "properties": {
     "version": { "const": 1 },

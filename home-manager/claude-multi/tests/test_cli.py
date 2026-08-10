@@ -194,7 +194,7 @@ class QuickConfirmTests(CLITestCase):
         self.assertEqual(
             cli.quick_footer(plan),
             (
-                "Enter launch · D details · S sessions · G new gateway · ? workflows · Q cancel",
+                "Enter launch · D details · S sessions · G new gateway · ? help · H health · Q cancel",
             ),
         )
 
@@ -207,7 +207,7 @@ class QuickConfirmTests(CLITestCase):
         self.assertEqual(
             cli.quick_footer(plan),
             (
-                "Enter transition hint · D details · S sessions · G new gateway · ? workflows · Q cancel",
+                "Enter transition hint · D details · S sessions · G new gateway · ? help · H health · Q cancel",
             ),
         )
         self.assertNotIn("Enter launch", "\n".join(cli.quick_footer(plan)))
@@ -1506,7 +1506,7 @@ class QuickConfirmVisibilityTests(CLITestCase):
         self.assertIn("Native workflows (ultracode): ON", output)
         self.assertIn("never counts", output)
         self.assertIn("no cm-role contract", output)
-        self.assertIn("? workflows", output)
+        self.assertIn("? help", output)
         self.assertEqual(self.launches, [])
 
     def test_project_agents_counted_without_collision(self) -> None:
@@ -3443,6 +3443,22 @@ class OrdinaryLaunchModelsTests(CLITestCase):
 class OrdinaryScreenTuiTests(CLITestCase):
     """The G gateway picker, driven via the FakeWindow double (D46)."""
 
+    def setUp(self) -> None:
+        super().setUp()
+        self._with_oauth_records()
+
+    def _with_oauth_records(self) -> None:
+        """Most real machines have OAuth credential records; without them
+        oauth rows legitimately demand sign-in confirmation (2.13.1)."""
+
+        auth_dir = (
+            Path(self.runtime.environ["HOME"])
+            / self.runtime.catalog.docs["gateway"]["gateway"]["auth_dir"]
+        )
+        state.ensure_private_dir(auth_dir)
+        state.atomic_write(auth_dir / "claude-fixture.json", b"{}")
+        state.atomic_write(auth_dir / "codex-fixture.json", b"{}")
+
     def _run(self, keys, **win_kwargs):
         from test_tui import FakeWindow
 
@@ -4355,14 +4371,18 @@ class DoctorServedCrossCheckTests(CLITestCase):
         self.assertEqual(len(info), 1)
         self.assertIn("non-200", info[0])
 
-    def test_connection_failure_is_silent(self) -> None:
+    def test_connection_failure_reports_a_transient_skip(self) -> None:
+        # Readiness passed but the models probe failed (a restart in
+        # flight): the radar must SAY it never ran — silence reads as clean.
         with unittest.mock.patch.object(
             cli.launch,
             "served_models",
             side_effect=cli.launch.LaunchError("connection refused"),
         ):
             problems, info = cli._doctor_served_report(self.runtime, "t" * 64)
-        self.assertEqual((problems, info), ([], []))
+        self.assertEqual(problems, [])
+        self.assertEqual(len(info), 1)
+        self.assertIn("changed state after the readiness check", info[0])
 
     def test_expected_covers_fixture_secret_omissions(self) -> None:
         # The fixture secret file holds only the Kimi key: qwen selectors
@@ -4413,7 +4433,7 @@ class ProvidersPaneTests(CLITestCase):
 
         secret = "sk-test-qwen-key-123"
         script = ["j", "j", "j", "\n"] + list(secret)
-        script += ["\n", _curses.KEY_RIGHT, "\n", "\x1b"]
+        script += ["\n", "\n", "\x1b"]
         win, screen = self._open(script)
         content = self.secret_file.read_text()
         self.assertIn(f"QWEN_CLAUDE_API_KEY={secret}", content)
@@ -4429,7 +4449,7 @@ class ProvidersPaneTests(CLITestCase):
         import curses as _curses
 
         script = ["j", "j", "j", "\n"] + list("bad key with spaces")
-        script += ["\n", _curses.KEY_RIGHT, "\n", "\x1b"]
+        script += ["\n", "\n", "\x1b"]
         _win, screen = self._open(script)
         self.assertIn("unsupported shape", screen.message or "")
         self.assertNotIn("QWEN", self.secret_file.read_text())
@@ -4461,6 +4481,195 @@ class ProvidersPaneTests(CLITestCase):
         self.assertTrue(
             any("providers — local status" in frame for frame in win.frames)
         )
+
+
+class ImprovementBatchTests(CLITestCase):
+    """2.13.1: pins for the multi-lens improvement batch."""
+
+    # -- card: secret problems point at the in-TUI fix --------------------
+    def test_blocked_card_secret_error_shows_pane_hint(self) -> None:
+        document = self.runtime.compositions.load("default")
+        document["availability"]["providers"]["openai"] = "off"
+        self.runtime.compositions.save(document)  # kimi secret still needed
+        os.remove(self.secret_file)  # now the kimi secret is missing too
+        code, output = self.run_cli(
+            ["--composition", document["name"], "--line"], "\nq\n"
+        )
+        self.assertEqual(code, 0)
+        self.assertIn("BLOCKED", output)
+
+    def test_blocked_card_curses_hint_line(self) -> None:
+        from test_tui import FakeWindow
+
+        os.remove(self.secret_file)
+        document = self.runtime.compositions.load("default")
+        plan = cli.build_quick_plan(self.runtime, document, action="fresh", source="t")
+        self.assertFalse(plan.ready)
+        screen = cli._QuickConfirmScreen(
+            self.runtime, plan, passthrough=[], palette=tui.MONO_PALETTE,
+            gateway_check=lambda: None,
+        )
+        win = FakeWindow(["\x1b"])
+        screen.run(win)
+        self.assertIn("G (gateway models) → P (providers)", win.text())
+
+    # -- G picker: OAuth sign-in marking ----------------------------------
+    def test_oauth_rows_marked_sign_in_needed_without_records(self) -> None:
+        from test_tui import FakeWindow
+
+        screen = cli._OrdinaryScreen(self.runtime, palette=tui.MONO_PALETTE)
+        win = FakeWindow(["\x1b"])
+        screen.run(win)
+        text = win.text()
+        self.assertIn("(sign in needed)", text)  # fixture has no auth records
+        self.assertIn("no codex credential record", text)
+
+    def test_sign_in_confirm_names_login_command(self) -> None:
+        from test_tui import FakeWindow
+
+        screen = cli._OrdinaryScreen(
+            self.runtime, palette=tui.MONO_PALETTE, initial_model="opus5"
+        )
+        win = FakeWindow(["\n", "\n", "\x1b"])  # Enter → modal → Cancel
+        result = screen.run(win)
+        self.assertIsNone(result)
+        self.assertIn("claude-multi-proxy claude-login", win.text())
+
+    # -- providers pane: help + drift banner ------------------------------
+    def test_providers_pane_has_help(self) -> None:
+        from test_tui import FakeWindow
+
+        screen = cli._ProvidersScreen(self.runtime, palette=tui.MONO_PALETTE)
+        win = FakeWindow(["?", "\x1b", "\x1b"])
+        screen.run(win)
+        self.assertTrue(any("— help" in f for f in win.frames))
+
+    def test_providers_pane_shows_drift_banner(self) -> None:
+        from test_tui import FakeWindow
+
+        config_dir = cli.proxy_mod.config_dir(Path(self.runtime.environ["HOME"]))
+        state.ensure_private_dir(config_dir)
+        state.atomic_write(config_dir / "config.yaml", b"stale: true\n")
+        # served probe will fail (no gateway): banner needs down OR drift;
+        # drift requires the served probe to have succeeded — simulate by
+        # patching served_models to return the expected set.
+        expected = set()
+        with unittest.mock.patch.object(
+            cli.launch, "served_models", return_value=expected
+        ):
+            screen = cli._ProvidersScreen(self.runtime, palette=tui.MONO_PALETTE)
+            win = FakeWindow(["\x1b"])
+            screen.run(win)
+        self.assertIn("config drift", win.text())
+
+    # -- line mode: h runs doctor ------------------------------------------
+    def test_line_mode_h_prints_doctor(self) -> None:
+        code, out = self.run_cli([], "h\nq\n", interactive=True)
+        self.assertEqual(code, 0)
+        self.assertIn("claude-multi doctor: Ready", out)
+        self.assertIn("Catalog, compositions, and local gateway are valid.", out)
+
+    # -- models command ----------------------------------------------------
+    def test_models_lists_wire_and_typed_selectors(self) -> None:
+        code, out = self.run_cli(["models"], interactive=False)
+        self.assertEqual(code, 0)
+        self.assertIn("wire=qwen3.8-max", out)
+        self.assertIn("in-session: /model claude-multi-qwen38-max[1m]", out)
+        self.assertIn("wire=gpt-5.6-sol", out)
+
+    # -- discover command ---------------------------------------------------
+    def test_discover_marks_cataloged_and_candidates(self) -> None:
+        entries = [
+            {"id": "k3", "display_name": "K3", "context_length": 1048576,
+             "think_efforts": ["low", "high", "max"]},
+            {"id": "k4", "display_name": "K4", "context_length": 524288},
+        ]
+        with unittest.mock.patch.object(
+            cli.proxy_mod, "list_provider_models", return_value=entries
+        ):
+            code, out = self.run_cli(["discover", "kimi"], interactive=False)
+        self.assertEqual(code, 0)
+        self.assertIn("k3\tcataloged as kimi-k3", out)
+        self.assertIn("k4\tonboarding candidate", out)
+        self.assertIn("ctx=1048576", out)
+
+    def test_discover_unknown_provider_is_exit_2(self) -> None:
+        code, out = self.run_cli(["discover", "nope"], interactive=False)
+        self.assertEqual(code, 2)
+        self.assertIn("unknown provider", out)
+
+    def test_discover_qwen_reports_unsupported(self) -> None:
+        with self.assertRaises(cli.proxy_mod.ProxyError):
+            cli.proxy_mod.list_provider_models(
+                "qwen",
+                self.runtime.catalog.docs["providers"]["providers"],
+                environ=self.runtime.environ,
+            )
+
+    # -- editor: message visible while BLOCKED; ^C respects dirty ----------
+    def test_editor_message_visible_when_blocked(self) -> None:
+        from test_editor import make_state, run_form
+        from test_tui import FakeWindow
+
+        state = make_state()
+        state.document["name"] = ""  # invalid → BLOCKED (and dirty)
+        state.message = "refused: edit Availability first"
+        outcome, win, _screen = run_form(state, ["\x1b", "\n"])  # Esc, Discard
+        self.assertIn("refused: edit Availability first", win.text())
+
+    def test_editor_ctrl_c_clean_exits_without_modal(self) -> None:
+        import curses as _curses  # noqa: F401 (contrast with dirty case)
+        from test_editor import make_state
+        from test_tui import FakeWindow
+
+        state = make_state()
+        screen = tui.FormEditorScreen(state)
+        win = FakeWindow(["\x03"], height=30, width=90)
+        with self.assertRaises(KeyboardInterrupt):
+            screen.run(win)
+
+    def test_editor_ctrl_c_dirty_asks_before_discarding(self) -> None:
+        import curses as _curses
+        from test_editor import make_state
+        from test_tui import FakeWindow
+
+        state = make_state()
+        screen = tui.FormEditorScreen(state)
+        # type x (dirty) → ^C → modal → Right to "Keep editing" → Enter →
+        # Esc → dirty discard modal again → Enter (Discard) leaves.
+        script = (
+            list("x")
+            + ["\x03", _curses.KEY_RIGHT, "\n", "\x1b", "\n"]
+        )
+        win = FakeWindow(script, height=30, width=90)
+        outcome = screen.run(win)
+        self.assertIsNone(outcome)
+        self.assertTrue(
+            any("Discard unsaved changes?" in frame for frame in win.frames)
+        )
+
+    # -- U confirm ----------------------------------------------------------
+    def test_u_cancel_does_not_run_update(self) -> None:
+        from test_tui import FakeWindow
+
+        calls = []
+        screen = cli._QuickConfirmScreen(
+            self.runtime,
+            cli.build_quick_plan(
+                self.runtime,
+                self.runtime.compositions.load("default"),
+                action="fresh", source="t",
+            ),
+            passthrough=[], palette=tui.MONO_PALETTE,
+            update_hint=("2.1.218", "2.1.219"),
+            gateway_check=lambda: None,
+            upgrade_runner=lambda: calls.append(1) or [],
+            hint_detector=lambda _contract: None,
+            tty_in=io.StringIO("\n"),
+        )
+        win = FakeWindow(["u", "\x1b", "\x1b"])  # u → modal → Esc cancels
+        screen.run(win)
+        self.assertEqual(calls, [])
 
 
 class PolishBatchTests(CLITestCase):
@@ -5008,6 +5217,18 @@ class SessionNameWiringTests(CLITestCase):
 
 class OrdinaryModelSwitchTests(CLITestCase):
     """T on an ordinary row: gate, pick, confirm, model override (D48)."""
+
+    def setUp(self) -> None:
+        super().setUp()
+        auth_dir = (
+            Path(self.runtime.environ["HOME"])
+            / self.runtime.catalog.docs["gateway"]["gateway"]["auth_dir"]
+        )
+        # OAuth credential records exist on a normal machine; without them
+        # oauth rows legitimately demand sign-in confirmation (2.13.1).
+        state.ensure_private_dir(auth_dir)
+        state.atomic_write(auth_dir / "claude-fixture.json", b"{}")
+        state.atomic_write(auth_dir / "codex-fixture.json", b"{}")
 
     def _ordinary(self, model="kimi-k3"):
         record = sessions.make_ordinary_record(
@@ -5756,7 +5977,7 @@ class QuickConfirmHealthUpdateTests(CLITestCase):
     def test_u_action_runs_update_and_refreshes(self) -> None:
         calls = []
         screen, win = self._screen(
-            ["u", "\x1b"],
+            ["u", "\n", "\x1b"],
             update_hint=("2.1.218", "2.1.219"),
             gateway_check=lambda: None,
             upgrade_runner=lambda: calls.append(1) or ["active now: override pins 2.1.219"],
@@ -6099,7 +6320,7 @@ class UpdateProgressTests(CLITestCase):
             tty_in=_io.StringIO("\n"),
             tty_out=(buffer := _io.StringIO()),
         )
-        win = FakeWindow(["u", "\x1b"])
+        win = FakeWindow(["u", "\n", "\x1b"])
         self.assertIsNone(screen.run(win))
         text = buffer.getvalue()
         self.assertIn("evidence-gated re-pin", text)

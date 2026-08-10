@@ -729,7 +729,7 @@ def build_parser() -> argparse.ArgumentParser:
     )
     composition_group = parser.add_mutually_exclusive_group()
     composition_group.add_argument("--composition", metavar="NAME", help="use a named composition")
-    composition_group.add_argument("--composition-file", metavar="PATH", help="launch an unsaved composition document from a JSON file ('-' reads stdin and forces noninteractive); nothing is written to the composition store")
+    composition_group.add_argument("--composition-file", metavar="PATH|-", help="launch one unsaved composition JSON; '-' reads stdin and forces noninteractive; resume/continue reject file overrides; nothing is saved")
     session_group = parser.add_mutually_exclusive_group()
     session_group.add_argument("-c", "--continue", dest="continue_last", action="store_true", help="continue the last managed session in this directory")
     session_group.add_argument("-r", "--resume", nargs="?", const="", metavar="UUID", help="resume a managed session (exact UUID or name; no value opens the sessions picker)")
@@ -744,7 +744,7 @@ def build_parser() -> argparse.ArgumentParser:
     direct_parser = commands.add_parser(
         "direct", help="launch an ordinary gateway session without a composition"
     )
-    direct_parser.add_argument("--model", dest="direct_model")
+    direct_parser.add_argument("--model", dest="direct_model", help="catalog model id (see `claude-multi models` for ids and typed /model selectors)")
     direct_parser.add_argument("--force", action="store_true", default=argparse.SUPPRESS, help="resume despite a background-liveness marker (only bypasses the heuristic ● check)")
     direct_parser.add_argument("--print-launch", action="store_true")
     direct_identity = direct_parser.add_mutually_exclusive_group()
@@ -757,7 +757,7 @@ def build_parser() -> argparse.ArgumentParser:
 
     compose_parser = commands.add_parser("compose", help="manage saved compositions")
     compose_commands = compose_parser.add_subparsers(dest="compose_command", required=True)
-    compose_commands.add_parser("list", help="list compositions")
+    compose_commands.add_parser("list", help="list compositions, most-recently-used first, with last-used age")
     show_comp = compose_commands.add_parser("show", help="show a composition")
     show_comp.add_argument("name")
     for action in ("new", "edit", "delete"):
@@ -841,7 +841,12 @@ def build_parser() -> argparse.ArgumentParser:
     event_parser.add_argument("--managed-id", required=True)
     event_parser.add_argument("--launch-epoch", type=int, default=None)
 
-    commands.add_parser("models", help="list trusted catalog models")
+    commands.add_parser("models", help="list catalog models with wire ids and exact typed /model selectors")
+    discover_parser = commands.add_parser(
+        "discover",
+        help="list the models a provider advertises (a provider call — runs only on explicit invocation)",
+    )
+    discover_parser.add_argument("provider", help="provider id (see `claude-multi models`)")
     update_parser = commands.add_parser(
         "update",
         help="evidence-gated re-pin of the managed Claude binary (inspect, "
@@ -1430,9 +1435,9 @@ def quick_footer(plan: QuickPlan, *, update_hint: tuple[str, str] | None = None)
     update = " · U update" if update_hint is not None else ""
     if plan.record is not None:
         primary = "Enter launch" if plan.ready else "Enter transition hint"
-        return (f"{primary} · D details · S sessions · G new gateway · ? workflows{update} · Q cancel",)
+        return (f"{primary} · D details · S sessions · G new gateway · ? help · H health{update} · Q cancel",)
     primary = "Enter launch" if plan.ready else "Enter edit"
-    return (f"{primary} · E edit · D details · S sessions · G new gateway · ? workflows · P preset · W wf on/off{update} · Q cancel",)
+    return (f"{primary} · E edit · D details · S sessions · G new gateway · ? help · P preset · W wf on/off · H health{update} · Q cancel",)
 
 
 def validate_quick_passthrough(
@@ -1836,6 +1841,21 @@ class _QuickConfirmScreen:
                     break
                 tui.safe_add(win, row, 4, line, palette.attr("error"))
                 row += 1
+        # A secret problem names a file path; point at the in-TUI remedy
+        # (G picker → P providers → masked key entry) so the BLOCKED card
+        # is never a dead end.
+        if any(
+            "secret" in error and "missing" in error for error in errors
+        ):
+            hint = (
+                "fix without leaving the TUI: G (gateway models) → P "
+                "(providers) → Enter — masked key entry into the secret env file"
+            )
+            for line in textwrap.wrap(hint, width=max(32, width - 6)):
+                if row >= bottom:
+                    break
+                tui.safe_add(win, row, 4, line, palette.attr("accent"))
+                row += 1
         keybar.draw(win, height - 1, palette)
         win.refresh()
 
@@ -1957,11 +1977,13 @@ class _QuickConfirmScreen:
             primary = ("Enter", "launch") if self.plan.ready else ("Enter", "edit")
             bindings = [primary, ("E", "edit")]
             if len(self.runtime.compositions.names()) > 1:
-                bindings.append(("Tab", "preset"))
+                bindings.append(("Tab", "recent preset"))
             bindings.append(("W", "wf on/off"))
         if self.update_hint is not None:
             bindings.append(("U", "update"))
-        bindings.extend((("D", "details"), ("S", "sessions"), ("G", "new gateway"), ("?", "help"), ("H", "health"), ("Esc", "cancel")))
+        # ? sits right before Esc: on narrow terminals the KeyBar compacts
+        # middle bindings first, and help is the discovery mechanism (D30).
+        bindings.extend((("D", "details"), ("S", "sessions"), ("G", "new gateway"), ("H", "health"), ("?", "help"), ("Esc", "cancel")))
         return tui.KeyBar(bindings)
 
     # -- health / update actions ----------------------------------------------
@@ -1982,6 +2004,19 @@ class _QuickConfirmScreen:
     def _run_update(self, win: Any) -> None:
         from . import upgrade as upgrade_mod
 
+        # The only heavyweight one-keystroke action: confirm first (a stray
+        # U costs minutes of evidence suite).
+        confirmed = tui.Modal(
+            "Run the Claude update?",
+            [
+                f"re-pin {self.update_hint[0]} → {self.update_hint[1]} — the "
+                "full evidence-gated suite runs first (minutes); the pin "
+                "changes only on green.",
+            ],
+            buttons=(("Run update", True), ("Cancel", False)),
+        ).run(win, self.palette, background=self._draw)
+        if not confirmed:
+            return
         runner = self.upgrade_runner
         environ_repo = self.runtime.environ.get("CLAUDE_MULTI_SOURCE_REPO")
         source_repo = Path(
@@ -2051,6 +2086,16 @@ class _QuickConfirmScreen:
                     self.tty_out.write(f"  - {tui.visible_text(line)}\n")
             for line in info_lines:
                 self.tty_out.write(f"{tui.visible_text(line)}\n")
+            if not problems:
+                # The same footer the CLI prints: the line that keeps an
+                # operator from chasing a by-design attention item.
+                footer = "Catalog, compositions, and local gateway are valid"
+                footer += (
+                    "; attention items are by-design lazy state, not damage.\n"
+                    if attention
+                    else ".\n"
+                )
+                self.tty_out.write(footer)
             if problems:
                 self.tty_out.write("\nRun `doctor --repair-all` now? [y/N] ")
                 self.tty_out.flush()
@@ -2227,10 +2272,26 @@ class _QuickConfirmScreen:
                 return outcome
             preset_delta = _cycle_key_delta(key.kind)
             if preset_delta is not None:
-                self.plan = _cycle_preset(self.runtime, self.plan, preset_delta)
+                cycled = _cycle_preset(self.runtime, self.plan, preset_delta)
+                if cycled is self.plan and self.plan.record is not None:
+                    # Dead-key feedback: on a recorded session only the
+                    # transition engine changes compositions (R1 P1).
+                    self.gate_notice = (
+                        "preset cycling applies to fresh launches; a recorded "
+                        "session changes composition via sessions transition"
+                    )
+                else:
+                    self.plan = cycled
                 continue
             if key.kind == "char" and key.ch.lower() == "w":
-                self.plan = _toggle_workflows(self.runtime, self.plan)
+                toggled = _toggle_workflows(self.runtime, self.plan)
+                if toggled is self.plan and self.plan.record is not None:
+                    self.gate_notice = (
+                        "workflow toggle applies to fresh launches; a recorded "
+                        "session keeps the recorded composition"
+                    )
+                else:
+                    self.plan = toggled
                 continue
             if key.kind == "char" and key.ch.lower() == "u" and self.update_hint is not None:
                 self._run_update(win)
@@ -2254,7 +2315,7 @@ class _QuickConfirmScreen:
             if (
                 self.plan.record is not None
                 and key.kind == "char"
-                and key.ch in ("r", "c")
+                and key.ch.lower() in ("r", "c")
             ):
                 self._recorded_only_modal(win)
                 continue
@@ -2505,6 +2566,25 @@ def _line_quick_confirm(
             output_stream.write(
                 QUICK_HELP + workflow_guarantee_panel(mode) + "\n"
             )
+            continue
+        if key == "h":
+            problems, info_lines, attention = _collect_doctor_reports(runtime)
+            verdict = "BLOCKED" if problems else ("Attention" if attention else "Ready")
+            output_stream.write(f"claude-multi doctor: {verdict}\n")
+            for line in problems:
+                output_stream.write(f"  - {tui.visible_text(line)}\n")
+            for line in attention:
+                output_stream.write(f"  ! {tui.visible_text(line)}\n")
+            for line in info_lines:
+                output_stream.write(f"{tui.visible_text(line)}\n")
+            if not problems:
+                footer = "Catalog, compositions, and local gateway are valid"
+                footer += (
+                    "; attention items are by-design lazy state, not damage.\n"
+                    if attention
+                    else ".\n"
+                )
+                output_stream.write(footer)
             continue
         if key == "s":
             _print_sessions_listing(runtime, output_stream)
@@ -2769,7 +2849,7 @@ def _discover_native_sessions(
 SESSIONS_TITLE = "sessions"
 SESSIONS_KEYBAR = (
     ("R", "resume"),
-    ("T", "switch"),
+    ("T", "switch/transition"),
     ("X", "resolve fork"),
     ("E", "end session"),
     ("F", "forget"),
@@ -2835,7 +2915,7 @@ STOP_MODAL_BODY = (
 )
 FORGET_DONE = "Forgot {session_id}; record + scope deleted. Transcripts are never touched."
 RESUME_MODAL_TITLE = "Resume session {short}?"
-TRANSITION_SELECT_TITLE = "Transition {short} to composition"
+TRANSITION_SELECT_TITLE = "Transition {short} to composition · recent first"
 TRANSITION_MODAL_TITLE = "Confirm transition"
 TRANSITION_MODAL_BODY = (
     "The target Claude process must have EXITED (not merely idle);\n"
@@ -3253,7 +3333,13 @@ class _SessionsScreen:
         names = composition_pick_order(self.runtime)
         chooser = tui.SelectList(
             TRANSITION_SELECT_TITLE.format(short=short),
-            [tui.SelectItem(name) for name in names],
+            [
+                tui.SelectItem(
+                    name,
+                    note="current" if name == record["composition_name"] else "",
+                )
+                for name in names
+            ],
             footer=(("Enter", "choose"), ("Esc", "back")),
             selected=names.index(record["composition_name"])
             if record["composition_name"] in names
@@ -3269,7 +3355,7 @@ class _SessionsScreen:
 
         names = composition_pick_order(self.runtime)
         chooser = tui.SelectList(
-            f"Adopt {item['session_id'][:8]}… into composition",
+            f"Adopt {item['session_id'][:8]}… into composition · recent first",
             [tui.SelectItem(name) for name in names],
             footer=(("Enter", "adopt"), ("Esc", "back")),
         )
@@ -3574,6 +3660,12 @@ ORDINARY_UNAVAILABLE_BODY = (
     "The gateway omits providers rendered without their secret; the model\n"
     "may fail unless the running gateway still serves an older config."
 )
+ORDINARY_SIGNIN_TITLE = "Provider sign-in needed"
+ORDINARY_SIGNIN_BODY = (
+    "The {pool} OAuth pool has no credential record; the gateway serves\n"
+    "nothing for it. The model will fail at request time unless the pool\n"
+    "is signed in first."
+)
 ORDINARY_SECRET_FILE_ERROR = "secret env file unavailable or invalid"
 
 
@@ -3647,11 +3739,14 @@ def _print_ordinary_listing(runtime: Runtime, output_stream: Any) -> None:
                 f"{_ordinary_typed_selectors(model)}{suffix}\n"
             )
     output_stream.write("  providers (local status; names only):\n")
-    for fact in _provider_facts(runtime):
+    for fact in _provider_facts(runtime).facts:
         kind_label = "OAuth pool" if fact["kind"] == "oauth-pool" else "direct key"
         output_stream.write(
             f"    {fact['id']}\t{kind_label} · {fact['credential']} · "
             f"{fact['expected']} rendered · {fact['served_note']}\n"
+        )
+        output_stream.write(
+            f"      connect: {_connect_hint(runtime, fact['id'])}\n"
         )
 
 
@@ -3685,6 +3780,10 @@ class _OrdinaryScreen:
             model_id for model_ids in self.groups.values() for model_id in model_ids
         ]
         self.unavailable = _ordinary_unavailable(runtime)
+        # OAuth pools always render, so a missing CREDENTIAL RECORD is
+        # invisible to the secret marking — but the gateway serves nothing
+        # for that pool. Mark those rows too (names/counts only).
+        self.oauth_records = _oauth_credential_records(runtime)
         self._initial_model = initial_model
         # Preselect the given model (ordinary model switch, D48); otherwise
         # match the CLI default (prepare_direct: model_id or "sol").
@@ -3704,6 +3803,16 @@ class _OrdinaryScreen:
         model = self.runtime.catalog.models[model_id]
         return self.unavailable.get(model["provider"])
 
+    def _row_signin_pool(self, model_id: str) -> str | None:
+        """OAuth pool name when the row's provider has no credential record."""
+
+        model = self.runtime.catalog.models[model_id]
+        transport = self.runtime.catalog.providers[model["provider"]]["transport"]
+        if transport["kind"] != "oauth-pool":
+            return None
+        pool = transport["pool"]
+        return None if self.oauth_records.get(pool, 0) > 0 else pool
+
     def _detail_reserve(self, width: int) -> int:
         """Wrapped-line worst case for the selected-row detail (floor math).
 
@@ -3719,6 +3828,12 @@ class _OrdinaryScreen:
             if p["transport"]["kind"] == "direct"
         ]
         candidates.append(ORDINARY_SECRET_FILE_ERROR)
+        candidates.extend(
+            f"no {p['transport']['pool']} credential record — sign in: "
+            f"`claude-multi-proxy {_OAUTH_LOGIN_COMMANDS.get(p['transport']['pool'], p['transport']['pool'] + '-login')}`"
+            for p in providers.values()
+            if p["transport"]["kind"] == "oauth-pool"
+        )
         wrap_width = max(20, width - 4)
         reason_lines = max(
             len(
@@ -3791,9 +3906,16 @@ class _OrdinaryScreen:
                 # Rows stay narrow on purpose (H11): the full reason for the
                 # selected row is spelled out on the detail lines instead.
                 label = f"{model_id} — {model['display']} · {family}"
+                signin_pool = self._row_signin_pool(model_id)
                 if reason is not None:
                     label += "  (no secret)"
-                attr = palette.attr("dim") if reason is not None else palette.attr("normal")
+                elif signin_pool is not None:
+                    label += "  (sign in needed)"
+                attr = (
+                    palette.attr("dim")
+                    if reason is not None or signin_pool is not None
+                    else palette.attr("normal")
+                )
                 if index == self.selected:
                     attr |= curses.A_REVERSE
                 prefix = "> " if index == self.selected else "  "
@@ -3809,6 +3931,7 @@ class _OrdinaryScreen:
         if self.rows:
             selected = self.rows[self.selected]
             selected_reason = self._row_reason(selected)
+            selected_signin = self._row_signin_pool(selected)
             wrap_width = max(20, width - 4)
             detail: list[tuple[str, str]] = []
             if selected_reason is not None:
@@ -3816,6 +3939,18 @@ class _OrdinaryScreen:
                     (line, "warn")
                     for line in textwrap.wrap(
                         f"{selected_reason} — Enter asks before {self._action_verb} anyway",
+                        wrap_width,
+                    )
+                )
+            if selected_signin is not None:
+                command = _OAUTH_LOGIN_COMMANDS.get(
+                    selected_signin, f"{selected_signin}-login"
+                )
+                detail.extend(
+                    (line, "warn")
+                    for line in textwrap.wrap(
+                        f"no {selected_signin} credential record — sign in: "
+                        f"`claude-multi-proxy {command}`",
                         wrap_width,
                     )
                 )
@@ -3850,7 +3985,7 @@ class _OrdinaryScreen:
                     buttons=(("Close", True),),
                 ).run(win, self.palette, background=self._draw)
                 continue
-            if key.kind == "char" and key.ch == "p":
+            if key.kind == "char" and key.ch.lower() == "p":
                 _ProvidersScreen(self.runtime, palette=self.palette).run(win)
                 continue
             if key.kind == "up" or (key.kind == "char" and key.ch == "k"):
@@ -3873,8 +4008,10 @@ class _OrdinaryScreen:
                 # during a switch skips the confirm: the caller no-ops it,
                 # so no risky-sounding ask for a relaunch that never happens.
                 self.unavailable = _ordinary_unavailable(self.runtime)
+                self.oauth_records = _oauth_credential_records(self.runtime)
                 reason = self._row_reason(model_id)
-                if reason is not None and not (
+                signin_pool = self._row_signin_pool(model_id)
+                if (reason is not None or signin_pool is not None) and not (
                     self.purpose == "switch" and model_id == self._initial_model
                 ):
                     model = self.runtime.catalog.models[model_id]
@@ -3884,7 +4021,15 @@ class _OrdinaryScreen:
                         f"{model_id} — {model['display']} "
                         f"(provider {model['provider']})"
                     ]
-                    for raw in [reason + ".", *ORDINARY_UNAVAILABLE_BODY.splitlines()]:
+                    if reason is not None:
+                        title = ORDINARY_UNAVAILABLE_TITLE
+                        body = [reason + ".", *ORDINARY_UNAVAILABLE_BODY.splitlines()]
+                    else:
+                        title = ORDINARY_SIGNIN_TITLE
+                        body = [
+                            *ORDINARY_SIGNIN_BODY.format(pool=signin_pool).splitlines(),
+                        ]
+                    for raw in body:
                         lines.extend(textwrap.wrap(raw, wrap_width))
                     lines.extend(
                         textwrap.wrap(
@@ -3893,7 +4038,7 @@ class _OrdinaryScreen:
                         )
                     )
                     confirmed = tui.Modal(
-                        ORDINARY_UNAVAILABLE_TITLE,
+                        title,
                         lines,
                         buttons=(
                             ("Cancel", False),
@@ -3918,7 +4063,24 @@ PROVIDERS_LEGEND = (
 PROVIDERS_KEYBAR = (
     ("Enter", "setup"),
     ("R", "refresh"),
+    ("?", "help"),
     ("Esc", "back"),
+)
+PROVIDERS_HELP = (
+    "Each row is one catalog provider with its LOCAL facts: the credential\n"
+    "source (env-var name present/missing, or OAuth credential-record count),\n"
+    "how many selectors the catalog renders for it, and how many the running\n"
+    "gateway serves. 'served' means registered by the local gateway — upstream\n"
+    "auth, quota, and reachability stay unknown.\n"
+    "\n"
+    "Enter on a direct-key row opens masked key entry: the value is written\n"
+    "to the standard secret env file (0600, atomic, never echoed). Saving a\n"
+    "key does not move served counts until you apply it: `claude-multi-proxy\n"
+    "init`, then `systemctl --user restart cli-proxy-api` (restart between\n"
+    "turns — an in-flight request may need a retry).\n"
+    "\n"
+    "Enter on an OAuth-pool row shows the sign-in command (OAuth runs outside\n"
+    "the TUI). R re-reads every fact. Esc goes back."
 )
 
 
@@ -3939,11 +4101,22 @@ def _connect_hint(runtime: Runtime, provider_id: str) -> str:
     )
 
 
-def _provider_facts(runtime: Runtime) -> list[dict[str, Any]]:
+@dataclass(frozen=True)
+class ProviderFacts:
+    """Provider rows plus the two pane-level gateway facts (018/2.13.1)."""
+
+    facts: list[dict[str, Any]]
+    config_drift: bool | None
+    gateway_down: bool
+
+
+def _provider_facts(runtime: Runtime) -> ProviderFacts:
     """Per-provider local status facts (018): names and counts only.
 
     Shared by the providers screen and the line-mode listing so both tell
     the same story. No provider calls; secret values never read into facts.
+    ``config_drift``/``gateway_down`` ride along so the pane can explain
+    counts that the running daemon can't.
     """
 
     providers = runtime.catalog.providers
@@ -4008,7 +4181,11 @@ def _provider_facts(runtime: Runtime) -> list[dict[str, Any]]:
                 "guidance": guidance,
             }
         )
-    return facts
+    return ProviderFacts(
+        facts,
+        config_drift=snap.config_drift,
+        gateway_down=snap.gateway_down,
+    )
 
 
 class _ProvidersScreen:
@@ -4024,7 +4201,17 @@ class _ProvidersScreen:
         self.palette = palette
         self.selected = 0
         self.message: str | None = None
-        self.facts = _provider_facts(runtime)
+        self.message_role = "accent"
+        self.config_drift: bool | None = None
+        self.gateway_down = False
+        self.facts: list[dict[str, Any]] = []
+        self._load_facts()
+
+    def _load_facts(self) -> None:
+        loaded = _provider_facts(self.runtime)
+        self.facts = loaded.facts
+        self.config_drift = loaded.config_drift
+        self.gateway_down = loaded.gateway_down
 
     def _draw(self, win: Any) -> None:
         win.erase()
@@ -4034,10 +4221,35 @@ class _ProvidersScreen:
         bar_rows = keybar.rows(width)
         wrap_width = max(20, width - 4)
         legend_lines = textwrap.wrap(PROVIDERS_LEGEND, wrap_width)
+        banner_lines: list[str] = []
+        if self.gateway_down:
+            banner_lines.extend(
+                textwrap.wrap(
+                    "gateway is DOWN — served counts unknown; start it with "
+                    "`systemctl --user start cli-proxy-api`",
+                    wrap_width,
+                )
+            )
+        elif self.config_drift:
+            banner_lines.extend(
+                textwrap.wrap(
+                    "config drift — counts reflect the running daemon, not the "
+                    "catalog: run `claude-multi-proxy init`, then `systemctl "
+                    "--user restart cli-proxy-api`",
+                    wrap_width,
+                )
+            )
         message_lines = (
             textwrap.wrap(self.message, wrap_width) if self.message else []
         )
-        needed = 4 + len(legend_lines) + 2 * len(self.facts) + len(message_lines) + 2
+        needed = (
+            4
+            + len(legend_lines)
+            + len(banner_lines)
+            + 2 * len(self.facts)
+            + len(message_lines)
+            + 2
+        )
         if height < needed or width < 44:
             tui.safe_add(win, 1, 2, PROVIDERS_TITLE, palette.attr("accent") | curses.A_BOLD)
             tui.safe_add(
@@ -4052,6 +4264,9 @@ class _ProvidersScreen:
         row = 3
         for line in legend_lines:
             tui.safe_add(win, row, 2, line, palette.attr("dim"))
+            row += 1
+        for line in banner_lines:
+            tui.safe_add(win, row, 2, line, palette.attr("warn"))
             row += 1
         row += 1
         for index, fact in enumerate(self.facts):
@@ -4072,7 +4287,7 @@ class _ProvidersScreen:
         if message_lines:
             row += 1
             for line in message_lines:
-                tui.safe_add(win, row, 2, line, palette.attr("accent"))
+                tui.safe_add(win, row, 2, line, palette.attr(self.message_role))
                 row += 1
         keybar.draw(win, height - 1, palette)
         win.refresh()
@@ -4090,7 +4305,8 @@ class _ProvidersScreen:
                     "OAuth sign-in runs outside the TUI (browser/device flow):",
                     f"    claude-multi-proxy {command}",
                     "New credential records load via the gateway auth-dir "
-                    "watcher; if routes stay absent, restart cli-proxy-api.",
+                    "watcher; if routes stay absent, `systemctl --user "
+                    "restart cli-proxy-api`.",
                 ],
                 buttons=(("Close", True),),
             ).run(win, self.palette, background=self._draw)
@@ -4102,10 +4318,13 @@ class _ProvidersScreen:
             [
                 f"The key is typed masked and written to {path}",
                 "(0600, atomic; the value is never shown or logged).",
-                "Apply afterwards: claude-multi-proxy init, then",
-                "systemctl --user restart cli-proxy-api.",
+                "Apply afterwards: `claude-multi-proxy init`, then",
+                "`systemctl --user restart cli-proxy-api` (between turns —",
+                "an in-flight request may need a retry).",
             ],
-            buttons=(("Cancel", False), ("Save", True)),
+            # Save first like every other input modal: type → Enter → Enter
+            # confirms (Cancel remains one Left away; Esc cancels always).
+            buttons=(("Save", True), ("Cancel", False)),
             input=tui.TextInput(mask="•"),
         )
         confirmed = modal.run(win, self.palette, background=self._draw)
@@ -4113,16 +4332,20 @@ class _ProvidersScreen:
         modal.input.value = ""  # never let a typed secret linger in widgets
         if not confirmed:
             self.message = "Set key cancelled."
+            self.message_role = "warn"
             return
         try:
             length = proxy_mod.set_secret_value(path, name, value)
         except proxy_mod.ProxyError as exc:
             self.message = str(exc)
+            self.message_role = "warn"
             return
-        self.facts = _provider_facts(self.runtime)
+        self._load_facts()
+        self.message_role = "accent"
         self.message = (
             f"saved {name} ({length} chars) to {path} — apply: "
-            "`claude-multi-proxy init`, then restart cli-proxy-api"
+            "`claude-multi-proxy init`, then `systemctl --user restart "
+            "cli-proxy-api` (between turns)"
         )
 
     def run(self, win: Any) -> None:
@@ -4144,9 +4367,17 @@ class _ProvidersScreen:
                 if self.selected < len(self.facts) - 1:
                     self.selected += 1
                 continue
-            if key.kind == "char" and key.ch == "r":
-                self.facts = _provider_facts(self.runtime)
+            if key.kind == "char" and key.ch == "?":
+                tui.Modal(
+                    PROVIDERS_TITLE + " — help",
+                    PROVIDERS_HELP.splitlines(),
+                    buttons=(("Close", True),),
+                ).run(win, self.palette, background=self._draw)
+                continue
+            if key.kind == "char" and key.ch.lower() == "r":
+                self._load_facts()
                 self.message = "refreshed."
+                self.message_role = "accent"
                 continue
             if key.kind == "enter":
                 self._setup(win)
@@ -5376,7 +5607,14 @@ def _doctor_served_report(runtime: Runtime, token: str) -> tuple[list[str], list
 
     snap = _gateway_snapshot(runtime, token)
     if snap.gateway_down:
-        return [], []  # readiness already reports the dead gateway
+        # Readiness passed moments ago but the models probe failed — a
+        # restart is likely in flight. Say the radar never ran (silence
+        # would read as a clean bill).
+        return [], [
+            "the gateway changed state after the readiness check (a restart "
+            "in flight?); the served-selector cross-check was skipped — "
+            "rerun doctor when it settles"
+        ]
     problems: list[str] = []
     info: list[str] = []
     if snap.render_error is not None:
@@ -5389,6 +5627,17 @@ def _doctor_served_report(runtime: Runtime, token: str) -> tuple[list[str], list
             "applied): run `claude-multi-proxy init`, then `systemctl --user "
             "restart cli-proxy-api`"
         )
+        # Selector classification stops here (not independently actionable
+        # under drift) — but a missing OAuth credential record is its own
+        # action, so it still surfaces.
+        for pool, count in sorted(snap.oauth_records.items()):
+            if count == 0:
+                command = _OAUTH_LOGIN_COMMANDS.get(pool, f"{pool}-login")
+                info.append(
+                    f"the {pool} OAuth pool has no credential record: sign in "
+                    f"with `claude-multi-proxy {command}`"
+                )
+        return problems, info
     if snap.served is None:
         info.append(
             "local gateway: /v1/models returned a non-200 status; the "
@@ -5405,7 +5654,8 @@ def _doctor_served_report(runtime: Runtime, token: str) -> tuple[list[str], list
         else:
             oauth_missing.setdefault(pool, []).append(selector)
     restart_note = (
-        "restart cli-proxy-api (the daemon does not hot-reload a re-rendered config)"
+        "`systemctl --user restart cli-proxy-api` (the daemon does not "
+        "hot-reload a re-rendered config)"
     )
     for selector in direct_missing[:3]:
         problems.append(
@@ -5415,7 +5665,7 @@ def _doctor_served_report(runtime: Runtime, token: str) -> tuple[list[str], list
     if len(direct_missing) > 3:
         problems.append(
             f"…and {len(direct_missing) - 3} more unserved rendered selectors: "
-            "restart cli-proxy-api"
+            "`systemctl --user restart cli-proxy-api`"
         )
     for pool, selectors in sorted(oauth_missing.items()):
         shown = ", ".join(selectors[:3]) + ("…" if len(selectors) > 3 else "")
@@ -5441,7 +5691,8 @@ def _doctor_served_report(runtime: Runtime, token: str) -> tuple[list[str], list
             "gateway serves selector(s) absent from the current render: "
             + ", ".join(stale[:3])
             + ("…" if len(stale) > 3 else "")
-            + " — a stale daemon (restart cli-proxy-api) or a removed catalog alias"
+            + " — `systemctl --user restart cli-proxy-api`; if they persist "
+            "afterwards, run `claude-multi-proxy init` and restart again"
         )
     return problems, info
 
@@ -5613,8 +5864,8 @@ def handle_command(
                 output_stream.write(
                     f"warning: {unavailable_reason} — requests may fail "
                     "unless the running gateway still serves an earlier "
-                    "rendered config; add the secret and re-render the "
-                    "proxy config to fix it properly.\n"
+                    "rendered config.\n"
+                    f"fix: {_connect_hint(runtime, launched_model['provider'])}\n"
                 )
         # execve never flushes Python buffers: force the note/warning above
         # out before control reaches the launch boundary.
@@ -5933,18 +6184,65 @@ def handle_command(
             output_stream.write(f"{tui.visible_text(line)}\n")
         return 0
 
+    if args.command == "discover":
+        providers = runtime.catalog.docs["providers"]["providers"]
+        if args.provider not in providers:
+            raise CLIError(
+                f"unknown provider {args.provider!r} (have: {', '.join(sorted(providers))})"
+            )
+        # An explicit operator invocation is the per-call approval; this is
+        # the only place claude-multi ever calls a provider listing API.
+        try:
+            entries = proxy_mod.list_provider_models(
+                args.provider, providers, environ=runtime.environ
+            )
+        except proxy_mod.ProxyError as exc:
+            raise CLIError(str(exc)) from exc
+        by_wire: dict[str, str] = {}
+        for catalog_id, model in runtime.catalog.models.items():
+            by_wire.setdefault(model["wire_model"], catalog_id)
+        if not entries:
+            output_stream.write(f"{args.provider}: the provider advertised no models\n")
+            return 0
+        for entry in entries:
+            # Provider-supplied strings pass the terminal sanitizer (they are
+            # external input, same rule as filesystem-derived text).
+            wire = tui.visible_text(entry["id"])
+            catalog_id = by_wire.get(entry["id"])
+            status = (
+                f"cataloged as {catalog_id}"
+                if catalog_id is not None
+                else "onboarding candidate (not in the trusted catalog)"
+            )
+            context = (
+                f" ctx={entry['context_length']}"
+                if isinstance(entry.get("context_length"), int)
+                else ""
+            )
+            efforts = (
+                f" efforts={','.join(tui.visible_text(e) for e in entry['think_efforts'])}"
+                if entry.get("think_efforts")
+                else ""
+            )
+            output_stream.write(f"{wire}\t{status}{context}{efforts}\n")
+        return 0
+
     if args.command == "models":
+        default_doc = runtime.compositions.load("default")
+        default_models = default_doc["availability"]["models"]
         for model_id, model in sorted(runtime.catalog.models.items()):
             provider = runtime.catalog.providers[model["provider"]]["display"]
             capabilities = ",".join(model["capabilities"])
             context = model["context"]
             scalar = context["scalar_tokens"] or "none"
             profile = context["ordinary_profile"] or "agents-only"
-            selectors = ",".join(_model_client_selectors(model))
+            typed = _ordinary_typed_selectors(model)
+            new = "" if model_id in default_models else " · not in default"
             output_stream.write(
                 f"{model_id}\t{model['display']}\t{provider}\t{capabilities}\t"
                 f"client={context['client_tokens']} provider={context['provider_tokens']} "
-                f"scalar={scalar} profile={profile}\tselectors={selectors}\n"
+                f"scalar={scalar} profile={profile} wire={model['wire_model']}{new}\n"
+                f"  in-session: {typed}\n"
             )
         return 0
 
@@ -6610,13 +6908,20 @@ def _load_composition_argument(
     try:
         if value == "-":
             limit = strict_json.DEFAULT_LIMITS.max_bytes
-            data = inp.read(limit + 1)
-            if len(data.encode("utf-8")) > limit:
+            # Bound ORIGINAL BYTES, not decoded characters: a text stream's
+            # read(n) counts characters (and may normalize CRLF), which is
+            # not the strict-JSON byte limit.
+            raw_stream = getattr(inp, "buffer", None)
+            if raw_stream is not None:
+                raw = raw_stream.read(limit + 1)
+            else:  # injected text streams (tests) have no .buffer
+                raw = inp.read(limit + 1).encode("utf-8")
+            if len(raw) > limit:
                 raise composition.CompositionError(
                     f"$: input exceeds the {limit}-byte limit"
                 )
             return composition.validate_document(
-                strict_json.loads(data), runtime.compositions.schema
+                strict_json.loads(raw), runtime.compositions.schema
             )
         return composition.load_composition_file(value, runtime.compositions.schema)
     except (OSError, ValueError) as exc:
@@ -6629,6 +6934,7 @@ def _load_composition_argument(
 _STDOUT_REPORT_COMMANDS = frozenset(
     {
         ("doctor", None),
+        ("discover", None),
         ("models", None),
         ("show", None),
         ("update", None),
@@ -6787,7 +7093,11 @@ def main(
                 document = _load_composition_argument(
                     runtime, args.composition_file, inp
                 )
-                source = f"Composition file {args.composition_file}"
+                source = (
+                    "Composition from stdin"
+                    if args.composition_file == "-"
+                    else f"Composition file {args.composition_file}"
+                )
             elif args.composition is not None:
                 document = runtime.compositions.load(args.composition)
                 source = "Explicit composition"

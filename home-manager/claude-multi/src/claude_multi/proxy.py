@@ -19,6 +19,7 @@ import sys
 import re
 import secrets
 import shutil
+import urllib.request
 from pathlib import Path
 from typing import Any, Callable
 
@@ -72,13 +73,15 @@ def assets_root(environ: dict[str, str] | None = None) -> Path:
     return Path(__file__).resolve().parents[2]
 
 
-def parse_secret_env(path: Path) -> dict[str, str]:
-    """Strict assignment parsing of the secret env file. Never shell-sourced."""
+def parse_secret_env_bytes(raw: bytes, path: Path) -> dict[str, str]:
+    """Strict assignment parsing of env-file BYTES (shared read/write rule).
 
-    try:
-        raw = state.read_private(path)
-    except state.StateError as exc:
-        raise ProxyError(f"secret env file {path} unavailable or unsafe: {exc}") from exc
+    Read path (``parse_secret_env``) and write path (``set_secret_value``'s
+    candidate validation) go through this one parser so the two can never
+    diverge. Never shell-sourced; error messages carry line numbers, never
+    secret bytes.
+    """
+
     try:
         text = raw.decode("utf-8")
     except UnicodeDecodeError as exc:
@@ -104,6 +107,16 @@ def parse_secret_env(path: Path) -> dict[str, str]:
     return values
 
 
+def parse_secret_env(path: Path) -> dict[str, str]:
+    """Strict assignment parsing of the secret env file. Never shell-sourced."""
+
+    try:
+        raw = state.read_private(path)
+    except state.StateError as exc:
+        raise ProxyError(f"secret env file {path} unavailable or unsafe: {exc}") from exc
+    return parse_secret_env_bytes(raw, path)
+
+
 def resolve_secret(
     name: str, *, environ: dict[str, str] | None = None
 ) -> str | None:
@@ -115,16 +128,113 @@ def resolve_secret(
     return parse_secret_env(path).get(name)
 
 
+# Verified provider model-listing support (2026-08-10, approval-gated probes):
+# kimi answers the Anthropic-shape GET {base}/v1/models; the Qwen Token Plan
+# apps/anthropic path returns 404 "Not support"; OAuth pools have no direct
+# API credential to list with.
+_LISTING_SUPPORT = {
+    "kimi": "anthropic-v1-models",
+    "qwen": "unsupported",
+}
+
+
+def list_provider_models(
+    provider_id: str,
+    providers: dict[str, Any],
+    *,
+    environ: dict[str, str] | None = None,
+    fetch: Callable[[str, dict[str, str]], bytes] | None = None,
+    timeout: float = 20.0,
+) -> list[dict[str, Any]]:
+    """List the models a provider advertises — an EXPLICIT provider call.
+
+    Runs only when the operator invokes `claude-multi discover PROVIDER`
+    (the invocation is the per-call approval); never from doctor, the pane,
+    or any automatic path. Secrets are read for the request and never
+    logged, returned, or embedded in errors.
+    """
+
+    provider = providers[provider_id]
+    support = _LISTING_SUPPORT.get(provider_id)
+    if support == "unsupported":
+        raise ProxyError(
+            f"provider {provider_id!r} does not support model listing "
+            "(verified 2026-08-10: its Anthropic path answers 404 'Not support')"
+        )
+    if support != "anthropic-v1-models":
+        transport_kind = provider["transport"]["kind"]
+        if transport_kind == "oauth-pool":
+            raise ProxyError(
+                f"provider {provider_id!r} is an OAuth pool — there is no "
+                "direct API credential to list models with"
+            )
+        raise ProxyError(
+            f"no verified model-listing endpoint for provider {provider_id!r}"
+        )
+    transport = provider["transport"]
+    secret_ref = transport["auth"]["secret_ref"]
+    env_name = secret_ref.removeprefix("env:")
+    secret = resolve_secret(env_name, environ=environ)
+    if secret is None:
+        raise ProxyError(
+            f"provider {provider_id!r} listing needs {secret_ref} in the "
+            "secret env file first"
+        )
+    url = transport["base_url"].rstrip("/") + "/v1/models"
+    auth = transport["auth"]
+    if auth["kind"] == "bearer":
+        headers = {"Authorization": f"Bearer {secret}"}
+    else:
+        headers = {auth["header"]: secret}
+    headers["anthropic-version"] = "2023-06-01"
+
+    def _fetch(target: str, request_headers: dict[str, str]) -> bytes:
+        request = urllib.request.Request(target, headers=request_headers)
+        with urllib.request.urlopen(request, timeout=timeout) as response:
+            # Bound the remote body: strict_json's 4 MiB limit must not be
+            # reachable only after an unbounded allocation.
+            limit = strict_json.DEFAULT_LIMITS.max_bytes
+            return response.read(limit + 1)
+
+    try:
+        raw = (fetch or _fetch)(url, headers)
+    except Exception as exc:
+        # Never interpolate the exception: a crafted or odd error could
+        # carry request details. Type name only; the secret never leaves.
+        raise ProxyError(
+            f"provider {provider_id!r} model listing failed "
+            f"({type(exc).__name__})"
+        ) from exc
+    payload = strict_json.loads(raw)
+    entries = []
+    for item in payload.get("data", []):
+        if not isinstance(item, dict) or not isinstance(item.get("id"), str):
+            continue
+        entry = {
+            "id": item["id"],
+            "display_name": item.get("display_name", ""),
+            "context_length": item.get("context_length"),
+        }
+        efforts = item.get("think_efforts")
+        if isinstance(efforts, dict) and efforts.get("valid_efforts"):
+            entry["think_efforts"] = list(efforts["valid_efforts"])
+        entries.append(entry)
+    return entries
+
+
 def set_secret_value(path: Path, name: str, value: str) -> int:
     """Insert or replace ``NAME=value`` in the secret env file (018).
 
-    Parse-preserving: unrelated lines stay byte-identical; every existing
-    assignment of the name (with or without an ``export `` prefix) is
-    replaced in place, otherwise the assignment is appended. The write is
-    atomic 0600 via ``state.atomic_write``; an existing file must pass the
-    ``read_private`` safety checks (owner-private, no symlink). The value is
-    shape-validated and never logged or returned — only its length, so
-    callers can confirm without echoing.
+    The merge collapses every existing assignment of the name (a file with
+    duplicates is rejected by the strict parser, so a save repairs it to
+    one), preserves each line's ``export`` prefix and spacing exactly, and
+    leaves unrelated lines untouched (line endings are LF-normalized and a
+    final newline is guaranteed). The candidate is re-validated through the
+    strict env parser before the atomic 0600 write, so a "saved" result is
+    always a consumable file. The whole read-modify-write runs under the
+    file's ``state.FileLock`` — concurrent saves never lose each other's
+    keys. The value is shape-validated and never logged or returned — only
+    its length, so callers can confirm without echoing.
     """
 
     if not re.fullmatch(r"[A-Z0-9_]+", name):
@@ -134,28 +244,50 @@ def set_secret_value(path: Path, name: str, value: str) -> int:
             "secret value has an unsupported shape "
             "(letters, digits, and . _ ~ + / = @ : - only)"
         )
-    out_lines: list[str] = []
-    if os.path.lexists(path):
-        try:
-            raw = state.read_private(path)
-        except state.StateError as exc:
-            raise ProxyError(f"secret env file unavailable or unsafe: {exc}") from exc
-        try:
-            out_lines = raw.decode("utf-8").splitlines()
-        except UnicodeDecodeError as exc:
-            raise ProxyError(f"secret env file {path} is not valid UTF-8") from exc
-    replaced = False
-    for index, line in enumerate(out_lines):
-        match = _ASSIGNMENT.match(line)
-        if match and match.group(1) == name:
-            prefix = "export " if line.lstrip().startswith("export ") else ""
-            out_lines[index] = f"{prefix}{name}={value}"
-            replaced = True
-    if not replaced:
-        out_lines.append(f"{name}={value}")
     state.ensure_private_dir(path.parent)
-    state.atomic_write(path, ("\n".join(out_lines) + "\n").encode("utf-8"))
-    return len(value)
+    lock = state.FileLock(path)
+    lock.acquire(blocking=True)
+    try:
+        out_lines: list[str] = []
+        if os.path.lexists(path):
+            try:
+                raw = state.read_private(path)
+            except state.StateError as exc:
+                raise ProxyError(
+                    f"secret env file unavailable or unsafe: {exc}"
+                ) from exc
+            try:
+                out_lines = raw.decode("utf-8").splitlines()
+            except UnicodeDecodeError as exc:
+                raise ProxyError(
+                    f"secret env file {path} is not valid UTF-8"
+                ) from exc
+        replaced = False
+        drop: set[int] = set()
+        for index, line in enumerate(out_lines):
+            match = _ASSIGNMENT.match(line)
+            if match and match.group(1) == name:
+                if replaced:
+                    # Collapse duplicate assignments of the repaired key —
+                    # the strict parser rejects duplicates, so keeping a
+                    # second line would leave the file broken after "saved".
+                    drop.add(index)
+                    continue
+                prefix = line[: match.start(1)]  # export/tab/spacing exactly
+                out_lines[index] = f"{prefix}{name}={value}"
+                replaced = True
+        out_lines = [line for index, line in enumerate(out_lines) if index not in drop]
+        if not replaced:
+            out_lines.append(f"{name}={value}")
+        candidate = ("\n".join(out_lines) + "\n").encode("utf-8")
+        # A successful save must yield a consumable file: run the strict
+        # parser over the candidate (catches pre-existing malformed or
+        # duplicate lines of OTHER keys) before writing anything.
+        parse_secret_env_bytes(candidate, path)
+        state.atomic_write(path, candidate)
+        return len(value)
+    finally:
+        lock.release()
 
 
 def selected_secret_problems(

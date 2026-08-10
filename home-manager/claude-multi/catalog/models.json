@@ -103,7 +103,7 @@
         "ordinary_profile": "large",
         "provider_stated_limit_tokens": 262144,
         "provider_tokens": 1000000,
-        "qualification": "Client [1m] selector self-classifies extended context and Claude Code clamps it to 1,000,000; the canonical proxy route is intentionally operated as a 1M route from the user's supported subscription. Direct local benchmark: largest located success 208,034 tokens; two ~373K attempts failed HTTP 400 with a provider-stated 262,144 limit on an older pre-canonical-wire route. The 1M provider bound remains user-attested, not benchmark-verified, until a separately approved live acceptance call.",
+        "qualification": "Client [1m] selector self-classifies extended context and Claude Code clamps it to 1,000,000; the canonical proxy route is intentionally operated as a 1M route from the user's supported subscription. The provider's Anthropic-shape GET /v1/models advertises context_length 1048576 for k3 (verified 2026-08-10 via an approval-gated read-only probe). Direct local benchmark: largest located success 208,034 tokens; two ~373K attempts failed HTTP 400 with a provider-stated 262,144 limit on an older pre-canonical-wire route. The 1M bound is provider-advertised but not benchmark-verified near the limit until a separately approved live acceptance call.",
         "scalar_tokens": null,
         "user_reported_tokens": 1000000,
         "validated_tokens": 208034

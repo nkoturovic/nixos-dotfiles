@@ -1,5 +1,36 @@
 # STATUS — live tracker
 
+## 2026-08-10 — v2.14.0: post-release improvement pass (D51, blueprint 019) — built, AWAITING ACTIVATION
+
+- **Six-leg analysis** (discoverability/coherence/onboarding/safety lenses
+  + Kimi TUI-usability walk + lead pass) → one consolidated batch.
+- **First-run**: BLOCKED cards point at G→P masked entry; OAuth no-record
+  rows marked `(sign in needed)` with the login command; line-mode H key
+  restored; doctor TUI prints the "not damage" footer.
+- **Secret writes hardened**: FileLock-serialized, candidate re-parsed
+  (saved file always consumable; duplicates collapse), export prefixes
+  exact; save-modal button order matches every other input modal.
+- **Coherence**: runnable restart command everywhere + timing note; pane
+  drift/down banner + `?` help; editor shows refusals while BLOCKED; ^C
+  dirty-discard route; U confirm; dead-key feedback; `?` elides last.
+- **Discovery verified per-provider** (approved probes): Kimi lists models
+  (Anthropic-shape `/coding/v1/models`) — new `claude-multi discover PROVIDER`
+  (explicit invocation = the approval; kimi only); Qwen Token Plan 404s.
+  kimi-k3 1M qualification upgraded to provider-advertised (catalog 16).
+- **Onboarding**: `claude-multi-dev model add --like` scaffold + `--help`
+  + promote runbook; dead `fixtures` draft field dropped.
+- **Review sweep** (sol-xhigh safety, glm52 TUI, qwen38 coherence +
+  adversarial verify): 2 must-fix (scaffold entry id; fetch-error secret
+  interpolation) confirmed already-fixed in the final tree by verifiers;
+  should-fixes landed (bounded response read, CLI error boundary, payload
+  sanitization, selector no-substitution guard, blank-line preservation,
+  editor message reservation, QUALIFY markers machine-rejected at check,
+  KeyBar overflow now protects ? alongside Esc — D30 extended). Coherence
+  leg verdict: APPROVE (activation-ready).
+- Evidence: **1,562 host tests OK (skipped=2)**, sandbox green; one
+  documented RealPinnedBinaryTests load flake (AGENTS.md §4) seen under
+  agent-fan-out load only.
+
 ## 2026-08-10 — v2.13.0: operator batch (D50, blueprints 014–018, activated gen 120)
 
 - **Activated**: HM gen 120 (re-render + gateway restart), `doctor

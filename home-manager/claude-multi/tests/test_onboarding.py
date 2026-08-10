@@ -12,6 +12,7 @@ import tempfile
 import unittest
 from pathlib import Path
 from unittest import mock
+from contextlib import redirect_stdout
 
 from claude_multi import catalog, dev, state, strict_json
 from claude_multi.dev import DevError
@@ -59,7 +60,6 @@ def _model_draft(model_id: str = "newmodel") -> dict:
         name="d1",
         provider="openai",
         entry=_model_entry(model_id),
-        fixtures=["fixtures/newmodel.json"],
         now="2026-07-21T00:00:00Z",
     )
 
@@ -107,7 +107,6 @@ def _provider_draft() -> dict:
         provider_profile=profile,
         model_entry=model,
         contract_claims=["routing", "streaming"],
-        fixtures=["fixtures/zeta.json"],
         now="2026-07-21T00:00:00Z",
     )
 
@@ -137,6 +136,92 @@ class OnboardingTestCase(unittest.TestCase):
             runner=runner or (lambda c, w: {"cmd": c, "returncode": 0}),
             candidate_parent=Path(tempfile.mkdtemp(dir=self.root)),
         )
+
+
+
+class ScaffoldTests(OnboardingTestCase):
+    """2.13.1: claude-multi-dev model add --like scaffold."""
+
+    def _docs(self):
+        return catalog.load_catalog(CATALOG_ROOT).docs
+
+    def test_scaffold_inherits_mechanical_and_marks_judgment(self) -> None:
+        entry = dev._scaffold_model_entry(
+            self._docs(), like_id="qwen38", new_id="qwen39", wire_model="qwen3.9-max"
+        )
+        self.assertEqual(entry["wire_model"], "qwen3.9-max")
+        self.assertEqual(entry["provider"], "qwen")
+        self.assertEqual(entry["client_selector"], "claude-multi-qwen39-max[1m]")
+        self.assertEqual(
+            entry["lanes"]["max"]["client_selector"], "claude-multi-qwen39-max[1m]"
+        )
+        self.assertEqual(
+            entry["lanes"]["max"]["proxy_effort_contract"], "reasoning-effort-xhigh"
+        )
+        self.assertIn("QUALIFY", entry["display"])
+        self.assertIn("QUALIFY", entry["routing_note"])
+        self.assertIn("QUALIFY", entry["context"]["qualification"])
+        self.assertEqual(entry["role_hints"], {})
+        self.assertNotIn("user_reported_tokens", entry["context"])
+        self.assertLessEqual(entry["context"]["validated_tokens"], 200000)
+
+    def test_scaffold_rejects_unknown_like_and_collisions(self) -> None:
+        with self.assertRaises(dev.DevError):
+            dev._scaffold_model_entry(
+                self._docs(), like_id="nope", new_id="x1", wire_model="w"
+            )
+        # glm52's selectors already exist — deriving them again must fail.
+        with self.assertRaises(dev.DevError):
+            dev._scaffold_model_entry(
+                self._docs(), like_id="qwen38", new_id="glm52", wire_model="w"
+            )
+
+    def test_cli_scaffold_writes_validated_draft(self) -> None:
+        with mock.patch.dict(os.environ, {"XDG_STATE_HOME": str(self.root)}):
+            with redirect_stdout(io.StringIO()) as out:
+                code = dev.main(
+                    [
+                        "model", "add", "--like", "qwen38", "--id", "qwen39",
+                        "--wire-id", "qwen3.9-max", "--name", "sc1",
+                        "--repo", str(self.repo),
+                    ]
+                )
+        self.assertEqual(code, 0)
+        self.assertIn("QUALIFY", out.getvalue())
+        store = dev.DraftStore(self.root / "claude-multi" / "drafts")
+        draft = store.load("sc1")
+        self.assertEqual(draft["entry"]["wire_model"], "qwen3.9-max")
+
+    def test_scaffold_draft_entry_carries_the_id(self) -> None:
+        # promote derives the catalog key from entry.id (build_post_images);
+        # a scaffold without it would fail the advertised next `check` step.
+        entry = dev._scaffold_model_entry(
+            self._docs(), like_id="qwen38", new_id="qwen39", wire_model="qwen3.9-max"
+        )
+        self.assertEqual(entry["id"], "qwen39")
+
+    def test_scaffold_errors_when_id_not_in_selector(self) -> None:
+        # opus5's selector is claude-multi-opus-5[1m] — "opus5" is not a
+        # substring, so derivation must fail with the --from-json guidance.
+        with self.assertRaises(dev.DevError) as ctx:
+            dev._scaffold_model_entry(
+                self._docs(), like_id="opus5", new_id="opus6", wire_model="w"
+            )
+        self.assertIn("--from-json", str(ctx.exception))
+
+    def test_check_rejects_qualify_markers(self) -> None:
+        draft = _model_draft()
+        draft["entry"]["display"] = "QUALIFY: fill me"
+        with self.assertRaises(dev.DevError) as ctx:
+            dev.check_draft(draft, repo=self.repo)
+        self.assertIn("QUALIFY", str(ctx.exception))
+
+    def test_help_lists_both_tracks(self) -> None:
+        with redirect_stdout(io.StringIO()) as out:
+            code = dev.main(["--help"])
+        self.assertEqual(code, 0)
+        self.assertIn("Existing-provider model release", out.getvalue())
+        self.assertIn("New provider / provider kind", out.getvalue())
 
 
 class DraftTests(OnboardingTestCase):

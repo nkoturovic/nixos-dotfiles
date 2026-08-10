@@ -614,6 +614,38 @@ class TableTests(unittest.TestCase):
         self.assertLessEqual(len(win.line(1)), 40)
 
 
+class KeyBarOverflowTests(unittest.TestCase):
+    """2.14.0: overflow keeps the exit AND the help binding visible."""
+
+    def test_overflow_keeps_help_and_exit(self):
+        bar = tui.KeyBar(
+            (
+                ("Enter", "launch"),
+                ("E", "edit"),
+                ("D", "details"),
+                ("S", "sessions"),
+                ("G", "new gateway"),
+                ("H", "health"),
+                ("?", "help"),
+                ("Esc", "cancel"),
+            )
+        )
+        win = FakeWindow(height=24, width=44)
+        bar.draw(win, 23, tui.DARK_PALETTE)
+        text = win.text()
+        self.assertIn("? help", text)
+        self.assertIn("Esc cancel", text)
+        self.assertIn("…", text)  # middle bindings compacted
+
+    def test_overflow_without_help_protects_exit_only(self):
+        bar = tui.KeyBar(
+            (("Enter", "launch"), ("D", "details"), ("Esc", "cancel"))
+        )
+        win = FakeWindow(height=24, width=20)
+        bar.draw(win, 23, tui.DARK_PALETTE)
+        self.assertIn("Esc cancel", win.text())
+
+
 class RunCursesOnStreamsTests(unittest.TestCase):
     def test_fd_less_streams_are_rejected(self):
         with self.assertRaises(OSError):

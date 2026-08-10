@@ -17,6 +17,7 @@ transcripts, or the live shared daemon.
 
 from __future__ import annotations
 
+import copy
 import difflib
 import os
 import shutil
@@ -103,7 +104,6 @@ def make_model_draft(
     name: str,
     provider: str,
     entry: dict[str, Any],
-    fixtures: list[str] | None = None,
     notes: str | None = None,
     now: str | None = None,
 ) -> dict[str, Any]:
@@ -114,7 +114,6 @@ def make_model_draft(
         "kind": "model",
         "provider": provider,
         "entry": entry,
-        "fixtures": fixtures or [],
         "created_at": now or _now(),
     }
     if notes:
@@ -128,7 +127,6 @@ def make_provider_draft(
     provider_profile: dict[str, Any],
     model_entry: dict[str, Any],
     contract_claims: list[str],
-    fixtures: list[str] | None = None,
     notes: str | None = None,
     now: str | None = None,
 ) -> dict[str, Any]:
@@ -146,7 +144,6 @@ def make_provider_draft(
             "model": model_entry,
             "contract_claims": contract_claims,
         },
-        "fixtures": fixtures or [],
         "created_at": now or _now(),
     }
     if notes:
@@ -498,6 +495,32 @@ def _gate_builds(builds: tuple[dict[str, Any], ...]) -> None:
             )
 
 
+def _reject_qualify_markers(draft: dict[str, Any]) -> None:
+    """Scaffold QUALIFY markers must be replaced before check (019 review).
+
+    A draft still carrying placeholder text in the judgment fields is a
+    failed human gate, not a buildable candidate.
+    """
+
+    entries: list[dict[str, Any]] = []
+    if draft["kind"] == "model":
+        entries.append(draft["entry"])
+    else:
+        entries.append(draft["entry"]["model"])
+    for entry in entries:
+        for field in ("display", "routing_note"):
+            if "QUALIFY" in str(entry.get(field, "")):
+                raise DevError(
+                    f"draft entry still has a QUALIFY marker in {field!r} — "
+                    "fill every QUALIFY field first"
+                )
+        if "QUALIFY" in str(entry.get("context", {}).get("qualification", "")):
+            raise DevError(
+                "draft entry still has a QUALIFY marker in 'qualification' — "
+                "fill every QUALIFY field first"
+            )
+
+
 def check_draft(
     draft: dict[str, Any],
     *,
@@ -507,6 +530,7 @@ def check_draft(
 ) -> CheckResult:
     """Check: validate candidate bundle, dummy-secret render, scratch builds."""
 
+    _reject_qualify_markers(draft)
     repo = verify_repo(repo)
     raw = catalog_mod.load_raw(repo / V2_ROOT)
     images = build_post_images(raw["docs"], draft)
@@ -859,10 +883,102 @@ def _draft_store() -> DraftStore:
     )
 
 
+DEV_HELP = """claude-multi-dev — catalog onboarding pipeline (draft → check → review → promote)
+
+Two tracks:
+  Existing-provider model release:
+    claude-multi-dev model add --like qwen38 --id NEWID --wire-id WIRE --name DRAFT
+      (scaffolds a draft from the like-model with QUALIFY markers at the
+       judgment fields — fill those before check)
+    or: model add --from-json FILE --name DRAFT (a complete hand-written entry)
+    or: hand-edit catalog/models.json with the full battery (AGENTS.md §5)
+  New provider / provider kind:
+    claude-multi-dev provider add --from-json FILE --name DRAFT
+
+Then:  check DRAFT → review DRAFT → promote DRAFT --repo PATH
+Before check, update the in-tree seed pins (tests/test_catalog.py model set
+and RETAINED_SELECTOR_BASES; tests/test_cli.py ordinary groups for
+ordinary-capable models) — pin-edit → draft → check → review → promote is
+one uninterrupted sequence (the host suite is inconsistent between pin edit
+and promote); if promote fails on source drift, revert the pins.
+
+Never performed by promote: builds, activations, restarts, secret reads.
+`check` runs the sandbox builds in a candidate tree — that is the gate.
+Live provider calls need per-call approval (Kimi listing via
+`claude-multi discover kimi`). Promotion writes trusted repository JSON only.
+"""
+
+
+def _scaffold_model_entry(
+    docs: dict[str, Any], *, like_id: str, new_id: str, wire_model: str
+) -> dict[str, Any]:
+    """Draft a model entry from a same-provider sibling (2.13.1 scaffold).
+
+    Mechanical fields are inherited (lane structure, effort contracts, lead
+    block, minimum_tested); selectors derive by replacing the like model's
+    id inside its own selector strings (pattern-preserving across
+    claude-multi-*/gpt-multi-* families) and are collision-checked. Judgment
+    fields become explicit QUALIFY markers the author fills before check:
+    display, qualification evidence, routing_note; role_hints reset (they
+    steer dispatch); validated_tokens is capped at a conservative bound and any
+    user-attested bound is stripped (the author re-adds it with the exact
+    required wording if that route applies).
+    """
+
+    models = docs["models"]["models"]
+    if like_id not in models:
+        raise DevError(
+            f"--like model {like_id!r} is not in the catalog "
+            f"(have: {', '.join(sorted(models))})"
+        )
+    if new_id in models:
+        raise DevError(f"model {new_id!r} already exists in the catalog")
+    like = models[like_id]
+    entry = copy.deepcopy(like)
+    entry["id"] = new_id  # drafts key on entry.id; promote strips it
+    entry["wire_model"] = wire_model
+    if like_id not in like["client_selector"]:
+        raise DevError(
+            f"cannot derive selectors: {like_id!r} does not appear inside "
+            f"its own selector {like['client_selector']!r} — write the entry "
+            "by hand with model add --from-json"
+        )
+    entry["client_selector"] = like["client_selector"].replace(like_id, new_id)
+    for lane in entry["lanes"].values():
+        lane["client_selector"] = lane["client_selector"].replace(like_id, new_id)
+    taken = {
+        model["client_selector"] for model in models.values()
+    } | {
+        lane["client_selector"]
+        for model in models.values()
+        for lane in model["lanes"].values()
+    }
+    proposed = {entry["client_selector"]} | {
+        lane["client_selector"] for lane in entry["lanes"].values()
+    }
+    collision = proposed & taken
+    if collision:
+        raise DevError(f"selector collision with existing catalog: {sorted(collision)}")
+    entry["display"] = f"QUALIFY: display name for {new_id}"
+    entry["routing_note"] = "QUALIFY: routing guidance (when to prefer this model)"
+    entry["role_hints"] = {}
+    context = entry["context"]
+    context.pop("user_reported_tokens", None)
+    context["validated_tokens"] = min(context.get("validated_tokens", 0), 200000)
+    context["qualification"] = (
+        "QUALIFY: context-bound evidence (provider doc or benchmark); "
+        "unverified until an approval-gated live acceptance call."
+    )
+    return entry
+
+
 def main(argv: list[str]) -> int:
     if not argv:
         print(__doc__)
         return 2
+    if argv[0] in ("-h", "--help", "help"):
+        print(DEV_HELP)
+        return 0
     command, rest = argv[0], argv[1:]
     if command == "probe":
         # Lazy: a tracked module must not hard-import the dev-only probe
@@ -879,6 +995,41 @@ def main(argv: list[str]) -> int:
         if command in ("model", "provider") and positionals[:1] == ["add"]:
             drafts = _draft_store()
             kind = command
+            if kind == "model" and "like" in flags:
+                # Scaffold from a same-provider sibling: mechanical fields
+                # inherited, judgment fields become QUALIFY markers.
+                if "id" not in flags or "wire-id" not in flags:
+                    raise DevError(
+                        "model add --like requires --id NEWID and --wire-id WIRE"
+                    )
+                new_id = state.check_name(str(flags["id"]))
+                repo_root = repo if repo is not None else Path(".")
+                docs = catalog_mod.load_catalog(repo_root / V2_ROOT).docs
+                entry = _scaffold_model_entry(
+                    docs,
+                    like_id=str(flags["like"]),
+                    new_id=new_id,
+                    wire_model=str(flags["wire-id"]),
+                )
+                name = state.check_name(str(flags.get("name", "draft")))
+                draft = make_model_draft(
+                    name=name,
+                    provider=entry["provider"],
+                    entry=entry,
+                    notes=str(
+                        flags.get(
+                            "notes",
+                            f"scaffolded from {flags['like']}; fill every QUALIFY field",
+                        )
+                    ),
+                )
+                saved = drafts.save(
+                    name, _validate_draft(draft, _load_draft_schema(repo_root / V2_ROOT))
+                )
+                print(f"draft: {saved}")
+                print("fill every QUALIFY field, update the in-tree seed pins, then:")
+                print(f"  claude-multi-dev check {name}")
+                return 0
             if "from-json" not in flags:
                 raise DevError(f"{kind} add requires --from-json FILE")
             spec = strict_json.load(Path(flags["from-json"]))
@@ -898,7 +1049,6 @@ def main(argv: list[str]) -> int:
                     name=name,
                     provider=spec["provider"],
                     entry=spec["entry"],
-                    fixtures=spec.get("fixtures"),
                     notes=spec.get("notes"),
                 )
             else:
@@ -907,7 +1057,6 @@ def main(argv: list[str]) -> int:
                     provider_profile=spec["provider"],
                     model_entry=spec["model"],
                     contract_claims=spec["contract_claims"],
-                    fixtures=spec.get("fixtures"),
                     notes=spec.get("notes"),
                 )
             path = drafts.save(name, _validate_draft(draft, _load_draft_schema(
@@ -972,6 +1121,12 @@ def main(argv: list[str]) -> int:
                 drafts_root=drafts.root,
             )
             print(f"promoted: {result['applied']}")
+            print("remaining runbook (promotion writes trusted JSON only):")
+            print("  1. seed pins updated before check? (test_catalog sets / selector bases)")
+            print("  2. full host suite + sandbox; goldens re-blessed, diff reviewed")
+            print("  3. activate: home-manager switch (renders + restarts the gateway)")
+            print("     or: claude-multi-proxy init && systemctl --user restart cli-proxy-api")
+            print("  4. verify /v1/models serves it; one consent-gated live call")
             return 0
         if command == "smoke-test":
             if not positionals:

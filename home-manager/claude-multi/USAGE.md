@@ -59,6 +59,14 @@ works even though the name was never saved. The two flags are mutually
 exclusive, and neither applies to `-r`/`-c` (recorded sessions change
 composition only via `sessions transition`).
 
+Reference surfaces: `claude-multi models` lists every catalog model with its
+wire id and exact typed `/model` selectors; `claude-multi discover <provider>`
+asks a provider what IT serves (an explicit provider call — currently Kimi
+only; Qwen's Token Plan has no listing endpoint, verified 2026-08-10) and
+marks each answer cataloged vs an onboarding candidate. New models/providers
+are onboarded through `claude-multi-dev` (`--help` maps the two tracks;
+`model add --like <sibling>` scaffolds the draft).
+
 ### The composition profiles
 
 `default` is the only built-in trusted seed; the rest are the named profiles

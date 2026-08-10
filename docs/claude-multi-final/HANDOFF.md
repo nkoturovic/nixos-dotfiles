@@ -121,6 +121,13 @@ untouched; `claude-gateway` is the ordinary non-composition entrypoint.
   **^O** save chord; readable dark-theme muted color. Live acceptance call
   proved `qwen3.8-max` routing; `doctor --repair-all` converged all 33
   durable sessions; doctor Ready.
+- **2.14.0 improvement pass built, awaiting activation** (D51; blueprint
+  019): BLOCKED cards point at the in-TUI key fix; OAuth `(sign in needed)`
+  row marking; line-mode H; hardened secret writes (locked + re-parsed);
+  providers-pane drift banner + help; editor BLOCKED feedback; `claude-multi
+  discover PROVIDER` (Kimi listing verified; Qwen has none); `claude-multi-dev
+  model add --like` scaffold + promote runbook. Activation: HM switch only
+  (no catalog-shape changes beyond the kimi qualification note).
 - `claude-multi doctor` → **Ready** (all 18 durable scopes on catalog 12 + D44 shim guard;
   watchdog pin + roster prompts live; D43 radar in the suite).
   Sessions screen sorts by last used with the created age alongside

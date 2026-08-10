@@ -551,13 +551,21 @@ class KeyBar:
         used = self.rows(width)
         if self._rows_needed(width) > used:
             # Overflow beyond two rows: the D30 contract is that the exit
-            # binding is never clipped, so it gets a guaranteed spot on the
-            # bottom row; middle bindings compact behind an ellipsis.
+            # binding is never clipped; the help binding (? — the discovery
+            # mechanism) shares the guaranteed bottom-row spot when the
+            # screen put it immediately before the exit. Middle bindings
+            # compact behind an ellipsis.
             origin = max(0, row - (used - 1))
             x = col
             index = 0
-            while index < len(self.bindings) - 1:
-                key, label = self.bindings[index]
+            protected = (
+                self.bindings[-2:]
+                if len(self.bindings) >= 2 and self.bindings[-2][0] == "?"
+                else self.bindings[-1:]
+            )
+            body = self.bindings[: -len(protected)]
+            while index < len(body):
+                key, label = body[index]
                 entry = len(key) + 1 + len(label) + (3 if index else 0)
                 if index and x + entry > width - 2:
                     break
@@ -569,12 +577,17 @@ class KeyBar:
                 safe_add(win, origin, x, f" {label}", palette.attr("normal"))
                 x += 1 + len(label)
                 index += 1
-            key, label = self.bindings[-1]
-            tail = "… · " if index < len(self.bindings) - 1 else ""
+            tail = "… · " if index < len(body) else ""
             safe_add(win, origin + 1, col, tail, palette.attr("dim"))
             x = col + len(tail)
-            safe_add(win, origin + 1, x, key, palette.attr("accent"))
-            safe_add(win, origin + 1, x + len(key), f" {label}", palette.attr("normal"))
+            for offset, (key, label) in enumerate(protected):
+                if offset:
+                    safe_add(win, origin + 1, x, " · ", palette.attr("dim"))
+                    x += 3
+                safe_add(win, origin + 1, x, key, palette.attr("accent"))
+                x += len(key)
+                safe_add(win, origin + 1, x, f" {label}", palette.attr("normal"))
+                x += 1 + len(label)
             return
         origin = max(0, row - (used - 1))
         current = origin
@@ -1557,9 +1570,9 @@ FORM_KEYBAR = (
     ("↑↓", "move"),
     ("Enter", "edit"),
     ("Space", "toggle"),
-    ("?", "help"),
     ("^G", "JSON editor"),
     ("^O", "save"),
+    ("?", "help"),
     ("Esc", "cancel"),
 )
 FORM_DISCARD_TITLE = "Discard unsaved changes?"
@@ -1599,6 +1612,7 @@ EDITOR_HELP = (
     "Enter — edit the focused field (text input, select list, or actions).\n"
     "Space — toggle checkboxes and multi-select variants.\n"
     "P — prefer a variant (roles).\n"
+    "←→ — move between options on a radio row (native-agent policy).\n"
     "^G — open the raw composition JSON in the JSON editor.\n"
     "^O — open the Save or launch menu from anywhere (nano's WriteOut chord).\n"
     "Esc — back out; asks before discarding unsaved edits.\n"
@@ -1720,18 +1734,6 @@ class FormEditorScreen:
 
     # -- drawing -----------------------------------------------------------
 
-    def _focusable(self) -> list[int]:
-        return [i for i, row in enumerate(self._rows) if row.kind != "section"]
-
-    def _move_focus(self, delta: int) -> None:
-        focusable = self._focusable()
-        if not focusable:
-            return
-        current = focusable.index(self.focus) if self.focus in focusable else 0
-        self.focus = focusable[(current + delta) % len(focusable)]
-
-    # -- drawing -----------------------------------------------------------
-
     def _draw(self, win: Any) -> None:
         win.erase()
         palette = self.palette
@@ -1745,7 +1747,14 @@ class FormEditorScreen:
             palette.attr("accent") | curses.A_BOLD,
         )
         body_top = 3
-        body_bottom = height - 3  # status row: height - 3, keybar: height - 1
+        # Status zone: the status row (height-3) plus, when the form is
+        # BLOCKED with a pending message, one reserved message line above it
+        # — content never collides with either (review H6-style reservation).
+        pre_errors = self._validation()
+        message_row = (
+            height - 4 if pre_errors and self.state.message else None
+        )
+        body_bottom = height - 3 if message_row is None else height - 4
         visible = max(1, body_bottom - body_top)
         if self.focus < self.scroll:
             self.scroll = self.focus
@@ -1806,11 +1815,16 @@ class FormEditorScreen:
                 safe_add(win, y, 4 + 4 + len(row.label) + 1, row.note, palette.attr("dim"))
             elif row.kind == "actions":
                 safe_add(win, y, 4, f"{row.label:<16}{row.note}", attr)
-        errors = self._validation()
+        errors = pre_errors
         status_row = height - 3
         if errors:
             safe_add(win, status_row, 2, "Status: BLOCKED", palette.attr("error") | curses.A_BOLD)
             safe_add(win, status_row, 19, errors[0], palette.attr("error"))
+            # Refusal feedback (set_lead/variant guards) lands in
+            # state.message; when BLOCKED it would be invisible exactly
+            # while the user is repairing — it gets a reserved line.
+            if message_row is not None:
+                safe_add(win, message_row, 2, self.state.message, palette.attr("warn"))
         else:
             safe_add(win, status_row, 2, "Status: Ready", palette.attr("ok") | curses.A_BOLD)
             if self.state.message:
@@ -2159,6 +2173,16 @@ class FormEditorScreen:
             if key.kind == "resize":
                 continue
             if key.kind == "ctrl" and key.ch == "c":
+                # Panic interrupt routes through the same dirty check as
+                # Esc: unsaved edits are never lost to a stray ^C.
+                if self.state.dirty:
+                    confirmed = Modal(
+                        FORM_DISCARD_TITLE,
+                        [FORM_DISCARD_BODY],
+                        buttons=(("Discard", True), ("Keep editing", False)),
+                    ).run(win, self.palette, background=self._draw)
+                    if not confirmed:
+                        continue
                 raise KeyboardInterrupt
             if key.kind == "ctrl" and key.ch == "g":
                 show_cursor()

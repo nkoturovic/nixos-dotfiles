@@ -961,6 +961,32 @@ Suite: 1,509+ tests green; sandbox green; cross-family review
 (sol-xhigh revise→fixed; glm52 approve; qwen38 sweep GOOD) with
 adversarial verification of the critical finding.
 
+**D51 — Post-release improvement pass; provider listing verified per-provider (2.14.0).**
+A six-leg agent evaluation of the 2.13.0 surfaces (discoverability,
+coherence, onboarding, safety, Kimi usability walk, lead friction pass)
+drove a refinement batch (blueprint 019): first-run dead-ends closed
+(BLOCKED cards point at G→P masked entry; OAuth no-record rows marked
+`(sign in needed)` with the login command; line-mode H exists as
+promised); secret writes hardened (FileLock + candidate re-parse + exact
+export preservation); wording/runnability unified (`systemctl --user
+restart cli-proxy-api` everywhere, restart-between-turns timing);
+editor/doctor/pane feedback gaps closed (BLOCKED message visible, drift
+banner, transient-skip line, drift early-return). Two structural
+additions: (1) **`claude-multi discover PROVIDER`** — explicit-invocation
+provider model listing; the endpoint matrix is now VERIFIED, not assumed:
+Kimi answers Anthropic-shape `GET /coding/v1/models` (x-api-key), the
+Qwen Token Plan's apps/anthropic path does not (404 "Not support"), OAuth
+pools have no direct credential. The 015 D-d rejection of live discovery
+was premised on unverified endpoints; explicit user invocation is the
+approval mechanism, and output marks cataloged vs onboarding candidates
+(discovery still cannot populate compositions directly — metadata gates).
+Kimi's listing advertises `context_length 1048576` for k3 → the kimi-k3
+qualification upgrades from user-attested to **provider-advertised** (the
+not-benchmark-verified phrase stays). (2) **`claude-multi-dev model add
+--like`** scaffold (mechanical fields inherited; QUALIFY markers at
+judgment fields) plus `--help` and the promote runbook — the mechanical/
+judgment split is now encoded instead of tribal.
+
 ## User decision summary (what you're approving by accepting this design)
 
 1. Selected agents become **real files** in a per-session scope; the failure
