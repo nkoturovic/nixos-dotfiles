@@ -149,7 +149,7 @@ untouched; `claude-gateway` is the ordinary non-composition entrypoint.
   `systemctl --user restart cli-proxy-api` — the daemon does not hot-reload
   a rename-replaced config on 7.2.80 (HM switch does this for you).
 - Full evidence and census: the current checkpoint's
-  [`handoff/state-snapshot.md`](checkpoints/2026-08-10-v2.13.0/handoff/state-snapshot.md).
+  [`handoff/state-snapshot.md`](checkpoints/2026-08-11-v2.15.0/handoff/state-snapshot.md).
 
 ## Composition: qwen-sol
 
@@ -190,7 +190,7 @@ Token Plan `apps/anthropic`, bearer auth, key in
 
 ## Open items (as of 2026-07-27)
 
-Ordered in the current checkpoint: [`checkpoints/2026-08-10-v2.13.0/handoff/open-items.md`](checkpoints/2026-08-10-v2.13.0/handoff/open-items.md).
+Ordered in the current checkpoint: [`checkpoints/2026-08-11-v2.15.0/handoff/open-items.md`](checkpoints/2026-08-11-v2.15.0/handoff/open-items.md).
 
 ## Where things live
 

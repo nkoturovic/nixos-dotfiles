@@ -31,7 +31,8 @@ Rules:
 
 | Checkpoint | State | Handoff |
 | --- | --- | --- |
-| `2026-08-10-v2.13.0` (**current**) | claude-multi 2.13.0 (HM gen 120): qwen3.8-max production live-verified, MRU picking, `--composition-file`, providers pane, doctor gateway radar (D50; blueprints 014–018); doctor Ready | [handoff/README.md](2026-08-10-v2.13.0/handoff/README.md) |
+| `2026-08-11-v2.15.0` (**current**) | claude-multi 2.15.0 (HM gen 122): the model/provider funnel complete — discover → mark in TUI → try ordinary → adopt into compositions; custom providers/models registry, models browser, doctor radar covers customs (D50–D52; blueprints 014–020); doctor Ready | [handoff/README.md](2026-08-11-v2.15.0/handoff/README.md) |
+| `2026-08-10-v2.13.0` | claude-multi 2.13.0 (HM gen 120): qwen3.8-max production live-verified, MRU picking, `--composition-file`, providers pane, doctor gateway radar (D50; blueprints 014–018); doctor Ready | [handoff/README.md](2026-08-10-v2.13.0/handoff/README.md) |
 | `2026-07-27-v2.7.0` | claude-multi 2.7.0 (HM gen 107): lifecycle complete (sessions stop, D38) on top of the v2.6 hardening; pin 2.1.220; doctor Ready, zero Attention | [handoff/README.md](2026-07-27-v2.7.0/handoff/README.md) |
 | `2026-07-24-v2.5.0` | claude-multi 2.5.0 (HM gen 101), Opus 5 default lead, gateway serves Opus 5, doctor fully clean | [handoff/README.md](2026-07-24-v2.5.0/handoff/README.md) |
 | `2026-07-24-v2.4.1` | claude-multi 2.4.1 (HM gen 99), layered contract, TUI health surface | [handoff/README.md](2026-07-24-v2.4.1/handoff/README.md) |
