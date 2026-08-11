@@ -1,6 +1,10 @@
 # STATUS — live tracker
 
-## 2026-08-11 — v2.16.0: deep analysis hardening (D53, blueprint 021, working tree)
+## 2026-08-11 — v2.16.0: deep analysis hardening (D53, blueprint 021, activated gen 123)
+
+- **Activated**: HM gen 123, `doctor --repair-all` converged 33 durable
+  sessions, re-run doctor **Ready** (radar silent). Live smoke:
+  `custom list` answers, `compose list` MRU-first.
 
 - **Six-lane analysis** (core/tui/gateway/compose/hygiene/security +
   adversarial verify; three context-deaths re-dispatched narrowed):
@@ -35,8 +39,7 @@
   **Cross-family review**: sol-xhigh (block → all 3 findings fixed:
   under-lock forget liveness shared CLI+picker, durable pointer sweep,
   completable cwd-missing remedy) + glm52 (approve; P2 picker-bypass and
-  nits fixed: add_model dict typing, HTTPError close). Activation (HM
-  switch) awaits the operator green light.
+  nits fixed: add_model dict typing, HTTPError close).
 
 ## 2026-08-11 — v2.15.0: custom providers & ordinary models (D52, blueprint 020, activated gen 122)
 

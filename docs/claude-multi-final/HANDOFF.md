@@ -76,7 +76,7 @@ untouched; `claude-gateway` is the ordinary non-composition entrypoint.
 
 ## Installed state (2026-07-29)
 
-- claude-multi **2.15.0** active (HM generation 122; rollback: gen 121/120),
+- claude-multi **2.16.0** active (HM generation 123; rollback: gen 122/121),
   Claude pinned at **2.1.220** (hash-verified, symlink-aligned).
   Resume gate live (D41): repair-needed records get one-keypress Repair &
   resume in the TUI, daemon-owned resumes gate with Stop & resume /
