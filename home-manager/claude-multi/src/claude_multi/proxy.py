@@ -34,7 +34,6 @@ class ProxyError(RuntimeError):
     """Raised on any proxy-control failure (fail closed, secrets redacted)."""
 
 
-COMMANDS = ("init", "status", "run", "claude-login", "codex-device-login")
 LOGIN_FLAGS = {
     "claude-login": "--claude-login",
     "codex-device-login": "--codex-device-login",
@@ -186,9 +185,18 @@ def list_provider_models(
         headers = {auth["header"]: secret}
     headers["anthropic-version"] = "2023-06-01"
 
+    class _NoRedirect(urllib.request.HTTPRedirectHandler):
+        """Never follow redirects: urllib would forward the Authorization /
+        x-api-key header to the redirect target — including an HTTPS→HTTP
+        downgrade (security lane, P1). A 3xx is just a failed listing."""
+
+        def redirect_request(self, req, fp, code, msg, headers, newurl):
+            return None
+
     def _fetch(target: str, request_headers: dict[str, str]) -> bytes:
         request = urllib.request.Request(target, headers=request_headers)
-        with urllib.request.urlopen(request, timeout=timeout) as response:
+        opener = urllib.request.build_opener(_NoRedirect())
+        with opener.open(request, timeout=timeout) as response:
             # Bound the remote body: strict_json's 4 MiB limit must not be
             # reachable only after an unbounded allocation.
             limit = strict_json.DEFAULT_LIMITS.max_bytes
@@ -197,26 +205,48 @@ def list_provider_models(
     try:
         raw = (fetch or _fetch)(url, headers)
     except Exception as exc:
-        # Never interpolate the exception: a crafted or odd error could
-        # carry request details. Type name only; the secret never leaves.
+        # Never interpolate the exception message: a crafted error could
+        # carry request details. The HTTP status / connection reason are
+        # safe and actionable (they never contain request data).
+        if isinstance(exc, urllib.error.HTTPError):
+            detail = f"HTTP {exc.code}"
+            # The error wraps the response socket (incl. the blocked-redirect
+            # case) — close it instead of leaving it to the GC.
+            exc.close()
+        elif isinstance(exc, urllib.error.URLError):
+            detail = f"connection error: {exc.reason}"
+        else:
+            detail = type(exc).__name__
         raise ProxyError(
-            f"provider {provider_id!r} model listing failed "
-            f"({type(exc).__name__})"
+            f"provider {provider_id!r} model listing failed ({detail})"
         ) from exc
-    payload = strict_json.loads(raw)
-    entries = []
-    for item in payload.get("data", []):
-        if not isinstance(item, dict) or not isinstance(item.get("id"), str):
-            continue
-        entry = {
-            "id": item["id"],
-            "display_name": item.get("display_name", ""),
-            "context_length": item.get("context_length"),
-        }
-        efforts = item.get("think_efforts")
-        if isinstance(efforts, dict) and efforts.get("valid_efforts"):
-            entry["think_efforts"] = list(efforts["valid_efforts"])
-        entries.append(entry)
+    try:
+        payload = strict_json.loads(raw)
+        items = payload.get("data", []) if isinstance(payload, dict) else None
+        if items is None or not isinstance(items, list):
+            raise TypeError("the listing envelope is not {data: [...]}")
+        entries = []
+        for item in items:
+            if not isinstance(item, dict) or not isinstance(item.get("id"), str):
+                continue
+            entry = {
+                "id": item["id"],
+                "display_name": item.get("display_name", ""),
+                "context_length": item.get("context_length"),
+            }
+            efforts = item.get("think_efforts")
+            if isinstance(efforts, dict) and efforts.get("valid_efforts"):
+                entry["think_efforts"] = [
+                    str(e) for e in efforts["valid_efforts"] if isinstance(e, str)
+                ]
+            entries.append(entry)
+    except (ValueError, TypeError, AttributeError) as exc:
+        # Parse/structure failures stay inside the redacted boundary too —
+        # a traceback would kill the TUI pane (gateway/security lanes).
+        raise ProxyError(
+            f"provider {provider_id!r} model listing returned an unexpected "
+            f"shape ({type(exc).__name__})"
+        ) from exc
     return entries
 
 

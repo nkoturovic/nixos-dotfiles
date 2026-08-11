@@ -53,10 +53,6 @@ def _dummy_resolver(_name: str) -> str:
     return _DUMMY_SECRET
 
 
-def _none_resolver(_name: str) -> None:
-    return None
-
-
 # ---------------------------------------------------------------- drafts
 
 

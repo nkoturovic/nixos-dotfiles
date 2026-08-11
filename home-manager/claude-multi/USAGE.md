@@ -32,8 +32,10 @@ claude-multi
 A card shows the composition (lead, team, policy, context). Then:
 
 - **Enter** — launch
-- **Tab / P** — cycle presets, most-recently-used first (this directory's
-  recent compositions lead, then globally recent, then the rest). Current
+- **Tab** (curses; Shift-Tab cycles backward) / **P** (line mode) — cycle
+  presets, most-recently-used first (this directory's
+  recent compositions lead, then globally recent, then the rest). Cycling
+  away from unsaved composition edits asks first (2.16.0). Current
   set: `default` (Opus 5 + Sol + Kimi), `opus-sol` (Opus 5 + Sol), `opus-kimi` (Opus 5 + Kimi), `fable`, `fable-sol-qwen-glm`, `kimi-sol`, `kimi-sol-qwen`, `kimi-sol-qwen-glm`, `kimi-sol-qwen-glm-fable`, `qwen-sol`, `glm-sol`, `sol-direct`
 - **W** — toggle workflows on/off
 - **G** — gateway models: pick a model, launch with no composition (see "Ordinary gateway sessions"); the picker's selected row shows the exact typed `/model` selectors, **M** browses the full catalog+custom list (Enter = details; **E** jumps to that model's Availability row in the composition editor), and **P** opens the providers pane (per-provider local status, connect instructions, masked key entry)
@@ -128,6 +130,11 @@ error:
   `claude-multi sessions forget <uuid>`; transcripts are never deleted by
   claude-multi). Found under a different project dir → the exact
   `relink-runtime --cwd` command for the intentional re-home case.
+- **Recorded project dir gone** (the classic rename — the transcript is
+  still filed under it): the gate names both exits — rename the directory
+  back (resume then just works), or move the transcript into the new
+  project's `~/.claude/projects/<new-slug>/` and repair the record with
+  `relink-runtime --cwd`.
 
 ### The sessions screen (`claude-multi -r` or **S**)
 
@@ -302,6 +309,7 @@ claude-multi doctor              # health: Ready, Attention (lazy upgrades), or 
 claude-multi doctor --repair-all # converge every session's files to its record (the older-session answer)
 claude-multi doctor --prune      # sweep stale generated files (never transcripts)
 claude-multi sessions forget <uuid>  # delete a session's record + generated files (never the transcript)
+                                    # refuses a live session (stop it first) and the one you're inside
 ```
 
 `Attention` lines always name the exact fix command. `BLOCKED` means

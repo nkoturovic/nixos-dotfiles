@@ -240,10 +240,9 @@ class CompositionStore:
         path = self._path(name)
         if not path.exists() and not path.is_symlink():
             return False
-        # Validate the target before unlinking; never follow or remove a symlink.
-        state.read_private(path)
-        path.unlink()
-        return True
+        # Durable delete: same safety checks as any state write, plus the
+        # directory fsync so a crash cannot resurrect the composition.
+        return state.remove_private(path)
 
     def duplicate(self, source: str, target: str) -> dict[str, Any]:
         self.require_new_target(target)
@@ -258,6 +257,8 @@ class CompositionStore:
         document["name"] = target
         self.save(document)
         if self.has_user(source):
+            # Crash window (accepted, compose-lane): both names may exist
+            # after an interrupted rename; deleting one by hand converges.
             self.delete(source)
         return document
 
@@ -346,6 +347,13 @@ class Runtime:
     @property
     def launcher_version(self) -> str:
         return self.catalog.docs["version"]["launcher_version"]
+
+    def custom_conflicts(self) -> list[str]:
+        """Custom-registry ids shadowing the catalog (dropped by the merge)."""
+
+        return custom.merge_conflicts(
+            self.catalog.docs, custom.load_registry(self.environ)
+        )
 
     @property
     def ordinary_docs(self) -> dict[str, Any]:
@@ -1245,9 +1253,9 @@ def _cwd_sessions_summary(runtime: Runtime) -> str | None:
     ]
     if not here:
         return None
-    newest = max(here, key=lambda record: record["created_at"])
+    latest = max(here, key=_record_sort_key_last_used)
     noun = "session" if len(here) == 1 else "sessions"
-    return f"{len(here)} {noun} here · newest {_record_age(newest)} · S to pick"
+    return f"{len(here)} {noun} here · latest activity {_record_last_used_age(latest)} · S to pick"
 
 
 def render_quick_confirm(
@@ -1637,6 +1645,13 @@ def _apply_outcome_or_failure(
 
     try:
         return _apply_editor_outcome(runtime, plan, outcome)
+    except state.CommittedStateError as exc:
+        # The write COMMITTED but directory durability is unconfirmed
+        # (compose-lane P2): reporting "unsaved" would be a lie in the
+        # dangerous direction. The source labels the indeterminate state.
+        failed = _editor_failure_plan(runtime, plan, outcome.document, exc)
+        failed.source = "Committed, durability unconfirmed"
+        return failed
     except (CLIError, ValueError, OSError) as exc:
         return _editor_failure_plan(runtime, plan, outcome.document, exc)
 
@@ -1648,7 +1663,7 @@ QUICK_HELP = (
     "W — toggle native workflows on/off for this launch.\n"
     "D — details (scalar, providers, catalog hashes, workers).\n"
     "H — doctor in place (health: Ready / Attention / BLOCKED).\n"
-    "U — re-pin Claude when the update badge shows (curses only).\n"
+    "U — re-pin Claude when the update badge shows.\n"
     "S — sessions: managed + native picker (resume, switch comp/model, adopt).\n"
     "G — gateway models: pick a model (no composition), browse the full catalog (M), or manage providers (P).\n"
     "P (line mode) — cycle presets.\n"
@@ -1811,11 +1826,12 @@ class _QuickConfirmScreen:
             tui.safe_add(win, row, 2, "policy    ", palette.attr("dim"))
             tui.safe_add(win, row, 12, _policy_summary(runtime, plan.resolved))
             row += 1
-        if row < bottom - status_reserve:
-            tui.safe_add(win, row, 2, "project   ", palette.attr("dim"))
-            project_role = "error" if plan.project_collisions else "normal"
-            tui.safe_add(win, row, 12, _project_summary(plan), palette.attr(project_role))
-            row += 1
+        if plan.project_agent_count or plan.project_collisions:
+            if row < bottom - status_reserve:
+                tui.safe_add(win, row, 2, "project   ", palette.attr("dim"))
+                project_role = "error" if plan.project_collisions else "normal"
+                tui.safe_add(win, row, 12, _project_summary(plan), palette.attr(project_role))
+                row += 1
         cwd_hint = _cwd_sessions_summary(runtime)
         if cwd_hint is not None and row < bottom - status_reserve:
             tui.safe_add(win, row, 2, "sessions  ", palette.attr("dim"))
@@ -2326,6 +2342,20 @@ class _QuickConfirmScreen:
                 return outcome
             preset_delta = _cycle_key_delta(key.kind)
             if preset_delta is not None:
+                if self.plan.record is None and self.plan.source in (
+                    "Unsaved launch",
+                    "Unsaved editor changes",
+                ):
+                    confirmed = tui.Modal(
+                        "Discard the unsaved composition edits?",
+                        [
+                            "Cycling away replaces the unsaved document with a "
+                            "saved preset (Save it first via E → ^O to keep it).",
+                        ],
+                        buttons=(("Cycle away", True), ("Stay", False)),
+                    ).run(win, self.palette, background=self._draw)
+                    if not confirmed:
+                        continue
                 cycled = _cycle_preset(self.runtime, self.plan, preset_delta)
                 if cycled is self.plan and self.plan.record is not None:
                     # Dead-key feedback: on a recorded session only the
@@ -2639,25 +2669,54 @@ def _line_quick_confirm(
                     else ".\n"
                 )
                 output_stream.write(footer)
+            else:
+                output_stream.write(
+                    "run `claude-multi doctor --repair-all` now? [y/N] "
+                )
+                output_stream.flush()
+                if input_stream.readline().strip().lower() in ("y", "yes"):
+                    _doctor_repair_all(runtime, output_stream)
             continue
         if key == "s":
             _print_sessions_listing(runtime, output_stream)
-            output_stream.write(
-                "resume managed sessions with `claude-multi -r <uuid>` (or a "
-                "name), ordinary sessions with `claude-gateway --resume "
-                "<uuid>`, or press S in the curses UI to pick interactively.\n"
-            )
+            if tui.streams_curses_capable(input_stream, output_stream):
+                output_stream.write(
+                    "resume managed sessions with `claude-multi -r <uuid>` (or a "
+                    "name), ordinary sessions with `claude-gateway --resume "
+                    "<uuid>`, or press S in the curses UI to pick interactively.\n"
+                )
+            else:
+                output_stream.write(
+                    "resume managed sessions with `claude-multi -r <uuid>` (or a "
+                    "name), ordinary sessions with `claude-gateway --resume <uuid>`.\n"
+                )
             continue
         if key == "g":
             _print_ordinary_listing(runtime, output_stream)
             output_stream.write(
                 "launch with `claude-gateway --model <model>` (or "
-                "`claude-multi direct --model <model>`), or press G in the "
-                "curses UI to pick interactively.\n"
+                "`claude-multi direct --model <model>`)"
+                + (
+                    ", or press G in the curses UI to pick interactively.\n"
+                    if tui.streams_curses_capable(input_stream, output_stream)
+                    else ".\n"
+                )
             )
             continue
         if key in ("p", "P"):
-            cycled = _cycle_preset(runtime, plan, 1 if key == "p" else -1)
+            if plan.record is None and plan.source in (
+                "Unsaved launch",
+                "Unsaved editor changes",
+            ):
+                output_stream.write(
+                    "discard the unsaved composition edits by cycling? [y/N] "
+                )
+                output_stream.flush()
+                if input_stream.readline().strip().lower() not in ("y", "yes"):
+                    continue
+            # _read_key lowercases, so cycling here is forward-only (Shift-Tab
+            # backward exists only in curses).
+            cycled = _cycle_preset(runtime, plan, 1)
             if cycled is plan:
                 output_stream.write(
                     "preset cycling needs a fresh plan and at least two saved "
@@ -2951,8 +3010,7 @@ SESSIONS_EMPTY_FILTERED = "(no sessions in this directory — press C to see all
 FORGET_MODAL_TITLE = "Forget session {short}?"
 FORGET_MODAL_BODY = (
     "Deletes: session record + generated scope{scope_note}.\n"
-    "If the session is currently running, its agents lose their definition\n"
-    "files until a resume recompiles them. Transcripts are never touched."
+    "Transcripts are never touched."
 )
 FORK_MODAL_TITLE = "Resolve fork on {short}?"
 FORK_MODAL_BODY = (
@@ -3121,19 +3179,22 @@ class _SessionsScreen:
             self.records = [
                 record for record in all_records if record["cwd"] == self.runtime.cwd
             ]
-            self.native = [
+            native_filtered = [
                 item for item in native_all if item["cwd"] == self.runtime.cwd
-            ][:20]
+            ]
             # For the empty-state copy: something exists OUTSIDE this
             # directory.
             self.empty_elsewhere = (
                 not self.records
-                and not self.native
+                and not native_filtered
                 and (bool(all_records) or bool(native_all))
             )
         else:
-            self.native = native_all[:20]
+            native_filtered = native_all
             self.empty_elsewhere = False
+        self.native = native_filtered[:20]
+        # Overflow beyond the newest-20 cap, surfaced in the section header.
+        self.native_overflow = len(native_filtered) - len(self.native)
         # Land on a non-empty section (zero-managed with native present, or
         # after forgetting the last managed record).
         if self.section == "managed" and not self.records and self.native:
@@ -3246,11 +3307,16 @@ class _SessionsScreen:
             table.draw(win, row, 2, width - 2, palette, max_rows=managed_max)
             row += managed_max + 2
         if self.native:
+            native_header = (
+                "native (unmanaged, discovered names+times only) · press L to adopt"
+            )
+            if self.native_overflow:
+                native_header += f" · +{self.native_overflow} more (newest 20 shown)"
             tui.safe_add(
                 win,
                 row,
                 2,
-                "native (unmanaged, discovered names+times only) · press L to adopt",
+                native_header,
                 palette.attr("dim"),
             )
             row += 1
@@ -3364,6 +3430,15 @@ class _SessionsScreen:
     def _forget(self, win: Any, record: dict[str, Any]) -> None:
         session_id = sessions.managed_id(record)
         short = f"{session_id[:8]}…"
+        # Live rows never reach the modal (review): forgetting under a
+        # running process orphans it — E stops it in place first. The
+        # under-lock pre-delete check closes the residual race below.
+        if _record_is_live(record, self.live_prefixes):
+            self.message = (
+                f"session {session_id[:12]}… is live (●) — stop it first (E), "
+                "then forget"
+            )
+            return
         scope_exists = scope_mod.scope_dir(
             self.runtime.session_store.root, session_id
         ).is_dir()
@@ -3376,8 +3451,17 @@ class _SessionsScreen:
         if not confirmed:
             self.message = "Forget cancelled."
             return
-        # Same serialized effects as `sessions forget`.
-        self.runtime.session_store.forget_session(session_id)
+        # Same serialized effects as `sessions forget`, including the
+        # under-lock liveness re-check.
+        try:
+            self.runtime.session_store.forget_session(
+                session_id,
+                pre_delete_check=_forget_liveness_guard(self.runtime, session_id),
+            )
+        except sessions.SessionError as exc:
+            self._reload()
+            self.message = str(exc)
+            return
         self._reload()
         self.selected = min(self.selected, max(0, len(self._active()) - 1))
         self.message = FORGET_DONE.format(session_id=session_id)
@@ -3711,12 +3795,18 @@ ORDINARY_HELP_SHARED = (
     "models). M browses the full catalog+custom model list; D removes a\n"
     "custom model row.\n"
     "\n"
-    "Arrow keys move; Esc closes this panel."
+    "Arrow keys or j/k move; Esc closes this panel."
 )
 ORDINARY_UNAVAILABLE_TITLE = "Provider secret missing"
 ORDINARY_UNAVAILABLE_BODY = (
     "The gateway omits providers rendered without their secret; the model\n"
     "may fail unless the running gateway still serves an older config."
+)
+ORDINARY_UNSERVED_TITLE = "Not served by the running gateway"
+ORDINARY_UNSERVED_BODY = (
+    "The rendered config carries this selector but the running daemon does\n"
+    "not — apply with `claude-multi-proxy init` + `systemctl --user restart\n"
+    "cli-proxy-api` (between turns). Launching now fails at request time."
 )
 ORDINARY_SIGNIN_TITLE = "Provider sign-in needed"
 ORDINARY_SIGNIN_BODY = (
@@ -3814,6 +3904,8 @@ MODELS_SUBTITLE = (
     "composition act (E → Availability)"
 )
 MODELS_HELP = (
+    "Navigate with arrows or j/k; Home/End jumps to the first/last row.\n"
+    "\n"
     "Every catalog model plus operator-added customs, with provider,\ncapabilities,\n"
     "context profile, and the exact typed /model selectors (the native\n"
     "picker display-filters custom aliases — typed selectors hit the\n"
@@ -3984,6 +4076,12 @@ class _ModelsScreen:
                 if self.selected < len(self.rows) - 1:
                     self.selected += 1
                 continue
+            if key.kind == "home":
+                self.selected = 0
+                continue
+            if key.kind == "end":
+                self.selected = max(0, len(self.rows) - 1)
+                continue
             if not self.rows:
                 continue
             if (
@@ -4032,6 +4130,16 @@ class _OrdinaryScreen:
         # invisible to the secret marking — but the gateway serves nothing
         # for that pool. Mark those rows too (names/counts only).
         self.oauth_records = _oauth_credential_records(runtime)
+        # Best-effort served set: rendered-but-unserved rows are the
+        # marked-but-not-applied funnel state (init/restart pending). None
+        # means unknown (gateway down) — nothing is marked on that alone.
+        try:
+            token = launch.read_gateway_token(runtime.catalog.docs["gateway"])
+            self.served, _status = launch.served_models(
+                runtime.catalog.docs["gateway"], token
+            )
+        except launch.LaunchError:
+            self.served = None
         self._initial_model = initial_model
         # Preselect the given model (ordinary model switch, D48); otherwise
         # match the CLI default (prepare_direct: model_id or "sol").
@@ -4064,6 +4172,25 @@ class _OrdinaryScreen:
         pool = transport["pool"]
         return None if self.oauth_records.get(pool, 0) > 0 else pool
 
+    def _row_unserved(self, model_id: str) -> bool:
+        """Fully wired but the running gateway lacks the route (020 funnel).
+
+        Only fires when the row is otherwise ready (secret present, pool
+        signed in) — secret/sign-in markings own those cases. Unknown
+        served state marks nothing.
+        """
+
+        if self.served is None:
+            return False
+        if self._row_reason(model_id) is not None or self._row_signin_pool(model_id):
+            return False
+        model = self.runtime.ordinary_docs["models"]["models"][model_id]
+        selectors = {
+            lane["client_selector"].removesuffix("[1m]")
+            for lane in model["lanes"].values()
+        }
+        return bool(selectors) and not selectors <= self.served
+
     def _detail_reserve(self, width: int) -> int:
         """Wrapped-line worst case for the selected-row detail (floor math).
 
@@ -4084,6 +4211,10 @@ class _OrdinaryScreen:
             f"`claude-multi-proxy {_OAUTH_LOGIN_COMMANDS.get(p['transport']['pool'], p['transport']['pool'] + '-login')}`"
             for p in providers.values()
             if p["transport"]["kind"] == "oauth-pool"
+        )
+        candidates.append(
+            "not served by the running gateway — apply first: "
+            "`claude-multi-proxy init` + `systemctl --user restart cli-proxy-api`"
         )
         wrap_width = max(20, width - 4)
         reason_lines = max(
@@ -4165,13 +4296,16 @@ class _OrdinaryScreen:
                 # selected row is spelled out on the detail lines instead.
                 label = f"{model_id} — {model['display']} · {family}"
                 signin_pool = self._row_signin_pool(model_id)
+                unserved = self._row_unserved(model_id)
                 if reason is not None:
                     label += "  (no secret)"
                 elif signin_pool is not None:
                     label += "  (sign in needed)"
+                elif unserved:
+                    label += "  (not served)"
                 attr = (
                     palette.attr("dim")
-                    if reason is not None or signin_pool is not None
+                    if reason is not None or signin_pool is not None or unserved
                     else palette.attr("normal")
                 )
                 if index == self.selected:
@@ -4209,6 +4343,16 @@ class _OrdinaryScreen:
                     for line in textwrap.wrap(
                         f"no {selected_signin} credential record — sign in: "
                         f"`claude-multi-proxy {command}`",
+                        wrap_width,
+                    )
+                )
+            if self._row_unserved(selected):
+                detail.extend(
+                    (line, "warn")
+                    for line in textwrap.wrap(
+                        "not served by the running gateway — apply first: "
+                        "`claude-multi-proxy init` + `systemctl --user "
+                        "restart cli-proxy-api`",
                         wrap_width,
                     )
                 )
@@ -4263,6 +4407,12 @@ class _OrdinaryScreen:
                 if self.selected < len(self.rows) - 1:
                     self.selected += 1
                 continue
+            if key.kind == "home":
+                self.selected = 0
+                continue
+            if key.kind == "end":
+                self.selected = max(0, len(self.rows) - 1)
+                continue
             if not self.rows:
                 # Same empty-list guard as the sessions screen: action keys
                 # never index an empty catalog.
@@ -4299,7 +4449,8 @@ class _OrdinaryScreen:
                 self.oauth_records = _oauth_credential_records(self.runtime)
                 reason = self._row_reason(model_id)
                 signin_pool = self._row_signin_pool(model_id)
-                if (reason is not None or signin_pool is not None) and not (
+                unserved = self._row_unserved(model_id)
+                if (reason is not None or signin_pool is not None or unserved) and not (
                     self.purpose == "switch" and model_id == self._initial_model
                 ):
                     model = self.runtime.ordinary_docs["models"]["models"][model_id]
@@ -4312,11 +4463,14 @@ class _OrdinaryScreen:
                     if reason is not None:
                         title = ORDINARY_UNAVAILABLE_TITLE
                         body = [reason + ".", *ORDINARY_UNAVAILABLE_BODY.splitlines()]
-                    else:
+                    elif signin_pool is not None:
                         title = ORDINARY_SIGNIN_TITLE
                         body = [
                             *ORDINARY_SIGNIN_BODY.format(pool=signin_pool).splitlines(),
                         ]
+                    else:
+                        title = ORDINARY_UNSERVED_TITLE
+                        body = ORDINARY_UNSERVED_BODY.splitlines()
                     for raw in body:
                         lines.extend(textwrap.wrap(raw, wrap_width))
                     lines.extend(
@@ -4370,7 +4524,15 @@ PROVIDERS_HELP = (
     "turns — an in-flight request may need a retry).\n"
     "\n"
     "Enter on an OAuth-pool row shows the sign-in command (OAuth runs outside\n"
-    "the TUI). R re-reads every fact. Esc goes back."
+    "the TUI). R re-reads every fact. Esc goes back.\n"
+    "\n"
+    "N registers a new Anthropic-compatible provider (endpoint + key env var).\n"
+    "A on a row adds models to the custom registry — a confirmed one-shot\n"
+    "fetch for listing-capable providers (Kimi verified), manual type-in\n"
+    "anywhere. Enter on a custom provider offers key-replace / edit / remove.\n"
+    "Customs are ordinary-session only; compositions onboard via\n"
+    "claude-multi-dev model add --like. Apply changes with `claude-multi-proxy\n"
+    "init` + `systemctl --user restart cli-proxy-api` (between turns)."
 )
 
 
@@ -4424,10 +4586,12 @@ def _provider_facts(runtime: Runtime) -> ProviderFacts:
         snap = GatewaySnapshot(
             served=None,
             gateway_down=True,
+            models_status=None,
             expected=frozenset(),
             oauth_alias_pools={},
             render_error=None,
             config_drift=None,
+            config_note=None,
             oauth_records=_oauth_credential_records(runtime),
         )
     facts: list[dict[str, Any]] = []
@@ -4659,7 +4823,7 @@ class _ProvidersScreen:
                         secret_env=secret_env,
                         header=header,
                         display=spec.get("display"),
-                        catalog_providers=tuple(self.runtime.catalog.providers.keys()),
+                        catalog_providers=self.runtime.catalog.providers,
                     )
                 except (custom.CustomModelsError, OSError, ValueError) as exc:
                     self.message = str(exc)
@@ -4813,7 +4977,7 @@ class _ProvidersScreen:
                 auth_kind=auth_kind,
                 secret_env=secret_env,
                 header=header,
-                catalog_providers=tuple(self.runtime.catalog.providers.keys()),
+                catalog_providers=self.runtime.catalog.providers,
             )
         except (custom.CustomModelsError, OSError, ValueError) as exc:
             self.message = str(exc)
@@ -4952,7 +5116,7 @@ class _ProvidersScreen:
                         context_tokens=context,
                         display=entry.get("display_name") or None,
                         created_via="discover",
-                        catalog_providers=tuple(self.runtime.catalog.providers.keys()),
+                        catalog_providers=self.runtime.catalog.providers,
                         catalog_models=tuple(self.runtime.catalog.models.keys()),
                     )
                     marked += 1
@@ -5005,7 +5169,7 @@ class _ProvidersScreen:
                 context_tokens=context,
                 display=display or None,
                 created_via="manual",
-                catalog_providers=tuple(self.runtime.catalog.providers.keys()),
+                catalog_providers=self.runtime.catalog.providers,
                 catalog_models=tuple(self.runtime.catalog.models.keys()),
             )
         except (custom.CustomModelsError, OSError, ValueError) as exc:
@@ -5037,6 +5201,12 @@ class _ProvidersScreen:
             if key.kind == "down" or (key.kind == "char" and key.ch == "j"):
                 if self.selected < len(self.facts) - 1:
                     self.selected += 1
+                continue
+            if key.kind == "home":
+                self.selected = 0
+                continue
+            if key.kind == "end":
+                self.selected = max(0, len(self.facts) - 1)
                 continue
             if key.kind == "char" and key.ch == "?":
                 tui.Modal(
@@ -5317,6 +5487,40 @@ def _record_is_live(record: dict[str, Any], prefixes: frozenset[str]) -> bool:
     )
 
 
+def _forget_liveness_guard(
+    runtime: Runtime, stable_id: str
+) -> Callable[[dict[str, Any] | None], str | None]:
+    """The shared forget refusal, run under the lifecycle lock (review).
+
+    A liveness verdict taken before blocking on the lock is stale by the
+    time deletion happens, so both the CLI handler and the picker pass this
+    to ``forget_session`` as its under-lock pre-delete check. A corrupt
+    record has no runtime id; the stable-id prefix + self checks still
+    apply.
+    """
+
+    def check(current: dict[str, Any] | None) -> str | None:
+        if runtime.environ.get("CLAUDE_MULTI_MANAGED_ID") == stable_id:
+            return (
+                "refusing to forget the session you are running "
+                "inside — exit it first"
+            )
+        prefixes = _live_background_prefixes()
+        if current is not None:
+            live = _record_is_live(current, prefixes)
+        else:
+            live = any(stable_id.startswith(prefix) for prefix in prefixes)
+        if live:
+            return (
+                f"session {stable_id} is live in the background — "
+                "stop it first (`claude-multi sessions stop "
+                f"{stable_id}`)"
+            )
+        return None
+
+    return check
+
+
 def _stop_runtime(
     runtime: Runtime,
     runtime_id: str,
@@ -5461,7 +5665,7 @@ def _resume_transcript_status(
     if len(decoded) == 1:
         return ("elsewhere", decoded.pop(), True)
     if found:
-        return ("elsewhere", ", ".join(found), False)
+        return ("elsewhere", ", ".join(sorted(found)), False)
     return ("missing", str(expected), True)
 
 
@@ -5490,20 +5694,29 @@ def _evaluate_resume_gate(
     status, detail, decoded = _resume_transcript_status(runtime, record)
     if status == "elsewhere":
         runtime_id = sessions.runtime_session_id(record)
+        home = Path(runtime.environ.get("HOME") or Path.home())
+        expected = (
+            home
+            / ".claude"
+            / "projects"
+            / _native_project_slug(record["cwd"])
+            / f"{runtime_id}.jsonl"
+        )
         if decoded:
             remedy = (
                 f"if the session was intentionally re-homed there, repair "
                 f"the record with `claude-multi sessions relink-runtime "
                 f"{stable_id} {runtime_id} --cwd {shlex.quote(detail)}`; "
-                "otherwise resume from the recorded dir after moving the "
-                "transcript back"
+                "otherwise move the transcript to the expected location "
+                f"{expected} and resume from the recorded dir"
             )
         else:
             remedy = (
                 "inspect those directories and relink with "
                 "`claude-multi sessions relink-runtime "
                 f"{stable_id} {runtime_id} --cwd <that project directory>` "
-                "only if the session was intentionally re-homed"
+                "only if the session was intentionally re-homed; the "
+                f"expected transcript location is {expected}"
             )
         text = (
             f"the transcript for runtime {runtime_id} was not found under "
@@ -5529,6 +5742,28 @@ def _evaluate_resume_gate(
         return ResumeGate(
             kind="transcript-missing",
             title="Transcript not found",
+            lines=(text,),
+            actions=(),
+        )
+    if status == "present" and not Path(record["cwd"]).is_dir():
+        # The classic rename (deep analysis core P1): the transcript sits
+        # exactly where the record points, but the recorded project
+        # directory itself is gone — resume would fail entering the CWD at
+        # launch. Name the two real exits up front: rename back, or move
+        # the transcript into the new project dir and relink the record.
+        runtime_id = sessions.runtime_session_id(record)
+        text = (
+            f"the recorded project dir ({record['cwd']}) is gone, though the "
+            "transcript is still filed under it. If the directory was "
+            "renamed or moved, either rename it back (resume then just "
+            "works), or repair the record to the new location — `claude-multi "
+            f"sessions relink-runtime {stable_id} {runtime_id} --cwd "
+            "'<new project directory>'` — and resume again: the follow-up "
+            "check then names the exact spot to move the transcript to."
+        )
+        return ResumeGate(
+            kind="cwd-missing",
+            title="Recorded project directory is gone",
             lines=(text,),
             actions=(),
         )
@@ -5992,8 +6227,19 @@ def _handle_session_event(
 ) -> int:
     """Consume one official hook event without opening transcript_path."""
 
+    # Bound original bytes before parsing (security lane): a hostile or
+    # broken hook pipe must not allocate unbounded memory before the
+    # strict-JSON limit ever runs.
+    limit = strict_json.DEFAULT_LIMITS.max_bytes
+    raw_stream = getattr(input_stream, "buffer", None)
+    if raw_stream is not None:
+        raw = raw_stream.read(limit + 1)
+    else:  # injected text streams (tests) have no .buffer
+        raw = input_stream.read(limit + 1).encode("utf-8")
+    if len(raw) > limit:
+        raise CLIError(f"session hook payload exceeds the {limit}-byte limit")
     try:
-        payload = strict_json.loads(input_stream.read())
+        payload = strict_json.loads(raw)
     except strict_json.StrictJSONError as exc:
         raise CLIError(f"invalid session hook JSON: {exc}") from exc
     if not isinstance(payload, dict):
@@ -6055,13 +6301,22 @@ def _handle_session_event(
                 reconciled_model, reconciled_profile = resolved_model
         elif model:
             lead_id = current["snapshot"]["lead"]["model"]
-            lead_model = runtime.catalog.models[lead_id]
-            equivalent = {
-                lead_model["wire_model"],
-                current["snapshot"]["lead"]["client_selector"],
-            }
-            if model in equivalent:
-                reconciled_model = current["snapshot"]["lead"]["client_selector"]
+            # Catalog drift (recorded lead removed/renamed) must stay
+            # informational (R1 P2): skip model reconciliation, never crash
+            # the hook — the runtime-id reconciliation below still runs.
+            lead_model = runtime.catalog.models.get(lead_id)
+            if lead_model is not None:
+                equivalent = {
+                    lead_model["wire_model"],
+                    current["snapshot"]["lead"]["client_selector"],
+                }
+                if lead_model["context"]["client_tokens"] >= 1_000_000:
+                    # Mirror compiler.direct_model_for_selector: Claude Code
+                    # may report the canonical full selector even when the
+                    # process entered through a gateway alias.
+                    equivalent.add(lead_model["wire_model"] + "[1m]")
+                if model in equivalent:
+                    reconciled_model = current["snapshot"]["lead"]["client_selector"]
         record = runtime.session_store.reconcile_runtime(
             stable_id,
             observed_runtime_id=observed,
@@ -6175,10 +6430,12 @@ class GatewaySnapshot:
 
     served: frozenset[str] | None
     gateway_down: bool
+    models_status: int | None
     expected: frozenset[str]
     oauth_alias_pools: dict[str, str]
     render_error: str | None
     config_drift: bool | None
+    config_note: str | None
     oauth_records: dict[str, int]
 
 
@@ -6216,15 +6473,18 @@ def _gateway_snapshot(runtime: Runtime, token: str) -> GatewaySnapshot:
     """Collect the shared snapshot; each fact degrades independently."""
 
     try:
-        served = launch.served_models(runtime.catalog.docs["gateway"], token)
+        served, models_status = launch.served_models(
+            runtime.catalog.docs["gateway"], token
+        )
         down = False
     except launch.LaunchError:
-        served, down = None, True
+        served, down, models_status = None, True, None
     home = Path(runtime.environ.get("HOME") or Path.home())
     expected: frozenset[str] = frozenset()
     alias_pools: dict[str, str] = {}
     render_error: str | None = None
     drift: bool | None = None
+    config_note: str | None = None
     try:
         document, _available, _unavailable = render.build_config_document(
             runtime.ordinary_docs["gateway"],
@@ -6248,8 +6508,14 @@ def _gateway_snapshot(runtime: Runtime, token: str) -> GatewaySnapshot:
             # detection exact; contents (which carry secrets) are compared,
             # never displayed.
             drift = on_disk != render.emit_yaml(document).encode("utf-8")
-        except (OSError, ValueError):
+        except (OSError, ValueError) as exc:
             drift = None
+            config_path = proxy_mod.config_dir(home) / "config.yaml"
+            # Only an existing-but-unreadable file is noteworthy (a wrong
+            # mode silently disables the radar); a missing one is the
+            # never-initialized state, which readiness already covers.
+            if config_path.exists():
+                config_note = f"on-disk gateway config unreadable for the drift check: {exc}"
     except (
         render.RenderError,
         proxy_mod.ProxyError,
@@ -6260,12 +6526,14 @@ def _gateway_snapshot(runtime: Runtime, token: str) -> GatewaySnapshot:
         render_error = str(exc)
     return GatewaySnapshot(
         served=None if down else served,
+        models_status=models_status,
         gateway_down=down,
         expected=expected,
         oauth_alias_pools=alias_pools,
         render_error=render_error,
         config_drift=drift,
         oauth_records=_oauth_credential_records(runtime),
+        config_note=config_note,
     )
 
 
@@ -6294,6 +6562,8 @@ def _doctor_served_report(runtime: Runtime, token: str) -> tuple[list[str], list
         ]
     problems: list[str] = []
     info: list[str] = []
+    if snap.config_note is not None:
+        info.append(snap.config_note)
     if snap.render_error is not None:
         info.append(f"served-selector cross-check skipped: {snap.render_error}")
         return problems, info
@@ -6316,6 +6586,17 @@ def _doctor_served_report(runtime: Runtime, token: str) -> tuple[list[str], list
                 )
         return problems, info
     if snap.served is None:
+        if snap.models_status == 401:
+            # The running daemon holds a different token than the rendered
+            # config (rotated token + init without restart): every session
+            # would 401 while healthz stays green. This is a problem, not
+            # an advisory skip (gateway-lane finding).
+            problems.append(
+                "the running gateway rejected the local token (401 on "
+                "/v1/models): the daemon serves an older config — restart "
+                "with `systemctl --user restart cli-proxy-api`"
+            )
+            return problems, info
         info.append(
             "local gateway: /v1/models returned a non-200 status; the "
             "served-selector cross-check was skipped"
@@ -6385,6 +6666,17 @@ def _collect_doctor_reports(
     """
 
     problems: list[str] = []
+    custom_conflicts = runtime.custom_conflicts()
+    if custom_conflicts:
+        # Ignored by the merge (catalog wins) but a real misconfiguration:
+        # attention with the exact fix, never silent.
+        scope_attention_extra = [
+            "custom registry entries shadow catalog ids and were IGNORED: "
+            + ", ".join(custom_conflicts)
+            + " — remove or rename them in ~/.config/claude-multi/custom.json"
+        ]
+    else:
+        scope_attention_extra = []
     if runtime.broken_override_error is not None:
         # Real damage: the operator contract override is invalid and was
         # ignored (the packaged baseline is in effect). The fix is one
@@ -6445,6 +6737,7 @@ def _collect_doctor_reports(
     scope_info, scope_problems, scope_attention = _doctor_scope_report(runtime)
     info_lines.extend(scope_info)
     problems.extend(scope_problems)
+    scope_attention.extend(scope_attention_extra)
     # Radar for the last roster-flattening vector (D39): a
     # CLAUDE_CODE_SUBAGENT_MODEL in user/project settings env overrides
     # every agent's frontmatter model — silently, session-wide.
@@ -6580,7 +6873,7 @@ def handle_command(
                 secret_env=args.secret_env,
                 header=args.header,
                 display=args.display,
-                catalog_providers=tuple(runtime.catalog.providers.keys()),
+                catalog_providers=runtime.catalog.providers,
             )
             output_stream.write(
                 f"provider {args.name} registered — apply with "
@@ -6600,7 +6893,7 @@ def handle_command(
                 context_tokens=args.context,
                 display=args.display,
                 created_via="manual",
-                catalog_providers=tuple(runtime.catalog.providers.keys()),
+                catalog_providers=runtime.catalog.providers,
                 catalog_models=tuple(runtime.catalog.models.keys()),
             )
             output_stream.write(
@@ -6699,19 +6992,41 @@ def handle_command(
                     sessions.pending_fork_message(record) + "\n"
                 )
             elif record.get("identity_state") == sessions.IDENTITY_REPAIR_NEEDED:
-                output_stream.write(sessions.relink_message(record) + "\n")
+                output_stream.write(
+                    tui.visible_text(sessions.relink_message(record)) + "\n"
+                )
             output_stream.write(strict_json.canonical_file_bytes(record).decode("utf-8"))
             return 0
         if command == "forget":
+            record: dict[str, Any] | None = None
             try:
                 record = runtime.session_store.resolve(args.uuid)
+                stable_id = sessions.managed_id(record)
             except sessions.SessionError as exc:
-                if "no managed session matches" not in str(exc):
+                if "no managed session matches" in str(exc):
+                    output_stream.write(f"Not found: {args.uuid}\n")
+                    return 0
+                # A corrupt record is exactly what forget exists for (deep
+                # analysis core P1): an exact UUID with a present record file
+                # forgets load-free — scope removal + pointer sweep by id.
+                if not (
+                    sessions.UUID4.fullmatch(args.uuid)
+                    and runtime.session_store.exists(args.uuid)
+                ):
                     raise
-                output_stream.write(f"Not found: {args.uuid}\n")
-                return 0
-            stable_id = sessions.managed_id(record)
-            removed, scope_removed = runtime.session_store.forget_session(stable_id)
+                stable_id = args.uuid
+                output_stream.write(
+                    f"note: record {stable_id} is unreadable ({exc}); "
+                    "forgetting it load-free.\n"
+                )
+            # Live guard (deep analysis core P2 + review must-fix): the
+            # check runs UNDER the lifecycle lock with a fresh prefix scan —
+            # a liveness verdict taken before blocking on the lock would be
+            # stale by the time deletion happens.
+            removed, scope_removed = runtime.session_store.forget_session(
+                stable_id,
+                pre_delete_check=_forget_liveness_guard(runtime, stable_id),
+            )
             if not removed:
                 output_stream.write(f"Not found: {args.uuid}\n")
                 return 0
@@ -6939,6 +7254,9 @@ def handle_command(
         by_wire: dict[str, str] = {}
         for catalog_id, model in runtime.catalog.models.items():
             by_wire.setdefault(model["wire_model"], catalog_id)
+        custom_wires: dict[str, str] = {}
+        for custom_id, spec in custom.load_registry(runtime.environ)["models"].items():
+            custom_wires.setdefault(spec["wire_model"], custom_id)
         if not entries:
             output_stream.write(f"{args.provider}: the provider advertised no models\n")
             return 0
@@ -6947,11 +7265,16 @@ def handle_command(
             # external input, same rule as filesystem-derived text).
             wire = tui.visible_text(entry["id"])
             catalog_id = by_wire.get(entry["id"])
+            custom_id = custom_wires.get(entry["id"])
             status = (
                 f"cataloged as {catalog_id}"
                 if catalog_id is not None
-                else "not registered — mark it in the TUI (G → P → A) or "
-                "onboard it for compositions via `claude-multi-dev model add --like`"
+                else (
+                    f"marked custom as {custom_id}"
+                    if custom_id is not None
+                    else "not registered — mark it in the TUI (G → P → A) or "
+                    "onboard it for compositions via `claude-multi-dev model add --like`"
+                )
             )
             context = (
                 f" ctx={entry['context_length']}"
@@ -7542,12 +7865,6 @@ def _open_tty_streams() -> tuple[TextIO, TextIO]:
         raise CLIError(
             "no interactive terminal; use --composition NAME for noninteractive launch"
         ) from exc
-
-
-def _validate_uuid(value: str) -> str:
-    if not sessions.UUID4.fullmatch(value):
-        raise CLIError(f"resume ID {value!r} is not a UUIDv4")
-    return value
 
 
 def _resolve_resume_target(runtime: Runtime, value: str) -> str:

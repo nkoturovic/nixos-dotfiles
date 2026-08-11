@@ -1,5 +1,43 @@
 # STATUS — live tracker
 
+## 2026-08-11 — v2.16.0: deep analysis hardening (D53, blueprint 021, working tree)
+
+- **Six-lane analysis** (core/tui/gateway/compose/hygiene/security +
+  adversarial verify; three context-deaths re-dispatched narrowed):
+  verdicts "strong shape" / "well-architected" / "good shape", no P0s.
+  The batch lands every P1/P2 with regression pins.
+- **Core**: corrupt records forget load-free (scope + by-id pointer
+  sweep, re-read under lock); renamed-directory resume gated up front
+  (`cwd-missing` names rename-back / move-transcript+relink);
+  `sessions forget` refuses live/self (stop's guard); managed 1M-lead
+  `wire+'[1m]'` reports reconcile (false drift closed); SessionStart
+  hook survives catalog drift (no KeyError; runtime-id reconciliation
+  still runs, drift informational).
+- **Gateway/security**: 401 on /v1/models is a doctor problem naming
+  restart (daemon serves an older config while healthz stays green);
+  credential fetches never follow redirects; listing errors are
+  status/reason/type-only; registry mutations under one FileLock;
+  OAuth-pool providers can't back custom models; header auth fail-closed
+  to x-api-key; hand-written registry entries never shadow the catalog
+  (merge drops loudly, doctor names them); rendered-but-unserved rows
+  marked `(not served)`; hook stdin bounded on original bytes.
+- **Compose/TUI**: Tab away from unsaved edits asks (modal + [y/N]);
+  committed-but-unconfirmed writes labeled, never "unsaved"; durable
+  deletes via `state.remove_private`; card project line only when there
+  is project info; native picker says `+N more (newest 20 shown)`;
+  BLOCKED footer `+N more`; help/wording repairs; line-mode s/g hint
+  NameError fixed.
+- **Hygiene**: package.nix filters `__pycache__` (store output verified
+  clean); 4 dead symbols removed; README/HANDOFF/USAGE/SANITY staleness
+  repairs.
+- **Verification**: full host discovery **1,623 tests OK** (41 new pins);
+  sandbox `nix-build package.nix` green with zero pyc in the output.
+  **Cross-family review**: sol-xhigh (block → all 3 findings fixed:
+  under-lock forget liveness shared CLI+picker, durable pointer sweep,
+  completable cwd-missing remedy) + glm52 (approve; P2 picker-bypass and
+  nits fixed: add_model dict typing, HTTPError close). Activation (HM
+  switch) awaits the operator green light.
+
 ## 2026-08-11 — v2.15.0: custom providers & ordinary models (D52, blueprint 020, activated gen 122)
 
 - **Activated**: HM gen 122, doctor **Ready** (no repair-all needed).

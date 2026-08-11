@@ -171,9 +171,9 @@ mode-0600 user file, secrets rendered at runtime, never in the repo or argv.
 Managed sessions get the token via env at exec; plain `claude` keeps normal
 Anthropic auth (D19/D23 — no global env hijack). The 2026-07-24 activation
 restart of the service was invisible to a running managed session beyond a
-brief transport blip. **Verdict: sound.** Minor: two concurrent proxy
-init/run invocations can split token/config (low, documented; single-user
-systemd service in practice).
+brief transport blip. **Verdict: sound.** (The earlier minor — two concurrent
+proxy init/run invocations splitting token/config — is closed: token creation
+and config write are serialized under one `state.FileLock` since v2.4.1.)
 
 ## Q6. Is the catalog + draft/review/promote pipeline proportionate?
 
@@ -257,9 +257,9 @@ configuring it, plus `claude-gateway` as the opt-in multi-model variant.
    paying rent.
 2. Wide-char cell math in the TUI (cosmetic; sanitizer handles escapes).
 3. Hook-failure invisibility when Claude never fires one (Q3).
-4. Two proxy low findings (token/config split under concurrent init/run;
-   discarded availability report) — single-user service makes both
-   theoretical.
+4. Discarded availability report (proxy low) — single-user service makes it
+   theoretical. (The token/config split under concurrent init/run, the other
+   half of the original finding, is closed by the render-path FileLock.)
 5. HM generation expiry is now purely disk hygiene (Q13).
 
 ## Q13. Home Manager generation 95 expiry — resolved

@@ -1011,6 +1011,45 @@ Enter on a custom provider row offers key-replace/remove. Models browser
 context bounds (262144/1048576) — the provider-stated value flows into
 the fence, never a guess.
 
+**D53 — Deep system analysis hardening batch (2.16.0).**
+A six-lane analysis workflow (core / tui / gateway / compose / hygiene /
+security) with adversarial verification swept the whole integration after
+the 2.15.0 funnel work (blueprint 021). No P0s; the landed set is the
+P1/P2 findings, each with regression pins. Decisions worth recording:
+(1) **Corrupt records are forgettable load-free** — the remedy for a
+corrupt record must not dead-end on the same parse that defines the
+corruption: scope removal + a by-id pointer sweep (re-read under the
+FileLock before unlink) run without loading. (2) **A renamed project
+directory is a resume gate, not a launch error**: transcript present
+under the recorded slug + recorded cwd gone → the `cwd-missing` gate
+names both exits (rename back / move transcript + relink) before any
+launch attempt. (3) **`sessions forget` trusts the same liveness as
+`sessions stop`** — forgetting a running session deleted its scope from
+under it; the CLI refuses live (naming `sessions stop`) and self, with
+the check running UNDER the lifecycle lock (`pre_delete_check` with a
+fresh prefix scan — a pre-lock verdict is stale by deletion time); the
+picker forget shares the same guard (live rows get stop-first guidance). (4) **The managed SessionStart equivalence mirrors the
+ordinary resolver**: for ≥1M leads the canonical `wire+'[1m]'` report
+form reconciles (a miss recorded false model drift); a recorded lead
+missing from the catalog no longer KeyErrors the hook — the runtime-id
+reconciliation still runs and the unverifiable report lands as
+informational drift (R1 P2). (5) **A 401 from /v1/models is a doctor
+problem**, not an advisory skip: the daemon holds an older config and
+every session would 401 while healthz stays green — restart is the
+action. (6) **Credential-carrying fetches never follow redirects**
+(urllib forwards Authorization/x-api-key, including to a downgrade
+target); a 3xx is just a failed listing. (7) **Registry mutations are
+one FileLock transaction**; OAuth-pool providers can't back custom
+models; header auth is fail-closed to `x-api-key` (the pinned gateway
+silently falls back to Bearer otherwise). (8) **Hand-written registry
+entries never shadow the catalog** — merge drops them loudly
+(`merge_conflicts` → doctor attention). (9) **Cycling away from unsaved
+composition edits asks first** (curses modal + line-mode [y/N]); a
+committed-but-unconfirmed write reports "Committed, durability
+unconfirmed", never "unsaved". (10) **`package.nix` filters
+`__pycache__`** — test artifacts reached the store share tree and
+churned the source hash.
+
 ## User decision summary (what you're approving by accepting this design)
 
 1. Selected agents become **real files** in a per-session scope; the failure

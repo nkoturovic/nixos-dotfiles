@@ -19,7 +19,6 @@ agents    6 selected · 3 roles · durable scope (per-session files)
   Reviewer      GPT-5.6 Sol             xhigh   ★ preferred
   Reviewer      Opus 5 · 1M selector    xhigh
 policy    Explore→cm-analyst · Plan native · general-purpose off · generic denied
-project   no project agents discovered (native precedence; none colliding)
 health    gateway ok · pin 2.1.218
 update    Claude 2.1.219 available · pinned 2.1.218 · press U to update
 
@@ -38,7 +37,8 @@ Elements and their honesty semantics:
 - **Workflow badge**: `workflows: native` or `off`. Help line (`?`) shows the
   weaker-guarantee panel (§3).
 - **Project agents line**: visible participation (Q10) — count, and collision
-  status. Exact `cm-*` collision blocks launch with the path named.
+  status. Exact `cm-*` collision blocks launch with the path named. Renders
+  only when there are project agents or a collision to report (2.16.0).
 - **Policy line**: one compact sentence, durable-by-settings.
 
 ## 1.5 Gateway picker (G, 2.10.0; providers pane P, 2.13.0)
@@ -207,7 +207,9 @@ always shown, created appears when width permits (2.8.4).
   Modal instead of a later native error — repair-needed → **Repair &
   resume** (runs the exact relink, keeps the recorded dir) / Cancel; ●
   live → **Stop & resume** / **Resume anyway** (heuristic escape) /
-  Cancel; transcript missing → restore-or-forget guidance / Cancel. Text
+  Cancel; transcript missing → restore-or-forget guidance / Cancel;
+  recorded project dir gone (2.16.0) → rename-back or move-transcript +
+  relink guidance / Cancel. Text
   mode prints the exact commands; `-r --force` bypasses only the ●
   branch.
 - `transition` opens the semantic diff view (TRANSITIONS §3) and asks for
@@ -226,7 +228,12 @@ always shown, created appears when width permits (2.8.4).
   message. E was chosen because K collides with the screen's vim
   `k`=navigate-up.
 - `forget` states exactly what is deleted (record + generated scope) and what
-  is never touched (transcripts).
+  is never touched (transcripts). A corrupt record forgets load-free (2.16.0);
+  live rows get stop-first (E) guidance instead of the modal, and both the
+  picker and the CLI re-check liveness under the lifecycle lock — a live
+  session is never forgotten under a running process.
+- The native section shows the newest 20 unmanaged sessions; beyond the cap
+  the header says `+N more (newest 20 shown)` (2.16.0).
 
 ## 5. Doctor
 

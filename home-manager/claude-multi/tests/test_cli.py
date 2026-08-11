@@ -42,6 +42,9 @@ class CLITestCase(unittest.TestCase):
             "TERM": "dumb",
             "CLAUDE_MULTI_SECRET_ENV": str(self.secret_file),
         }
+        # A real record's cwd always exists at save time; the cwd-missing
+        # resume gate depends on that. Gate tests delete/relocate explicitly.
+        (self.root / "project").mkdir(parents=True)
         self.runtime = cli.Runtime(
             asset_root=CATALOG_ROOT,
             environ=env,
@@ -2391,8 +2394,6 @@ class QuickConfirmTuiScreenTests(CLITestCase):
         self.assertIn("workflows: native", text)
         self.assertIn("durable scope (per-session files)", text)
         self.assertIn("Explore→cm-analyst · Plan native", text)
-        self.assertIn("project", text)
-        self.assertIn("none colliding", text)
         self.assertIn("★ preferred", text)
         self.assertIn("Status  Ready", text)
         self.assertIn("Esc cancel", text)
@@ -4262,7 +4263,7 @@ class DoctorServedCrossCheckTests(CLITestCase):
 
     def _report(self, served):
         with unittest.mock.patch.object(
-            cli.launch, "served_models", return_value=served
+            cli.launch, "served_models", return_value=(served, 200)
         ):
             return cli._doctor_served_report(self.runtime, "t" * 64)
 
@@ -4364,7 +4365,7 @@ class DoctorServedCrossCheckTests(CLITestCase):
 
     def test_non_200_is_one_info_line(self) -> None:
         with unittest.mock.patch.object(
-            cli.launch, "served_models", return_value=None
+            cli.launch, "served_models", return_value=(None, 500)
         ):
             problems, info = cli._doctor_served_report(self.runtime, "t" * 64)
         self.assertEqual(problems, [])
@@ -4555,7 +4556,7 @@ class ImprovementBatchTests(CLITestCase):
         # patching served_models to return the expected set.
         expected = set()
         with unittest.mock.patch.object(
-            cli.launch, "served_models", return_value=expected
+            cli.launch, "served_models", return_value=(expected, 200)
         ):
             screen = cli._ProvidersScreen(self.runtime, palette=tui.MONO_PALETTE)
             win = FakeWindow(["\x1b"])
@@ -4743,7 +4744,7 @@ class CustomModelsTests(CLITestCase):
             provider="kimi",
             context_tokens=context,
             created_via="discover",
-            catalog_providers=tuple(self.runtime.catalog.providers.keys()),
+            catalog_providers=self.runtime.catalog.providers,
         )
 
     def test_registry_roundtrip_and_mode(self) -> None:
@@ -4825,7 +4826,7 @@ class CustomModelsTests(CLITestCase):
         # On-disk config rendered WITHOUT the custom model → drift problem.
         state.atomic_write(config_dir / "config.yaml", b"old: true\n")
         with unittest.mock.patch.object(
-            cli.launch, "served_models", return_value=set()
+            cli.launch, "served_models", return_value=(set(), 200)
         ):
             problems, _info = cli._doctor_served_report(self.runtime, "t" * 64)
         self.assertTrue(any("claude-multi-proxy init" in p for p in problems))
@@ -4892,7 +4893,7 @@ class CustomModelsTests(CLITestCase):
             base_url="https://lab.example.com/apps/anthropic",
             auth_kind="bearer",
             secret_env="MY_LAB_API_KEY",
-            catalog_providers=tuple(self.runtime.catalog.providers.keys()),
+            catalog_providers=self.runtime.catalog.providers,
         )
         self._add_kimi_custom()
         out = io.StringIO()
@@ -4938,7 +4939,7 @@ class CustomModelsTests(CLITestCase):
                 provider="kimi",
                 context_tokens=262144,
                 created_via="discover",
-                catalog_providers=tuple(self.runtime.catalog.providers.keys()),
+                catalog_providers=self.runtime.catalog.providers,
                 catalog_models=tuple(self.runtime.catalog.models.keys()),
             )
 
@@ -8015,3 +8016,678 @@ class SessionsLastUsedTierTests(CLITestCase):
         self.assertEqual(
             cli._record_last_used_age(record), cli._record_last_seen(record)
         )
+
+
+class CwdMissingGateTests(CLITestCase):
+    """Deep analysis core P1: transcript present but recorded project dir gone
+    (the classic rename) — the gate names both real exits up front."""
+
+    def _gate(self, record):
+        return cli._evaluate_resume_gate(self.runtime, record)
+
+    def _transcript(self, record):
+        return (
+            Path(self.runtime.environ["HOME"])
+            / ".claude"
+            / "projects"
+            / cli._native_project_slug(record["cwd"])
+            / f"{sessions.runtime_session_id(record)}.jsonl"
+        )
+
+    def test_present_transcript_with_gone_cwd_is_cwd_missing(self) -> None:
+        record = self.save_session(mode="durable", scope_generation=1)
+        shutil.rmtree(self.root / "project")
+        gate = self._gate(record)
+        self.assertEqual(gate.kind, "cwd-missing")
+        text = " ".join(gate.lines)
+        runtime_id = sessions.runtime_session_id(record)
+        self.assertIn("rename it back", text)
+        self.assertIn(str(self.root / "project"), text)
+        self.assertIn(
+            f"relink-runtime {FIXED_ID} {runtime_id} --cwd '<new project directory>'",
+            text,
+        )
+        self.assertIn("the exact spot to move the transcript to", text)
+        self.assertEqual(gate.actions, ())
+
+    def test_elsewhere_names_the_expected_location(self) -> None:
+        record = self.save_session(mode="durable", scope_generation=1)
+        stray = self._transcript(record)
+        other_dir = stray.parent.parent / "-other-project"
+        other_dir.mkdir(parents=True)
+        stray.rename(other_dir / stray.name)
+        gate = self._gate(record)
+        self.assertEqual(gate.kind, "transcript-elsewhere")
+        text = " ".join(gate.lines)
+        # The follow-up instruction is completable: the exact destination is
+        # named, never a <new-slug> the operator must compute by hand.
+        self.assertIn(str(stray.parent / stray.name), text)
+        self.assertNotIn("<new-slug>", text)
+
+    def test_existing_cwd_stays_ok(self) -> None:
+        record = self.save_session(mode="durable", scope_generation=1)
+        gate = self._gate(record)
+        self.assertEqual(gate.kind, "ok")
+
+    def test_cwd_missing_outranks_liveness(self) -> None:
+        # Transcript blockers (cwd-missing among them) outrank the daemon
+        # question, exactly like transcript-missing does.
+        record = self.save_session(mode="durable", scope_generation=1)
+        shutil.rmtree(self.root / "project")
+        gate = cli._evaluate_resume_gate(
+            self.runtime, record, live_prefixes=frozenset({FIXED_ID[:8]})
+        )
+        self.assertEqual(gate.kind, "cwd-missing")
+
+
+class CorruptForgetTests(CLITestCase):
+    """Deep analysis core P1: a corrupt record is forgettable load-free."""
+
+    def _corrupt_record(self) -> Path:
+        path = self.runtime.session_store.sessions_dir / f"{FIXED_ID}.json"
+        state.atomic_write(path, b"{not json")
+        return path
+
+    def test_corrupt_record_forgets_load_free_with_note(self) -> None:
+        self.save_session(mode="durable", scope_generation=1)
+        self._corrupt_record()
+        pointer = self.runtime.session_store._pointer_path(self.runtime.cwd)
+        code, output = self.run_cli(["sessions", "forget", FIXED_ID])
+        self.assertEqual(code, 0, output)
+        self.assertIn("unreadable", output)
+        self.assertIn("load-free", output)
+        self.assertIn(f"Forgot: {FIXED_ID}", output)
+        self.assertFalse(self.runtime.session_store.exists(FIXED_ID))
+        # The pointer sweep is by id and works without a parseable record.
+        self.assertFalse(pointer.exists())
+
+    def test_corrupt_record_removes_scope(self) -> None:
+        self.save_session(mode="durable", scope_generation=1)
+        live_scope = scope_mod.scope_dir(self.runtime.session_store.root, FIXED_ID)
+        state.ensure_private_dir(live_scope)
+        self._corrupt_record()
+        code, output = self.run_cli(["sessions", "forget", FIXED_ID])
+        self.assertEqual(code, 0, output)
+        self.assertFalse(live_scope.exists())
+
+    def test_non_uuid_corrupt_argument_still_raises(self) -> None:
+        self.save_session(mode="durable", scope_generation=1)
+        self._corrupt_record()
+        code, output = self.run_cli(["sessions", "forget", FIXED_ID[:-1]])
+        self.assertEqual(code, 2)
+        self.assertIn("UUIDv4", output)
+
+
+class ForgetLiveGuardTests(CLITestCase):
+    """Deep analysis core P2: `sessions forget` refuses live/self sessions."""
+
+    def test_live_session_refuses_with_stop_guidance(self) -> None:
+        self.save_session(mode="durable", scope_generation=1)
+        with mock.patch.object(
+            cli, "_live_background_prefixes", return_value=frozenset({"11111111"})
+        ):
+            code, output = self.run_cli(["sessions", "forget", FIXED_ID])
+        self.assertEqual(code, 2)
+        self.assertIn("live in the background", output)
+        self.assertIn(f"sessions stop {FIXED_ID}", output)
+        self.assertTrue(self.runtime.session_store.exists(FIXED_ID))
+
+    def test_self_forget_refuses(self) -> None:
+        self.save_session(mode="durable", scope_generation=1)
+        self.runtime.environ["CLAUDE_MULTI_MANAGED_ID"] = FIXED_ID
+        self.addCleanup(self.runtime.environ.pop, "CLAUDE_MULTI_MANAGED_ID", None)
+        code, output = self.run_cli(["sessions", "forget", FIXED_ID])
+        self.assertEqual(code, 2)
+        self.assertIn("running inside", output)
+        self.assertTrue(self.runtime.session_store.exists(FIXED_ID))
+
+    def test_corrupt_record_self_forget_still_refuses_by_id(self) -> None:
+        self.save_session(mode="durable", scope_generation=1)
+        state.atomic_write(
+            self.runtime.session_store.sessions_dir / f"{FIXED_ID}.json",
+            b"{not json",
+        )
+        self.runtime.environ["CLAUDE_MULTI_MANAGED_ID"] = FIXED_ID
+        self.addCleanup(self.runtime.environ.pop, "CLAUDE_MULTI_MANAGED_ID", None)
+        code, output = self.run_cli(["sessions", "forget", FIXED_ID])
+        self.assertEqual(code, 2)
+        self.assertIn("running inside", output)
+
+    def test_not_live_forgets_normally(self) -> None:
+        self.save_session()
+        code, output = self.run_cli(["sessions", "forget", FIXED_ID])
+        self.assertEqual(code, 0, output)
+        self.assertIn("Forgot", output)
+
+
+class ManagedHookModelEquivalenceTests(CLITestCase):
+    """Deep analysis core P2: managed 1M-lead wire+'[1m]' canonical form
+    reconciles; catalog drift never crashes the SessionStart hook."""
+
+    def _kimi_sol_record(self):
+        # kimi-sol is an operator composition, not a catalog one: swap the
+        # default lead to a >=1M model instead (kimi-k3, 1M selector).
+        document = self.runtime.compositions.load("default")
+        document["slots"][0]["model"] = "kimi-k3"
+        return self.save_session(document=document, mode="durable", scope_generation=1)
+
+    def _start_event(self, model: str):
+        payload = strict_json.canonical_bytes(
+            {
+                "hook_event_name": "SessionStart",
+                "session_id": OTHER_ID,
+                "source": "startup",
+                "cwd": self.runtime.cwd,
+                "model": model,
+            }
+        ).decode("utf-8")
+        return self.run_cli(
+            ["session-event", "start", "--managed-id", FIXED_ID], payload
+        )
+
+    def test_wire_1m_canonical_form_reconciles_to_selector(self) -> None:
+        self._kimi_sol_record()
+        code, output = self._start_event("k3[1m]")
+        self.assertEqual(code, 0, output)
+        updated = self.runtime.session_store.load(FIXED_ID)
+        # Canonical form accepted: no drift marker, runtime reconciled.
+        self.assertNotIn("observed_model", updated)
+        self.assertEqual(updated["runtime_session_id"], OTHER_ID)
+
+    def test_wire_name_still_reconciles(self) -> None:
+        self._kimi_sol_record()
+        code, output = self._start_event("k3")
+        self.assertEqual(code, 0, output)
+        updated = self.runtime.session_store.load(FIXED_ID)
+        self.assertNotIn("observed_model", updated)
+
+    def test_catalog_drift_records_evidence_without_crashing(self) -> None:
+        record = self.save_session(mode="durable", scope_generation=1)
+        lead_id = record["snapshot"]["lead"]["model"]
+        docs = self.runtime.catalog.docs
+        original = docs["models"]["models"].pop(lead_id)
+        self.addCleanup(
+            docs["models"]["models"].__setitem__, lead_id, original
+        )
+        code, output = self._start_event("anything-at-all")
+        # No KeyError traceback: the hook exits clean, the runtime-id
+        # reconciliation still runs, and the unverifiable model report is
+        # recorded as informational drift (R1 P2) instead of dying the hook.
+        self.assertEqual(code, 0, output)
+        updated = self.runtime.session_store.load(FIXED_ID)
+        self.assertEqual(updated["runtime_session_id"], OTHER_ID)
+        self.assertEqual(updated["observed_model"], "anything-at-all")
+
+
+class NativeOverflowTests(CLITestCase):
+    """Deep analysis TUI: the newest-20 native cap says how many are hidden."""
+
+    def _seed_native(self, count: int) -> None:
+        slug_dir = (
+            Path(self.runtime.environ["HOME"])
+            / ".claude"
+            / "projects"
+            / cli._native_project_slug(self.runtime.cwd)
+        )
+        slug_dir.mkdir(parents=True, exist_ok=True)
+        for index in range(count):
+            session_id = f"33333333-3333-4333-8{index:03d}-333333333333"
+            (slug_dir / f"{session_id}.jsonl").touch()
+
+    def _header(self) -> str:
+        from test_tui import FakeWindow
+
+        screen = cli._SessionsScreen(self.runtime, palette=tui.MONO_PALETTE)
+        win = FakeWindow(["\x1b"], height=40, width=110)
+        self.assertIsNone(screen.run(win))
+        return win.text()
+
+    def test_overflow_indicator_counts_hidden_sessions(self) -> None:
+        self._seed_native(25)
+        text = self._header()
+        self.assertIn("+5 more (newest 20 shown)", text)
+
+    def test_no_indicator_at_exactly_twenty(self) -> None:
+        self._seed_native(20)
+        text = self._header()
+        self.assertIn("native (unmanaged", text)
+        self.assertNotIn("more (newest 20 shown)", text)
+
+
+class DoctorServed401Tests(CLITestCase):
+    """Deep analysis gateway lane: a 401 from /v1/models is a problem with a
+    restart action; other non-200 statuses stay an informational skip."""
+
+    def _report(self, served, status):
+        with unittest.mock.patch.object(
+            cli.launch, "served_models", return_value=(served, status)
+        ):
+            return cli._doctor_served_report(self.runtime, "t" * 64)
+
+    def test_401_is_a_problem_naming_restart(self) -> None:
+        problems, info = self._report(None, 401)
+        self.assertEqual(len(problems), 1)
+        self.assertIn("401", problems[0])
+        self.assertIn("rejected the local token", problems[0])
+        self.assertIn("restart cli-proxy-api", problems[0])
+        self.assertEqual(info, [])
+
+    def test_other_non_200_is_an_informational_skip(self) -> None:
+        problems, info = self._report(None, 500)
+        self.assertEqual(problems, [])
+        self.assertEqual(len(info), 1)
+        self.assertIn("cross-check was skipped", info[0])
+
+    def test_gateway_down_after_readiness_is_an_informational_skip(self) -> None:
+        with unittest.mock.patch.object(
+            cli.launch,
+            "served_models",
+            side_effect=cli.launch.LaunchError("connection refused"),
+        ):
+            problems, info = cli._doctor_served_report(self.runtime, "t" * 64)
+        self.assertEqual(problems, [])
+        self.assertEqual(len(info), 1)
+        self.assertIn("restart in flight", info[0])
+
+
+class CardProjectLineTests(CLITestCase):
+    """Deep analysis TUI: the card's project line renders only when there is
+    project-agent information to report."""
+
+    def _run(self, plan, keys):
+        from test_tui import FakeWindow
+
+        screen = cli._QuickConfirmScreen(
+            self.runtime, plan, passthrough=[], palette=tui.MONO_PALETTE
+        )
+        win = FakeWindow(keys)
+        result = screen.run(win)
+        return result, win
+
+    def _plan(self):
+        return cli.build_quick_plan(
+            self.runtime,
+            self.runtime.compositions.load("default"),
+            action="fresh",
+            source="Trusted default",
+        )
+
+    def test_empty_project_hides_the_line(self) -> None:
+        _result, win = self._run(self._plan(), ["\x1b"])
+        text = win.text()
+        self.assertNotIn("project agents", text)
+        self.assertNotIn("none colliding", text)
+
+    def test_discovered_agents_show_the_line(self) -> None:
+        agents = self.root / "project" / ".claude" / "agents"
+        agents.mkdir(parents=True)
+        (agents / "helper.md").write_text("---\nname: helper\n---\n")
+        _result, win = self._run(self._plan(), ["\x1b"])
+        text = win.text()
+        self.assertIn("1 project agent discovered", text)
+        self.assertIn("none colliding", text)
+
+
+class CommittedDurabilitySourceTests(CLITestCase):
+    """Deep analysis compose P2: a committed-but-unconfirmed write is never
+    reported as 'unsaved' — the source labels the indeterminate state."""
+
+    def test_committed_state_error_labels_the_source(self) -> None:
+        document = self.runtime.compositions.load("default")
+        plan = cli.build_quick_plan(
+            self.runtime, document, action="fresh", source="Trusted default"
+        )
+        outcome = tui.EditorOutcome(action="save", document=document)
+        with mock.patch.object(
+            cli,
+            "_apply_editor_outcome",
+            side_effect=state.CommittedStateError("written; fsync failed"),
+        ):
+            failed = cli._apply_outcome_or_failure(self.runtime, plan, outcome)
+        self.assertIsNotNone(failed)
+        self.assertEqual(failed.source, "Committed, durability unconfirmed")
+        self.assertIn("written; fsync failed", failed.errors)
+
+
+class CycleDiscardGuardTests(CLITestCase):
+    """Deep analysis compose P1: cycling away from unsaved composition edits
+    asks first — curses modal and line-mode [y/N]."""
+
+    def _unsaved_plan(self):
+        document = self.runtime.compositions.load("default")
+        document["slots"][0]["model"] = "sol"
+        return cli.build_quick_plan(
+            self.runtime, document, action="fresh", source="Unsaved launch"
+        )
+
+    def test_curses_tab_away_asks_and_stay_keeps_document(self) -> None:
+        from test_tui import FakeWindow
+
+        other = self.runtime.compositions.load("default")
+        other["name"] = "other"
+        self.runtime.compositions.save(other)
+        plan = self._unsaved_plan()
+        screen = cli._QuickConfirmScreen(
+            self.runtime, plan, passthrough=[], palette=tui.MONO_PALETTE
+        )
+        # Tab → discard modal → Esc cancels the modal (Stay) → Esc exits.
+        win = FakeWindow(["\t", "\x1b", "\x1b"])
+        self.assertIsNone(screen.run(win))
+        self.assertIn("Discard the unsaved composition edits?", "\n".join(win.frames))
+        self.assertIs(screen.plan, plan)
+
+    def test_curses_cycle_away_swaps_document(self) -> None:
+        from test_tui import FakeWindow
+
+        plan = self._unsaved_plan()
+        other = self.runtime.compositions.load("default")
+        other["name"] = "other"
+        self.runtime.compositions.save(other)
+        screen = cli._QuickConfirmScreen(
+            self.runtime, plan, passthrough=[], palette=tui.MONO_PALETTE
+        )
+        # Tab → modal → Enter picks the default (Cycle away) → Esc exits.
+        win = FakeWindow(["\t", "\n", "\x1b"])
+        self.assertIsNone(screen.run(win))
+        self.assertIsNot(screen.plan, plan)
+
+    def test_line_mode_p_asks_before_cycling(self) -> None:
+        other = self.runtime.compositions.load("default")
+        other["name"] = "other"
+        self.runtime.compositions.save(other)
+        plan = self._unsaved_plan()
+        output = io.StringIO()
+        result = cli._line_quick_confirm(
+            self.runtime,
+            plan,
+            input_stream=io.StringIO("p\nn\nq\n"),
+            output_stream=output,
+            passthrough=[],
+        )
+        self.assertEqual(result, 0)  # q cancels; nothing launched
+        self.assertEqual(self.launches, [])
+        self.assertIn("discard the unsaved composition edits by cycling?", output.getvalue())
+
+
+class UnservedMarkingTests(CLITestCase):
+    """Deep analysis gateway lane: fully-wired-but-unserved rows are marked
+    and Enter asks before launching anyway."""
+
+    def _screen(self):
+        with unittest.mock.patch.object(
+            cli.launch, "read_gateway_token", return_value="t" * 64
+        ), unittest.mock.patch.object(
+            cli.launch, "served_models", return_value=(set(), 200)
+        ):
+            return cli._OrdinaryScreen(self.runtime, palette=tui.MONO_PALETTE)
+
+    def test_wired_but_unserved_row_is_marked(self) -> None:
+        # The fixture wires only kimi (KIMI_CLAUDE_API_KEY): with the gateway
+        # serving nothing, kimi-k3 is the one "(not served)" row.
+        screen = self._screen()
+        self.assertTrue(screen._row_unserved("kimi-k3"))
+        self.assertFalse(screen._row_unserved("qwen38"))  # secret owns that row
+        self.assertFalse(screen._row_unserved("opus5"))  # sign-in owns that row
+
+    def test_unknown_served_state_marks_nothing(self) -> None:
+        with unittest.mock.patch.object(
+            cli.launch,
+            "read_gateway_token",
+            side_effect=cli.launch.LaunchError("no token"),
+        ):
+            screen = cli._OrdinaryScreen(self.runtime, palette=tui.MONO_PALETTE)
+        self.assertIsNone(screen.served)
+        self.assertFalse(screen._row_unserved("kimi-k3"))
+
+    def test_marking_and_detail_render(self) -> None:
+        from test_tui import FakeWindow
+
+        screen = self._screen()
+        # Move from the preselected sol row up to kimi-k3, then exit.
+        delta = screen.rows.index("sol") - screen.rows.index("kimi-k3")
+        keys = ["k"] * delta + ["\x1b"]
+        win = FakeWindow(keys, height=40, width=110)
+        self.assertIsNone(screen.run(win))
+        text = win.text()
+        self.assertIn("(not served)", text)
+        self.assertIn("not served by the running gateway", text)
+        self.assertIn("claude-multi-proxy init", text)
+
+
+class CustomRegistryGuardTests(CLITestCase):
+    """Deep analysis gateway/security lanes: the registry's fail-closed
+    guards (OAuth pools, header name, catalog shadowing, FileLock)."""
+
+    def test_add_model_rejects_oauth_pool_providers(self) -> None:
+        with self.assertRaisesRegex(cli.custom.CustomModelsError, "OAuth pool"):
+            cli.custom.add_model(
+                self.runtime.environ,
+                "pool-backed",
+                wire_model="pool-backed",
+                provider="anthropic",
+                context_tokens=200000,
+                created_via="manual",
+                catalog_providers=self.runtime.catalog.providers,
+            )
+
+    def test_add_provider_header_auth_is_x_api_key_only(self) -> None:
+        with self.assertRaisesRegex(cli.custom.CustomModelsError, "x-api-key"):
+            cli.custom.add_provider(
+                self.runtime.environ,
+                "bad-header",
+                base_url="https://lab.example.com/apps/anthropic",
+                auth_kind="header",
+                header="Authorization",
+                secret_env="BAD_HEADER_API_KEY",
+            )
+
+    def test_add_provider_never_shadows_the_catalog(self) -> None:
+        with self.assertRaisesRegex(cli.custom.CustomModelsError, "trusted catalog"):
+            cli.custom.add_provider(
+                self.runtime.environ,
+                "kimi",
+                base_url="https://example.com",
+                auth_kind="bearer",
+                secret_env="KIMI_CLAUDE_API_KEY",
+                catalog_providers=self.runtime.catalog.providers,
+            )
+
+    def test_add_model_never_shadows_the_catalog(self) -> None:
+        with self.assertRaisesRegex(cli.custom.CustomModelsError, "trusted catalog"):
+            cli.custom.add_model(
+                self.runtime.environ,
+                "sol",
+                wire_model="sol-clone",
+                provider="kimi",
+                context_tokens=200000,
+                created_via="manual",
+                catalog_providers=self.runtime.catalog.providers,
+                catalog_models=tuple(self.runtime.catalog.models),
+            )
+
+    def test_fetch_path_shadow_guard_matches_manual_path(self) -> None:
+        # A provider-advertised id colliding with the catalog is refused
+        # exactly like a typed one (the guard lives in add_model itself).
+        with self.assertRaisesRegex(cli.custom.CustomModelsError, "trusted catalog"):
+            cli.custom.add_model(
+                self.runtime.environ,
+                "sol",
+                wire_model="sol",
+                provider="kimi",
+                context_tokens=372000,
+                created_via="discover",
+                catalog_providers=self.runtime.catalog.providers,
+                catalog_models=tuple(self.runtime.catalog.models),
+            )
+
+    def test_mutation_holds_the_registry_lock(self) -> None:
+        observed = {}
+
+        def probe(registry):
+            lock = state.FileLock(cli.custom.registry_path(self.runtime.environ))
+            observed["second_acquire"] = lock.acquire(blocking=False)
+            if not observed["second_acquire"]:
+                return
+            lock.release()
+
+        cli.custom._mutate(self.runtime.environ, probe)
+        # The whole load-modify-save transaction runs under the FileLock.
+        self.assertFalse(observed["second_acquire"])
+
+    def test_handwritten_shadow_entries_drop_with_conflicts_named(self) -> None:
+        # Bypass the add-time guards by writing the registry directly:
+        # the merge must drop catalog-shadowing entries loudly.
+        path = cli.custom.registry_path(self.runtime.environ)
+        state.ensure_private_dir(path.parent)
+        state.atomic_write(
+            path,
+            strict_json.pretty_file_bytes(
+                {
+                    "version": 1,
+                    "providers": {
+                        "kimi": {
+                            "base_url": "https://evil.example.com",
+                            "auth_kind": "bearer",
+                            "secret_env": "KIMI_CLAUDE_API_KEY",
+                        }
+                    },
+                    "models": {
+                        "sol": {
+                            "wire_model": "not-really-sol",
+                            "provider": "kimi",
+                            "context_tokens": 8192,
+                            "created_via": "manual",
+                        }
+                    },
+                }
+            ),
+        )
+        registry = cli.custom.load_registry(self.runtime.environ)
+        conflicts = cli.custom.merge_conflicts(self.runtime.catalog.docs, registry)
+        self.assertEqual(sorted(conflicts), ["model sol", "provider kimi"])
+        merged = cli.custom.merge_docs(self.runtime.catalog.docs, registry)
+        # The catalog wins: the shadow entries never reached the merged view.
+        self.assertEqual(
+            merged["providers"]["providers"]["kimi"],
+            self.runtime.catalog.docs["providers"]["providers"]["kimi"],
+        )
+        self.assertEqual(
+            merged["models"]["models"]["sol"],
+            self.runtime.catalog.docs["models"]["models"]["sol"],
+        )
+
+
+class ForgetUnderLockGuardTests(CLITestCase):
+    """Review must-fix: the forget liveness verdict is taken under the
+    lifecycle lock with a fresh prefix scan — and covers corrupt records
+    by stable-id prefix."""
+
+    def test_corrupt_record_with_live_stable_prefix_refuses(self) -> None:
+        self.save_session(mode="durable", scope_generation=1)
+        state.atomic_write(
+            self.runtime.session_store.sessions_dir / f"{FIXED_ID}.json",
+            b"{not json",
+        )
+        with mock.patch.object(
+            cli, "_live_background_prefixes", return_value=frozenset({"11111111"})
+        ):
+            code, output = self.run_cli(["sessions", "forget", FIXED_ID])
+        self.assertEqual(code, 2)
+        self.assertIn("live in the background", output)
+        # The corrupt record survived: a refusal never deletes.
+        self.assertTrue(
+            (self.runtime.session_store.sessions_dir / f"{FIXED_ID}.json").exists()
+        )
+
+    def test_check_runs_under_the_lifecycle_lock(self) -> None:
+        self.save_session(mode="durable", scope_generation=1)
+        store = self.runtime.session_store
+        held = {}
+
+        def probe(current):
+            probe_lock = store.lifecycle_lock(FIXED_ID)
+            held["reacquire"] = probe_lock.acquire(blocking=False)
+            if held["reacquire"]:
+                probe_lock.release()
+            return None
+
+        removed, _scope = store.forget_session(FIXED_ID, pre_delete_check=probe)
+        self.assertTrue(removed)
+        # The lifecycle lock was already held when the check ran.
+        self.assertFalse(held["reacquire"])
+
+    def test_refusal_under_lock_deletes_nothing(self) -> None:
+        self.save_session(mode="durable", scope_generation=1)
+        with self.assertRaisesRegex(sessions.SessionError, "held up"):
+            self.runtime.session_store.forget_session(
+                FIXED_ID, pre_delete_check=lambda _current: "held up"
+            )
+        self.assertTrue(self.runtime.session_store.exists(FIXED_ID))
+
+
+class PointerSweepDurabilityTests(CLITestCase):
+    """Review should-fix: the by-id pointer sweep deletes through the
+    durable primitive (directory fsync), not a bare unlink."""
+
+    def test_sweep_uses_remove_private(self) -> None:
+        self.save_session(mode="durable", scope_generation=1)
+        state.atomic_write(
+            self.runtime.session_store.sessions_dir / f"{FIXED_ID}.json",
+            b"{not json",
+        )
+        with mock.patch.object(
+            cli.state, "remove_private", wraps=cli.state.remove_private
+        ) as spy:
+            code, output = self.run_cli(["sessions", "forget", FIXED_ID])
+        self.assertEqual(code, 0, output)
+        pointer = self.runtime.session_store._pointer_path(self.runtime.cwd)
+        self.assertIn(mock.call(pointer), spy.call_args_list)
+        self.assertFalse(pointer.exists())
+
+
+class SessionsScreenForgetGuardTests(CLITestCase):
+    """Review P2: the picker F action never forgets under a running
+    session — live rows get stop-first guidance, and the under-lock
+    re-check closes the race."""
+
+    def _screen(self):
+        return cli._SessionsScreen(self.runtime, palette=tui.MONO_PALETTE)
+
+    def test_live_row_gets_stop_first_guidance_no_modal(self) -> None:
+        from test_tui import FakeWindow
+
+        self.save_session(mode="durable", scope_generation=1)
+        with mock.patch.object(
+            cli, "_live_background_prefixes", return_value=frozenset({"11111111"})
+        ):
+            screen = self._screen()
+            win = FakeWindow([])
+            screen._forget(win, screen.records[0])
+        self.assertIn("stop it first (E)", screen.message)
+        self.assertTrue(self.runtime.session_store.exists(FIXED_ID))
+
+    def test_under_lock_refusal_surfaces_as_message(self) -> None:
+        from test_tui import FakeWindow
+
+        self.save_session(mode="durable", scope_generation=1)
+        screen = self._screen()
+        # Modal confirms ("f" then Enter on the Forget button)... drive the
+        # method directly with a confirming FakeWindow; the under-lock check
+        # (fresh scan) refuses because the row just went live.
+        with mock.patch.object(
+            cli, "_live_background_prefixes", return_value=frozenset({"11111111"})
+        ):
+            win = FakeWindow(["\n"])  # modal default button is Forget
+            screen._forget(win, screen.records[0])
+        self.assertIn("live in the background", screen.message)
+        self.assertTrue(self.runtime.session_store.exists(FIXED_ID))
+
+    def test_non_live_forget_still_works_through_modal(self) -> None:
+        from test_tui import FakeWindow
+
+        self.save_session(mode="durable", scope_generation=1)
+        screen = self._screen()
+        win = FakeWindow(["\n"])
+        screen._forget(win, screen.records[0])
+        self.assertIn("Forgot", screen.message)
+        self.assertFalse(self.runtime.session_store.exists(FIXED_ID))

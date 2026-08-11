@@ -30,7 +30,17 @@ in
 pkgs.stdenv.mkDerivation {
   pname = "claude-multi";
   version = (builtins.fromJSON (builtins.readFile ./version.json)).launcher_version;
-  src = ./.;
+  # Test-run __pycache__/.pyc artifacts must never reach the store: they would
+  # both pollute the share tree and churn the source hash on every test run.
+  src = pkgs.lib.cleanSourceWith {
+    src = ./.;
+    filter =
+      path: _type:
+      let
+        base = baseNameOf (toString path);
+      in
+      base != "__pycache__" && !(pkgs.lib.hasSuffix ".pyc" base);
+  };
   nativeBuildInputs = [ pkgs.makeWrapper ];
   dontBuild = true;
   installPhase = ''

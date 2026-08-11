@@ -16,7 +16,7 @@ import shlex
 import uuid
 from datetime import datetime, timezone
 from pathlib import Path
-from typing import Any
+from typing import Any, Callable
 
 from . import state, strict_json, validate as schema_validate
 
@@ -1158,8 +1158,20 @@ class SessionStore:
         finally:
             lock.release()
 
-    def forget_session(self, stable_id: str) -> tuple[bool, bool]:
-        """Serialize generated-scope, record, and pointer removal."""
+    def forget_session(
+        self,
+        stable_id: str,
+        *,
+        pre_delete_check: Callable[[dict[str, Any] | None], str | None] | None = None,
+    ) -> tuple[bool, bool]:
+        """Serialize generated-scope, record, and pointer removal.
+
+        ``pre_delete_check`` runs under the lifecycle lock, after the fresh
+        load and before anything is removed: it receives the freshly loaded
+        record (``None`` when corrupt) and returns a refusal message or
+        ``None``. Liveness decided outside the lock would be stale by the
+        time deletion happens (review must-fix).
+        """
 
         from . import scope
 
@@ -1168,7 +1180,21 @@ class SessionStore:
         try:
             if not self.exists(stable_id):
                 return False, False
-            current = self.load(stable_id)
+            try:
+                current = self.load(stable_id)
+            except SessionError:
+                current = None
+            if pre_delete_check is not None:
+                refusal = pre_delete_check(current)
+                if refusal is not None:
+                    raise SessionError(refusal)
+            if current is None:
+                # Corrupt record (core-lane P1): the operator's remedy must
+                # not dead-end on the same load that failed. Skip the
+                # load-dependent cleanup and sweep pointers by id instead.
+                scope_removed = scope.remove_scope(self.root, stable_id)
+                self._sweep_pointers_for(stable_id)
+                return self._forget_unlocked(stable_id), scope_removed
             # Validate/remove generated state first. The record is the final
             # irreversible delete so a scope-safety failure remains repairable.
             scope_removed = scope.remove_scope(self.root, stable_id)
@@ -1182,6 +1208,37 @@ class SessionStore:
             return removed, scope_removed
         finally:
             lock.release()
+
+    def _sweep_pointers_for(self, session_id: str) -> int:
+        """Remove every last-session pointer naming session_id (load-free)."""
+
+        swept = 0
+        for pointer in self.pointers_dir.glob("*.json"):
+            if pointer.is_symlink() or not pointer.is_file():
+                continue
+            try:
+                payload = strict_json.loads(state.read_private(pointer))
+            except (state.StateError, ValueError):
+                continue
+            if payload.get("session_id") != session_id:
+                continue
+            lock = state.FileLock(pointer)
+            lock.acquire(blocking=True)
+            try:
+                # Re-read under the lock: only delete when it still matches.
+                try:
+                    current = strict_json.loads(state.read_private(pointer))
+                except (state.StateError, ValueError):
+                    continue
+                if current.get("session_id") == session_id:
+                    # Durable delete (review): the record removal fsyncs a
+                    # DIFFERENT directory — without remove_private the
+                    # pointer unlink can be lost while the record stays gone.
+                    state.remove_private(pointer)
+                    swept += 1
+            finally:
+                lock.release()
+        return swept
 
     def link(self, record: dict[str, Any]) -> Path:
         """Failure-atomically adopt a native runtime and resolve its parent."""

@@ -833,3 +833,100 @@ class ListProviderModelsTests(unittest.TestCase):
             with self.assertRaises(proxy.ProxyError) as ctx:
                 proxy.list_provider_models("kimi", self._providers())
         self.assertIn("KIMI_CLAUDE_API_KEY", str(ctx.exception))
+
+
+class ListingRedirectAndErrorShapeTests(unittest.TestCase):
+    """Deep analysis security/gateway lanes: redirects are never followed
+    (the credential header would leak to the target); HTTP/connection/parse
+    failures become clean redacted ProxyErrors."""
+
+    def _providers(self, base_url):
+        return {
+            "fixture": {
+                "id": "fixture",
+                "transport": {
+                    "kind": "direct",
+                    "base_url": base_url,
+                    "auth": {"kind": "bearer", "secret_ref": "env:FIXTURE_KEY"},
+                },
+            }
+        }
+
+    def test_redirect_is_never_followed_and_secret_never_forwarded(self) -> None:
+        hits = []
+
+        class Handler(BaseHTTPRequestHandler):
+            def do_GET(self):
+                hits.append(self.path)
+                if self.path == "/v1/models":
+                    self.send_response(302)
+                    self.send_header("Location", "/elsewhere")
+                    self.end_headers()
+                else:
+                    self.send_response(200)
+                    self.end_headers()
+                    self.wfile.write(b'{"data": []}')
+
+            def log_message(self, *_args):
+                pass
+
+        server = ThreadingHTTPServer(("127.0.0.1", 0), Handler)
+        thread = threading.Thread(target=server.serve_forever, daemon=True)
+        thread.start()
+        self.addCleanup(server.shutdown)
+        self.addCleanup(server.server_close)
+        base_url = f"http://127.0.0.1:{server.server_address[1]}"
+        with mock.patch.object(proxy, "resolve_secret", return_value="fixture-secret"):
+            with self.assertRaises(proxy.ProxyError) as ctx:
+                proxy.list_provider_models(
+                    "fixture", self._providers(base_url), timeout=5.0
+                )
+        self.assertIn("HTTP 302", str(ctx.exception))
+        # The redirect target was never requested — the credential header
+        # never left the original request.
+        self.assertEqual(hits, ["/v1/models"])
+
+    def test_http_error_is_a_status_only_message(self) -> None:
+        def bad_fetch(_url, _headers):
+            raise urllib.error.HTTPError(
+                "http://x", 418, "teapot detail must not leak", {}, None
+            )
+
+        with mock.patch.object(proxy, "resolve_secret", return_value="x"):
+            with self.assertRaises(proxy.ProxyError) as ctx:
+                proxy.list_provider_models(
+                    "fixture", self._providers("http://127.0.0.1:1"), fetch=bad_fetch
+                )
+        self.assertIn("HTTP 418", str(ctx.exception))
+        self.assertNotIn("teapot detail", str(ctx.exception))
+
+    def test_url_error_is_a_reason_only_message(self) -> None:
+        def bad_fetch(_url, _headers):
+            raise urllib.error.URLError("connection refused")
+
+        with mock.patch.object(proxy, "resolve_secret", return_value="x"):
+            with self.assertRaises(proxy.ProxyError) as ctx:
+                proxy.list_provider_models(
+                    "fixture", self._providers("http://127.0.0.1:1"), fetch=bad_fetch
+                )
+        self.assertIn("connection error", str(ctx.exception))
+
+    def test_unexpected_payload_shape_is_a_clean_error(self) -> None:
+        with mock.patch.object(proxy, "resolve_secret", return_value="x"):
+            with self.assertRaises(proxy.ProxyError) as ctx:
+                proxy.list_provider_models(
+                    "fixture",
+                    self._providers("http://127.0.0.1:1"),
+                    fetch=lambda _url, _headers: b'{"data": 42}',
+                )
+        self.assertIn("unexpected shape", str(ctx.exception))
+
+    def test_non_object_payload_is_a_clean_error(self) -> None:
+        with mock.patch.object(proxy, "resolve_secret", return_value="x"):
+            with self.assertRaises(proxy.ProxyError) as ctx:
+                proxy.list_provider_models(
+                    "fixture",
+                    self._providers("http://127.0.0.1:1"),
+                    fetch=lambda _url, _headers: b"[1, 2]",
+                )
+        self.assertIn("unexpected shape", str(ctx.exception))

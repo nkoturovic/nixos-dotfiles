@@ -602,6 +602,7 @@ def fake(prepared):
     print('FAKE_LAUNCH=' + prepared.result.session_action.kind, flush=True)
     return 0
 runtime = Runtime(asset_root=root, environ=env, cwd=base/'project', launch_callback=fake, doctor_binary_callback=lambda contract: ([], ['fixture binary verified.']), doctor_callback=lambda _runtime: [])
+(base/'project').mkdir(parents=True, exist_ok=True)  # records always have an existing cwd
 document = runtime.compositions.load('default')
 resolved = runtime.resolve_document(document)
 record = sessions.make_record(

@@ -39,8 +39,6 @@ VALIDATION_KEYWORDS = frozenset(
     }
 )
 
-ROOT_METADATA_KEYWORDS = frozenset({"version"})
-
 TYPE_NAMES = frozenset(
     {"object", "array", "string", "integer", "number", "boolean", "null"}
 )

@@ -1823,7 +1823,13 @@ class FormEditorScreen:
         status_row = height - 3
         if errors:
             safe_add(win, status_row, 2, "Status: BLOCKED", palette.attr("error") | curses.A_BOLD)
-            safe_add(win, status_row, 19, errors[0], palette.attr("error"))
+            safe_add(
+                win,
+                status_row,
+                19,
+                errors[0] + (f"  (+{len(errors) - 1} more)" if len(errors) > 1 else ""),
+                palette.attr("error"),
+            )
             # Refusal feedback (set_lead/variant guards) lands in
             # state.message; when BLOCKED it would be invisible exactly
             # while the user is repairing — it gets a reserved line.

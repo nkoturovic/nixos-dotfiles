@@ -388,12 +388,14 @@ def served_models(
     token: str,
     *,
     models_get: Callable[[str, str], tuple[int, set[str]]] | None = None,
-) -> set[str] | None:
-    """Selector ids the running gateway serves now (015 doctor cross-check).
+) -> tuple[set[str] | None, int | None]:
+    """(selector ids, HTTP status) the running gateway serves now.
 
-    Loopback-local registry state — never an upstream provider call. Returns
-    None on a non-200 response (advisory check; the caller reports one info
-    line); connection failures raise LaunchError like the readiness probe.
+    Loopback-local registry state — never an upstream provider call. The
+    ids are None on a non-200 response (the status tells the caller why —
+    a 401 means the running daemon holds a different token than the
+    rendered config); connection failures raise LaunchError like the
+    readiness probe.
     """
 
     gateway_info = gateway["gateway"]
@@ -405,8 +407,8 @@ def served_models(
     except Exception as exc:  # connection refused, timeout, etc.
         raise LaunchError(f"local gateway models check failed: {exc}") from exc
     if status != 200:
-        return None
-    return ids
+        return None, status
+    return ids, status
 
 
 def read_gateway_token(gateway: dict[str, Any], *, home: Path | None = None) -> str:
@@ -565,7 +567,9 @@ class _CwdLease:
             os.close(original_fd)
             raise LaunchError(
                 f"cannot open the session's original project directory {target}: {exc}; "
-                "repair the recorded CWD before resuming"
+                "if it was renamed/moved, repair the record with `claude-multi "
+                "sessions relink-runtime <managed-id> <runtime-id> --cwd <new "
+                "project directory>` (or rename it back)"
             ) from exc
         lease = cls(original_fd, target_fd, original_path, target)
         try:

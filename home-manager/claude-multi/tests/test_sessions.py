@@ -1415,3 +1415,51 @@ class RelinkMessageOrdinaryTests(SessionTestCase):
         record["observed_model"] = "unexpected-selector"
         message = sessions.relink_message(record)
         self.assertIn("differs from the recorded qwen38", message)
+
+
+class CorruptForgetStoreTests(SessionTestCase):
+    """Deep analysis core P1: forget_session survives a corrupt record —
+    scope removal + pointer sweep work load-free, by id."""
+
+    def _corrupt(self) -> None:
+        state.atomic_write(
+            self.store.sessions_dir / f"{FIXED_ID}.json", b"{not json"
+        )
+
+    def test_corrupt_record_forgets_scope_and_pointers(self) -> None:
+        self.store.save(_record(self.snapshot))
+        self.store.update_last("/project/path", FIXED_ID)
+        from claude_multi import scope as scope_mod
+
+        live_scope = scope_mod.scope_dir(self.store.root, FIXED_ID)
+        state.ensure_private_dir(live_scope)
+        pointer = self.store._pointer_path("/project/path")
+        self.assertTrue(pointer.exists())
+        self._corrupt()
+        removed, scope_removed = self.store.forget_session(FIXED_ID)
+        self.assertTrue(removed)
+        self.assertTrue(scope_removed)
+        self.assertFalse(self.store.exists(FIXED_ID))
+        self.assertFalse(live_scope.exists())
+        self.assertFalse(pointer.exists())
+
+    def test_pointer_sweep_rereads_under_lock(self) -> None:
+        # A pointer that stops matching between scan and unlink is kept.
+        self.store.save(_record(self.snapshot))
+        self.store.update_last("/project/path", FIXED_ID)
+        self._corrupt()
+        pointer = self.store._pointer_path("/project/path")
+        original_loads = strict_json.loads
+        calls = {"n": 0}
+
+        def flipping(raw):
+            calls["n"] += 1
+            payload = original_loads(raw)
+            # First read (scan) matches; the under-lock re-read does not.
+            if calls["n"] > 1:
+                payload = dict(payload, session_id=OTHER_ID)
+            return payload
+
+        with mock.patch.object(strict_json, "loads", side_effect=flipping):
+            self.store._sweep_pointers_for(FIXED_ID)
+        self.assertTrue(pointer.exists())

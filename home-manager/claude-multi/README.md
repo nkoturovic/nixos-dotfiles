@@ -1,6 +1,7 @@
-# claude-multi v2.6
+# claude-multi
 
-First-class multi-model integration for Claude Code. Managed composition
+Current version in `version.json` (single source of truth). First-class
+multi-model integration for Claude Code. Managed composition
 sessions compile durable `cm-*` agents and policy; ordinary gateway sessions
 use the same local model transport without inheriting a composition. Both use
 per-session settings under `~/.local/state/claude-multi/scopes/<managed-id>/`

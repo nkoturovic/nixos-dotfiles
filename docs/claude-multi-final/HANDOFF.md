@@ -54,9 +54,11 @@ untouched; `claude-gateway` is the ordinary non-composition entrypoint.
   `claude-multi sessions stop <uuid> [--yes]` — upstream `claude stop` via
   the verified binary (never a signal; conversation always kept). Refuses
   self-stops and non-live sessions. Transitions on a ● session warn first.
-- `claude-gateway [--model sol|qwen38|glm52|kimi-k3|fable|opus]` starts an ordinary
-  gateway session with native `/model`; `-c`/`-r` continue it. Same-profile
-  switching stays in-process, cross-profile switching is an explicit relaunch.
+- `claude-gateway [--model MODEL]` starts an ordinary
+  gateway session with native `/model` (MODEL is a catalog or custom-registry
+  id — `claude-multi models`, `claude-multi custom list`); `-c`/`-r` continue
+  it. Same-profile switching stays in-process, cross-profile switching is an
+  explicit relaunch.
 - `claude-multi sessions transition <uuid> --composition <name>` changes a
   session's composition: shows the diff, asks you to confirm the old process
   has exited, relaunches with the exact transcript.
@@ -68,7 +70,8 @@ untouched; `claude-gateway` is the ordinary non-composition entrypoint.
   files (never transcripts); `sessions relink-runtime <id> <runtime-id>`
   repairs pre-hook UUID drift using native `/status`; `sessions link`
   adopts plain sessions; `sessions forget` deletes record + generated scope
-  (never the transcript).
+  (never the transcript) and refuses a live session (stop it first) or the
+  one you're inside.
 - `--legacy` = old argv mode (compatibility hatch, not a durability answer).
 
 ## Installed state (2026-07-29)
