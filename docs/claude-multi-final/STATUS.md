@@ -1,6 +1,11 @@
 # STATUS — live tracker
 
-## 2026-08-10 — v2.14.0: post-release improvement pass (D51, blueprint 019) — built, AWAITING ACTIVATION
+## 2026-08-11 — v2.14.0: post-release improvement pass (D51, blueprint 019, activated gen 121)
+
+- **Activated**: HM gen 121, doctor **Ready** (no repair-all needed — no
+  scope-affecting changes). Live: `models` prints wire + typed selectors;
+  `discover kimi` answers through the installed command (k3 cataloged;
+  kimi-for-coding/-highspeed/k3-256k marked onboarding candidates).
 
 - **Six-leg analysis** (discoverability/coherence/onboarding/safety lenses
   + Kimi TUI-usability walk + lead pass) → one consolidated batch.

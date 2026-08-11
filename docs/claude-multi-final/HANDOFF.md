@@ -73,7 +73,7 @@ untouched; `claude-gateway` is the ordinary non-composition entrypoint.
 
 ## Installed state (2026-07-29)
 
-- claude-multi **2.13.0** active (HM generation 120; rollback: gen 119/118),
+- claude-multi **2.14.0** active (HM generation 121; rollback: gen 120/119),
   Claude pinned at **2.1.220** (hash-verified, symlink-aligned).
   Resume gate live (D41): repair-needed records get one-keypress Repair &
   resume in the TUI, daemon-owned resumes gate with Stop & resume /
@@ -121,7 +121,7 @@ untouched; `claude-gateway` is the ordinary non-composition entrypoint.
   **^O** save chord; readable dark-theme muted color. Live acceptance call
   proved `qwen3.8-max` routing; `doctor --repair-all` converged all 33
   durable sessions; doctor Ready.
-- **2.14.0 improvement pass built, awaiting activation** (D51; blueprint
+- **2.14.0 improvement pass live** (gen 121) (D51; blueprint
   019): BLOCKED cards point at the in-TUI key fix; OAuth `(sign in needed)`
   row marking; line-mode H; hardened secret writes (locked + re-parsed);
   providers-pane drift banner + help; editor BLOCKED feedback; `claude-multi
