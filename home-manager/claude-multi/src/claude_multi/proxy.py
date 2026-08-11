@@ -19,9 +19,10 @@ import sys
 import re
 import secrets
 import shutil
+import types
 import urllib.request
 from pathlib import Path
-from typing import Any, Callable
+from typing import Any, Callable, Mapping
 
 from . import catalog as catalog_mod
 from . import custom as custom_mod
@@ -133,10 +134,58 @@ def resolve_secret(
 # apps/anthropic path returns 404 "Not support"; OAuth pools have no direct
 # API credential to list with. Any other DIRECT provider (incl. customs) is
 # attempted with the same Anthropic shape and falls back to manual entry.
-_LISTING_SUPPORT = {
-    "kimi": "anthropic-v1-models",
-    "qwen": "unsupported",
-}
+# Per-provider listing descriptors (022): how `discover` lists each
+# provider's models. Keys:
+#   status: "verified" (shape confirmed by a probe) | "attempt" (generic
+#           Anthropic-shape attempt on the configured base) | "unsupported"
+#   note:   operator-facing detail for the unsupported refusal
+#   url:    override the default <base_url>/v1/models target
+#   auth:   "provider" (the configured secret/header; default) | "none"
+#           (public endpoint — no secret is resolved or required)
+#   shape:  "anthropic" (default) | "openai" ({data:[{id, name,
+#           context_length, ...}]}, e.g. OpenRouter's public listing)
+# Descriptors route credentials — the table is immutable trusted config
+# (review: a mutable module global could be mutated to redirect a
+# credential-bearing probe).
+def _freeze_descriptors(
+    table: dict[str, dict[str, str]],
+) -> dict[str, Mapping[str, str]]:
+    return types.MappingProxyType(
+        {key: types.MappingProxyType(dict(value)) for key, value in table.items()}
+    )
+
+
+_LISTING_SUPPORT = _freeze_descriptors({
+    "kimi": {"status": "verified"},
+    "qwen": {
+        "status": "unsupported",
+        "note": "verified 2026-08-10: its Anthropic path answers 404 'Not support'",
+    },
+    "deepseek": {
+        "status": "attempt",
+        # The documented listing is OpenAI-shape GET https://api.deepseek.com/
+        # models (Bearer); whether the Anthropic path answers /v1/models is
+        # probe-pending — the generic attempt covers it.
+    },
+    "openrouter": {
+        "status": "verified",
+        "url": "https://openrouter.ai/api/v1/models",
+        "auth": "none",
+        "shape": "openai",
+    },
+})
+
+
+def listing_supported(provider_id: str) -> bool:
+    """Whether a listing attempt is meaningful for this provider."""
+
+    return _LISTING_SUPPORT.get(provider_id, {}).get("status") != "unsupported"
+
+
+def listing_is_public(provider_id: str) -> bool:
+    """Whether the listing endpoint is unauthenticated (no key is sent)."""
+
+    return _LISTING_SUPPORT.get(provider_id, {}).get("auth") == "none"
 
 
 def list_provider_models(
@@ -157,33 +206,43 @@ def list_provider_models(
 
     provider = providers[provider_id]
     transport = provider["transport"]
-    support = _LISTING_SUPPORT.get(provider_id)
-    if support == "unsupported":
+    descriptor = _LISTING_SUPPORT.get(provider_id, {})
+    if descriptor.get("status") == "unsupported":
+        note = descriptor.get("note") or "no listing endpoint is known"
         raise ProxyError(
-            f"provider {provider_id!r} does not support model listing "
-            "(verified 2026-08-10: its Anthropic path answers 404 'Not support')"
+            f"provider {provider_id!r} does not support model listing ({note})"
         )
     if transport["kind"] == "oauth-pool":
         raise ProxyError(
             f"provider {provider_id!r} is an OAuth pool — there is no "
             "direct API credential to list models with"
         )
-    # support is "anthropic-v1-models" (verified) or None (attempt).
-    secret_ref = transport["auth"]["secret_ref"]
-    env_name = secret_ref.removeprefix("env:")
-    secret = resolve_secret(env_name, environ=environ)
-    if secret is None:
-        raise ProxyError(
-            f"provider {provider_id!r} listing needs {secret_ref} in the "
-            "secret env file first"
-        )
-    url = transport["base_url"].rstrip("/") + "/v1/models"
-    auth = transport["auth"]
-    if auth["kind"] == "bearer":
-        headers = {"Authorization": f"Bearer {secret}"}
+    # status "verified" (shape probed) or "attempt" (generic try on the
+    # configured base); url/auth/shape may be overridden per provider.
+    public = descriptor.get("auth") == "none"
+    secret: str | None = None
+    if not public:
+        secret_ref = transport["auth"]["secret_ref"]
+        env_name = secret_ref.removeprefix("env:")
+        secret = resolve_secret(env_name, environ=environ)
+        if secret is None:
+            raise ProxyError(
+                f"provider {provider_id!r} listing needs {secret_ref} in the "
+                "secret env file first"
+            )
+    url = descriptor.get("url") or transport["base_url"].rstrip("/") + "/v1/models"
+    if public:
+        headers = {}
     else:
-        headers = {auth["header"]: secret}
-    headers["anthropic-version"] = "2023-06-01"
+        auth = transport["auth"]
+        if auth["kind"] == "bearer":
+            headers = {"Authorization": f"Bearer {secret}"}
+        else:
+            headers = {auth["header"]: secret}
+    # The Anthropic protocol header belongs on Anthropic-shape endpoints only
+    # (OpenAI-shape listings — e.g. OpenRouter's public one — ignore it).
+    if descriptor.get("shape", "anthropic") == "anthropic":
+        headers["anthropic-version"] = "2023-06-01"
 
     class _NoRedirect(urllib.request.HTTPRedirectHandler):
         """Never follow redirects: urllib would forward the Authorization /
@@ -222,27 +281,62 @@ def list_provider_models(
         ) from exc
     try:
         payload = strict_json.loads(raw)
-        items = payload.get("data", []) if isinstance(payload, dict) else None
+        # A 200 envelope WITHOUT a data member (e.g. an error body) is not an
+        # empty listing — it is an unexpected shape. Missing data previously
+        # read as a silent success (022 review).
+        items = payload.get("data") if isinstance(payload, dict) else None
         if items is None or not isinstance(items, list):
             raise TypeError("the listing envelope is not {data: [...]}")
         entries = []
+        openai_shape = descriptor.get("shape") == "openai"
         for item in items:
             if not isinstance(item, dict) or not isinstance(item.get("id"), str):
                 continue
+            display = item.get("display_name") or item.get("name")
+            context_length = item.get("context_length")
+            # JSON booleans are ints in Python — exclude them explicitly
+            # (a `true` context would otherwise render as "True ctx").
+            context_ok = isinstance(context_length, int) and not isinstance(
+                context_length, bool
+            )
             entry = {
                 "id": item["id"],
-                "display_name": item.get("display_name", ""),
-                "context_length": item.get("context_length"),
+                # OpenAI-style listings (OpenRouter) name it "name";
+                # Anthropic-style listings use "display_name". Wrongly-typed
+                # values drop to the empty default rather than riding into
+                # the registry (022 review).
+                "display_name": display if isinstance(display, str) else "",
+                "context_length": context_length if context_ok else None,
             }
             efforts = item.get("think_efforts")
             if isinstance(efforts, dict) and efforts.get("valid_efforts"):
                 entry["think_efforts"] = [
                     str(e) for e in efforts["valid_efforts"] if isinstance(e, str)
                 ]
+            if openai_shape:
+                top = item.get("top_provider")
+                max_completion = (
+                    top.get("max_completion_tokens") if isinstance(top, dict) else None
+                )
+                if isinstance(max_completion, int) and not isinstance(
+                    max_completion, bool
+                ):
+                    entry["max_completion_tokens"] = max_completion
+                reasoning = item.get("reasoning")
+                if isinstance(reasoning, dict) and isinstance(
+                    reasoning.get("supported_efforts"), list
+                ):
+                    entry["think_efforts"] = [
+                        str(e)
+                        for e in reasoning["supported_efforts"]
+                        if isinstance(e, str)
+                    ]
             entries.append(entry)
-    except (ValueError, TypeError, AttributeError) as exc:
+    except (ValueError, TypeError, AttributeError, RecursionError) as exc:
         # Parse/structure failures stay inside the redacted boundary too —
         # a traceback would kill the TUI pane (gateway/security lanes).
+        # RecursionError: deeply nested bodies far below the byte cap
+        # (022 review — reproduced at ~104 KiB / ~52K nesting).
         raise ProxyError(
             f"provider {provider_id!r} model listing returned an unexpected "
             f"shape ({type(exc).__name__})"

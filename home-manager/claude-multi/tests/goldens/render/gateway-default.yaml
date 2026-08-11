@@ -76,6 +76,24 @@ oauth-model-alias:
       fork: false
 claude-api-key:
   - api-key: "dummy-kimi-key"
+    base-url: "https://api.deepseek.com/anthropic"
+    auth-header: "x-api-key"
+    cloak:
+      mode: "never"
+    models:
+      - name: "deepseek-v4-flash"
+        alias: "claude-multi-deepseek-flash-high"
+        display-name: "DeepSeek V4 Flash"
+        owned-by: "deepseek"
+        context-length: 1000000
+        force-mapping: true
+      - name: "deepseek-v4-flash"
+        alias: "claude-multi-deepseek-flash-max"
+        display-name: "DeepSeek V4 Flash"
+        owned-by: "deepseek"
+        context-length: 1000000
+        force-mapping: true
+  - api-key: "dummy-kimi-key"
     base-url: "https://api.kimi.com/coding"
     auth-header: "x-api-key"
     cloak:
@@ -86,6 +104,18 @@ claude-api-key:
         display-name: "Kimi K3 · 1M selector"
         owned-by: "moonshot"
         context-length: 1000000
+        force-mapping: true
+  - api-key: "dummy-kimi-key"
+    base-url: "https://openrouter.ai/api"
+    auth-header: "x-api-key"
+    cloak:
+      mode: "never"
+    models:
+      - name: "x-ai/grok-4.5"
+        alias: "claude-multi-grok45"
+        display-name: "Grok 4.5"
+        owned-by: "x-ai"
+        context-length: 500000
         force-mapping: true
   - api-key: "dummy-kimi-key"
     base-url: "https://token-plan.ap-southeast-1.maas.aliyuncs.com/apps/anthropic"
@@ -106,6 +136,16 @@ claude-api-key:
         force-mapping: true
 payload:
   override:
+    - models:
+        - name: "claude-multi-deepseek-flash-high"
+          protocol: "claude"
+      params:
+        "output_config.effort": "high"
+    - models:
+        - name: "claude-multi-deepseek-flash-max"
+          protocol: "claude"
+      params:
+        "output_config.effort": "max"
     - models:
         - name: "claude-multi-kimi-k3"
           protocol: "claude"

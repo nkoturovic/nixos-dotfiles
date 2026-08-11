@@ -813,6 +813,10 @@ class SelectList:
         self.multi = multi
         self.selected = selected
         self.message = ""
+        # Multi-mode toggle state, tracked by the widget itself so callers
+        # without an on_toggle callback still get a usable selection:
+        # run() returns the sorted toggled indexes on Enter, None on Esc.
+        self.toggled: set[int] = set()
 
     def draw(self, win: Any, palette: Palette) -> None:
         win.erase()
@@ -860,7 +864,10 @@ class SelectList:
         on_prefer: Callable[[int], str | None] | None = None,
         on_help: Callable[[], None] | None = None,
         refresh: Callable[[], Sequence[SelectItem]] | None = None,
-    ) -> int | None:
+    ) -> int | list[int] | None:
+        # Single mode: Enter returns the index (or None when empty/back).
+        # Multi mode: Enter returns the sorted toggled indexes (possibly
+        # empty), Esc returns None. Callback callers may ignore the return.
         while True:
             if refresh is not None:
                 self.items = list(refresh())
@@ -883,7 +890,7 @@ class SelectList:
                 raise KeyboardInterrupt
             elif key.kind == "enter":
                 if self.multi:
-                    return None
+                    return sorted(self.toggled)
                 if not self.items:
                     return None
                 if on_activate is not None:
@@ -893,6 +900,8 @@ class SelectList:
                         continue
                 return self.selected
             elif key.kind == "char" and key.ch == " " and self.multi:
+                if self.items:
+                    self.toggled ^= {self.selected}
                 if on_toggle is not None and self.items:
                     error = on_toggle(self.selected)
                     if error:

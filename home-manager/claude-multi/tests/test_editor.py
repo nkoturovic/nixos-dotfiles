@@ -288,7 +288,7 @@ class LeadNativeAndActionTests(unittest.TestCase):
 class FormEditorRenderTests(unittest.TestCase):
     def test_card_renders_sections_status_and_keybar(self) -> None:
         state = make_state()
-        _, win, _ = run_form(state, [ESC], height=36)
+        _, win, _ = run_form(state, [ESC], height=42)
         text = win.text()
         self.assertIn("claude-multi / Edit default", text)
         for section in ("General", "Lead", "Availability", "Roles", "Native agents", "Actions"):

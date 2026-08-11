@@ -28,6 +28,9 @@ RETAINED_SELECTOR_BASES = {
     "gpt-multi-gpt55-high",
     "claude-multi-qwen38-max",
     "claude-multi-glm52-max",
+    "claude-multi-deepseek-flash-high",
+    "claude-multi-deepseek-flash-max",
+    "claude-multi-grok45",
 }
 REMOVED_PATTERNS = (
     "claude-multi-fable-5",
@@ -63,10 +66,10 @@ class SeedLoadTests(unittest.TestCase):
     def test_seed_loads_clean(self) -> None:
         bundle = catalog.load_catalog(CATALOG_ROOT)
         self.assertEqual(
-            set(bundle.providers), {"anthropic", "kimi", "openai", "qwen"}
+            set(bundle.providers), {"anthropic", "deepseek", "kimi", "openai", "openrouter", "qwen"}
         )
         self.assertEqual(
-            set(bundle.models), {"fable", "opus", "opus5", "kimi-k3", "sol", "gpt55", "qwen38", "glm52"}
+            set(bundle.models), {"fable", "opus", "opus5", "kimi-k3", "sol", "gpt55", "qwen38", "glm52", "deepseek-flash", "grok45"}
         )
         self.assertEqual(
             set(bundle.roles), {"cm-lead", "cm-analyst", "cm-reviewer", "cm-implementer"}
@@ -127,8 +130,8 @@ class SeedLoadTests(unittest.TestCase):
 
     def test_version_json_matches_v2_2_schema_and_catalog_change(self) -> None:
         bundle = catalog.load_catalog(CATALOG_ROOT)
-        self.assertEqual(bundle.docs["version"]["launcher_version"], "2.16.0")
-        self.assertEqual(bundle.docs["version"]["catalog_version"], 16)
+        self.assertEqual(bundle.docs["version"]["launcher_version"], "2.17.0")
+        self.assertEqual(bundle.docs["version"]["catalog_version"], 17)
 
     def test_qwen38_production_no_preview_residue(self) -> None:
         # D50: qwen3.8-max shipped production 2026-08-03; the D21 revision
@@ -989,3 +992,25 @@ class GatewayManifestConsistencyTests(unittest.TestCase):
                     (CATALOG_ROOT.parent / name).is_file(),
                     f"{name} in the manifest but not next to the module",
                 )
+
+
+class WireSlashPatternTests(unittest.TestCase):
+    """022: wire_model accepts exactly one author/model slash segment
+    (OpenRouter shape) and rejects more."""
+
+    def _wire_problems(self, wire: str) -> list[str]:
+        schema = strict_json.load(CATALOG_ROOT / "schemas" / "models.schema.json")
+        document = strict_json.load(CATALOG_ROOT / "catalog" / "models.json")
+        document["models"]["sol"]["wire_model"] = wire
+        return validate.validate(document, schema, "$")
+
+    def test_single_slash_segment_accepted(self) -> None:
+        self.assertEqual(self._wire_problems("x-ai/grok-4.5"), [])
+
+    def test_double_slash_rejected(self) -> None:
+        problems = self._wire_problems("a/b/c")
+        self.assertTrue(any("wire_model" in p for p in problems))
+
+    def test_leading_slash_rejected(self) -> None:
+        problems = self._wire_problems("/grok-4.5")
+        self.assertTrue(any("wire_model" in p for p in problems))

@@ -88,9 +88,20 @@ untouched; `claude-gateway` is the ordinary non-composition entrypoint.
 - **Opus 5 is the default lead** (default = opus5+sol+kimi; profiles
   `opus-sol`, `opus-kimi`, `fable`, `fable-sol-qwen-glm`, `kimi-sol`,
   `kimi-sol-qwen`, `kimi-sol-qwen-glm`, `kimi-sol-qwen-glm-fable`,
-  `qwen-sol`, `glm-sol`, `sol-direct`
+  `qwen-sol`, `glm-sol`, `sol-direct`, `deepseek`, `grok-deepseek`
   all live); gateway serves `claude-opus-5` and `claude-multi-opus-5`
   (CLIProxy registry patched); binary pinned at 2.1.220 and symlink-matched.
+- **DeepSeek + OpenRouter providers** (2.17.0, D54 — working tree,
+  activation pending): `deepseek-flash`
+  (wire `deepseek-v4-flash`, the latest-alias; 1M, `large` profile, lanes
+  high/max with `output_config.effort` pinned per lane — budget_tokens is
+  ignored upstream) and `grok45` (wire `x-ai/grok-4.5` via the Anthropic
+  skin; 500K in its own `grok` profile — window from the scope env, no
+  `[1m]`). Compositions: `deepseek` (all-flash side-task rig),
+  `grok-deepseek` (grok lead + flash agents, cross-family review).
+  Listing: deepseek attempts the Anthropic path (probe-pending; the
+  documented fallback is OpenAI-shape `/models` with Bearer); openrouter
+  lists via the PUBLIC OpenAI-shape `GET /api/v1/models` (no key).
 - **GLM-5.2 live on the qwen provider** (2.9.0, D45): wire `glm-5.2` at the
   Token Plan endpoint, selector `claude-multi-glm52-max[1m]`, lead+agents,
   lane max with `reasoning_effort: "max"` — 1M context, alibaba family

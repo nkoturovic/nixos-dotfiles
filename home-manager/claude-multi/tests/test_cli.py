@@ -3429,7 +3429,8 @@ class OrdinaryLaunchModelsTests(CLITestCase):
         self.assertEqual(
             groups,
             {
-                "large": ("fable", "glm52", "kimi-k3", "opus", "opus5", "qwen38"),
+                "grok": ("grok45",),
+                "large": ("deepseek-flash", "fable", "glm52", "kimi-k3", "opus", "opus5", "qwen38"),
                 "sol": ("sol",),
             },
         )
@@ -3505,13 +3506,15 @@ class OrdinaryScreenTuiTests(CLITestCase):
         self.assertIn("gateway session — no composition", text)
         self.assertIn("large · 1M context", text)
         self.assertIn("sol · 372K context", text)
-        for model_id in ("fable", "glm52", "kimi-k3", "opus", "opus5", "qwen38", "sol"):
+        self.assertIn("grok · 500K context", text)
+        for model_id in ("deepseek-flash", "fable", "glm52", "grok45", "kimi-k3", "opus", "opus5", "qwen38", "sol"):
             self.assertIn(model_id, text)
         self.assertIn("GLM-5.2 · alibaba", text)
-        # The fixture secret file holds only the Kimi key: both qwen rows
-        # carry the compact marker (the full reason lives on the detail
-        # line for the selected row — see the confirm test).
-        self.assertEqual(text.count("(no secret)"), 2)
+        # The fixture secret file holds only the Kimi key: the four model
+        # rows on keyless providers (glm52 + qwen38 on qwen, deepseek-flash
+        # on deepseek, grok45 on openrouter) carry the compact marker (the
+        # full reason lives on the detail line for the selected row).
+        self.assertEqual(text.count("(no secret)"), 4)
         self.assertIn("Enter launch", text)
 
     def test_default_selection_is_sol_like_the_cli(self) -> None:
@@ -4433,7 +4436,7 @@ class ProvidersPaneTests(CLITestCase):
         import curses as _curses
 
         secret = "sk-test-qwen-key-123"
-        script = ["j", "j", "j", "\n"] + list(secret)
+        script = [_curses.KEY_END, "\n"] + list(secret)
         script += ["\n", "\n", "\x1b"]
         win, screen = self._open(script)
         content = self.secret_file.read_text()
@@ -4449,14 +4452,16 @@ class ProvidersPaneTests(CLITestCase):
     def test_masked_entry_invalid_value_writes_nothing(self) -> None:
         import curses as _curses
 
-        script = ["j", "j", "j", "\n"] + list("bad key with spaces")
+        script = [_curses.KEY_END, "\n"] + list("bad key with spaces")
         script += ["\n", "\n", "\x1b"]
         _win, screen = self._open(script)
         self.assertIn("unsupported shape", screen.message or "")
         self.assertNotIn("QWEN", self.secret_file.read_text())
 
     def test_masked_entry_cancel_writes_nothing(self) -> None:
-        script = ["j", "j", "j", "\n"] + list("sk-whatever") + ["\x1b", "\x1b"]
+        import curses as _curses
+
+        script = [_curses.KEY_END, "\n"] + list("sk-whatever") + ["\x1b", "\x1b"]
         _win, screen = self._open(script)
         self.assertEqual(screen.message, "Set key cancelled.")
         self.assertNotIn("QWEN", self.secret_file.read_text())
@@ -4553,9 +4558,13 @@ class ImprovementBatchTests(CLITestCase):
         state.atomic_write(config_dir / "config.yaml", b"stale: true\n")
         # served probe will fail (no gateway): banner needs down OR drift;
         # drift requires the served probe to have succeeded — simulate by
-        # patching served_models to return the expected set.
+        # patching served_models to return the expected set. The token read
+        # is patched too: the sandbox has no gateway token file at all
+        # (review: the test was red in the hermetic sandbox).
         expected = set()
         with unittest.mock.patch.object(
+            cli.launch, "read_gateway_token", return_value="t" * 64
+        ), unittest.mock.patch.object(
             cli.launch, "served_models", return_value=(expected, 200)
         ):
             screen = cli._ProvidersScreen(self.runtime, palette=tui.MONO_PALETTE)
@@ -4697,7 +4706,8 @@ class ModelsBrowserTests(CLITestCase):
         self.assertIn("not in default", text)
 
     def test_details_modal_shows_wire_context_and_routing(self) -> None:
-        _result, win, _screen = self._open(["\n", "\x1b", "\x1b"])  # fable row
+        # fable is the second row (deepseek-flash sorts first).
+        _result, win, _screen = self._open(["j", "\n", "\x1b", "\x1b"])
         self.assertTrue(
             any("wire: claude-fable-5" in frame for frame in win.frames)
         )
@@ -4705,7 +4715,7 @@ class ModelsBrowserTests(CLITestCase):
 
     def test_e_jump_returns_model_only_when_allowed(self) -> None:
         result, _win, _screen = self._open(["e"])
-        self.assertEqual(result, "fable")  # first row alphabetically
+        self.assertEqual(result, "deepseek-flash")  # first row alphabetically
         # without the flag E is dead and the keybar hides it; Esc leaves
         result2, win2, _s2 = self._open(["e", "\x1b"], allow=False)
         self.assertIsNone(result2)
@@ -4723,9 +4733,10 @@ class ModelsBrowserTests(CLITestCase):
             self.runtime, plan, passthrough=[], palette=tui.MONO_PALETTE,
             gateway_check=lambda: None,
         )
-        # g (picker) → m (browser) → e (jump on fable) → editor opens
+        # g (picker) → m (browser) → j (deepseek-flash sorts before fable)
+        # → e (jump on fable) → editor opens
         # focused with the guidance message → Esc leaves → Esc leaves card.
-        win = FakeWindow(["g", "m", "e", "\x1b", "\x1b"])
+        win = FakeWindow(["g", "m", "j", "e", "\x1b", "\x1b"])
         screen.run(win)
         self.assertTrue(
             any("set the fable scope" in frame for frame in win.frames),
@@ -8691,3 +8702,174 @@ class SessionsScreenForgetGuardTests(CLITestCase):
         screen._forget(win, screen.records[0])
         self.assertIn("Forgot", screen.message)
         self.assertFalse(self.runtime.session_store.exists(FIXED_ID))
+
+
+class NewProviderCompositionTests(CLITestCase):
+    """022: the deepseek / grok-deepseek rig shapes resolve and fence
+    correctly (mirrors the operator-level compositions)."""
+
+    def _doc(self, name, lead, agent_model, agent_lane, reviewer_lane):
+        return {
+            "version": 1,
+            "name": name,
+            "description": "test rig",
+            "availability": {
+                "providers": {
+                    "anthropic": "off",
+                    "deepseek": "lead+agents" if lead == "deepseek-flash" else "agents",
+                    "kimi": "off",
+                    "openai": "off",
+                    "openrouter": "off" if lead == "deepseek-flash" else "lead+agents",
+                    "qwen": "off",
+                },
+                "models": {
+                    "deepseek-flash": "lead+agents" if lead == "deepseek-flash" else "agents",
+                    "fable": "off",
+                    "glm52": "off",
+                    "gpt55": "off",
+                    "grok45": "off" if lead == "deepseek-flash" else "lead+agents",
+                    "kimi-k3": "off",
+                    "opus": "off",
+                    "opus5": "off",
+                    "qwen38": "off",
+                    "sol": "off",
+                },
+            },
+            "slots": [
+                {"role": "cm-lead", "model": lead},
+                {"role": "cm-analyst", "model": agent_model, "lane": agent_lane, "preferred": True},
+                {"role": "cm-implementer", "model": agent_model, "lane": agent_lane, "preferred": True},
+                {"role": "cm-reviewer", "model": agent_model, "lane": reviewer_lane, "preferred": True},
+            ],
+            "native_agents": {"explore": "replace", "plan": "native", "general_purpose": "off"},
+        }
+
+    def test_all_flash_rig_resolves_with_1m_window(self) -> None:
+        doc = self._doc("deepseek", "deepseek-flash", "deepseek-flash", "high", "max")
+        resolved = self.runtime.resolve_document(doc)
+        self.assertEqual(resolved.lead.model, "deepseek-flash")
+        snap = composition.snapshot(resolved)
+        self.assertEqual(snap["lead"]["client_selector"], "claude-multi-deepseek-flash-high[1m]")
+        self.assertEqual(snap["auto_compact_window_tokens"], 1000000)
+        self.assertEqual(snap["lead"]["auto_compact_tokens"], 882000)
+        ids = {v.id for v in resolved.variants}
+        self.assertIn("cm-reviewer-deepseek-flash-max", ids)
+
+    def test_grok_lead_rig_resolves_with_500k_window(self) -> None:
+        doc = self._doc("grok-deepseek", "grok45", "deepseek-flash", "high", "max")
+        resolved = self.runtime.resolve_document(doc)
+        self.assertEqual(resolved.lead.model, "grok45")
+        snap = composition.snapshot(resolved)
+        self.assertEqual(snap["lead"]["client_selector"], "claude-multi-grok45")
+        self.assertEqual(snap["auto_compact_window_tokens"], 500000)
+        self.assertEqual(snap["lead"]["auto_compact_tokens"], 432000)
+
+    def test_grok_lead_never_enters_through_a_1m_selector(self) -> None:
+        doc = self._doc("grok-deepseek", "grok45", "deepseek-flash", "high", "max")
+        resolved = self.runtime.resolve_document(doc)
+        snap = composition.snapshot(resolved)
+        # The 500K grok lead never self-classifies as 1M; flash agent
+        # variants keep their own [1m] selectors (their processes are 1M).
+        self.assertNotIn("[1m]", snap["lead"]["client_selector"])
+        flash_variants = [v for v in snap["variants"] if v["model"] == "deepseek-flash"]
+        self.assertTrue(flash_variants)
+        for variant in flash_variants:
+            self.assertIn("[1m]", variant["client_selector"])
+
+
+class NewProviderDirectLaunchTests(CLITestCase):
+    """022: ordinary (no-composition) launches for the new catalog models."""
+
+    def test_deepseek_flash_direct_launch(self) -> None:
+        prepared = self.runtime.prepare_direct(
+            action="fresh", model_id="deepseek-flash", passthrough=[]
+        )
+        self.assertEqual(prepared.record["ordinary_model"], "deepseek-flash")
+        self.assertEqual(prepared.record["context_profile"], "large")
+        env_set = prepared.result.env_set
+        self.assertEqual(env_set["CLAUDE_CODE_AUTO_COMPACT_WINDOW"], "983616")
+
+    def test_grok45_direct_launch_gets_the_500k_window(self) -> None:
+        prepared = self.runtime.prepare_direct(
+            action="fresh", model_id="grok45", passthrough=[]
+        )
+        self.assertEqual(prepared.record["ordinary_model"], "grok45")
+        self.assertEqual(prepared.record["context_profile"], "grok")
+        env_set = prepared.result.env_set
+        self.assertEqual(env_set["CLAUDE_CODE_AUTO_COMPACT_WINDOW"], "500000")
+        # The 500K window must never come from a [1m] selector.
+        argv = prepared.result.argv
+        self.assertIn("claude-multi-grok45", argv)
+        self.assertNotIn("claude-multi-grok45[1m]", argv)
+
+    def test_new_models_record_saves_with_their_profiles(self) -> None:
+        # The session schema accepts the new catalog profile (022 P0 class:
+        # the 020 custom-profile enum miss dead-ended every custom launch).
+        for model_id, profile in (("deepseek-flash", "large"), ("grok45", "grok")):
+            prepared = self.runtime.prepare_direct(
+                action="fresh", model_id=model_id, passthrough=[]
+            )
+            self.runtime.session_store.save(prepared.record)
+            loaded = self.runtime.session_store.load(prepared.record["managed_id"])
+            self.assertEqual(loaded["context_profile"], profile)
+
+
+class RegistryIdForWireTests(unittest.TestCase):
+    """022 review P1: OpenRouter wires (author/model slashes) get valid
+    registry keys."""
+
+    def test_basename_is_the_natural_key(self) -> None:
+        self.assertEqual(
+            cli._registry_id_for_wire("x-ai/grok-4.5", set()), "grok-4.5"
+        )
+
+    def test_collision_falls_back_to_dash_joined(self) -> None:
+        self.assertEqual(
+            cli._registry_id_for_wire("x-ai/grok-4.5", {"grok-4.5"}),
+            "x-ai-grok-4.5",
+        )
+
+    def test_both_taken_returns_none(self) -> None:
+        self.assertIsNone(
+            cli._registry_id_for_wire("x-ai/grok-4.5", {"grok-4.5", "x-ai-grok-4.5"})
+        )
+
+    def test_unusable_basename_falls_through(self) -> None:
+        # A basename that fails check_name (e.g. starts with a dot after the
+        # slash) falls to the dash-joined form.
+        self.assertEqual(
+            cli._registry_id_for_wire("lab/.hidden", set()), "lab-.hidden"
+        )
+
+
+class FetchMarkSlashWireTests(CLITestCase):
+    """022 review P1: marking an OpenRouter listing entry (slashed wire id)
+    through the pane derives a valid registry key."""
+
+    def test_slashed_wire_marks_under_its_basename(self) -> None:
+        from test_tui import FakeWindow
+
+        entries = [
+            {"id": "x-ai/grok-4.5", "display_name": "Grok 4.5", "context_length": 500000},
+            {"id": "meta/llama-4", "display_name": "Llama 4", "context_length": 131072},
+        ]
+        with mock.patch.object(
+            cli.proxy_mod, "list_provider_models", return_value=entries
+        ):
+            screen = cli._ProvidersScreen(self.runtime, palette=tui.MONO_PALETTE)
+            # openrouter row: sorted providers are
+            # anthropic, deepseek, kimi, openai, openrouter, qwen — End lands
+            # on qwen, one up lands on openrouter.
+            import curses as _curses
+
+            keys = [_curses.KEY_END, "k", "a", "\n", " ", "\n", "\x1b"]
+            win = FakeWindow(keys)
+            screen.run(win)
+        registry = cli.custom.load_registry(self.runtime.environ)
+        # grok-4.5 is already cataloged (its wire is the grok45 entry's) —
+        # only the llama entry is fresh, keyed by its slash-free basename.
+        self.assertIn("llama-4", registry["models"])
+        self.assertEqual(registry["models"]["llama-4"]["wire_model"], "meta/llama-4")
+        self.assertEqual(registry["models"]["llama-4"]["provider"], "openrouter")
+        self.assertEqual(registry["models"]["llama-4"]["context_tokens"], 131072)
+        self.assertIn("marked 1 model", screen.message or "")

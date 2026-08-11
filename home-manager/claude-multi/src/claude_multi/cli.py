@@ -3736,6 +3736,7 @@ ORDINARY_SUBTITLE = (
 ORDINARY_PROFILE_NOTES = {
     "large": "1M context · /model switches freely within this group",
     "sol": "372K context · lanes high/xhigh via /model",
+    "grok": "500K context · /model switches freely within this group",
 }
 ORDINARY_PROFILE_NOTE_DEFAULT = "/model switches freely within this group"
 ORDINARY_KEYBAR = (
@@ -4536,6 +4537,27 @@ PROVIDERS_HELP = (
 )
 
 
+def _registry_id_for_wire(wire: str, taken: set[str]) -> str | None:
+    """Slash-free registry key for a provider-listed wire id (022 review).
+
+    OpenRouter wires carry `author/model` slashes, which are not valid state
+    names; the model basename (dots are valid) is the natural key, with the
+    dash-joined full wire as the collision fallback. ``None`` when both are
+    taken (the caller reports the entry as failed).
+    """
+
+    basename = wire.rsplit("/", 1)[-1]
+    for candidate in (basename, wire.replace("/", "-")):
+        if candidate in taken:
+            continue
+        try:
+            state.check_name(candidate)
+        except state.StateError:
+            continue
+        return candidate
+    return None
+
+
 def _connect_hint(runtime: Runtime, provider_id: str) -> str:
     """Exact per-provider connect instruction (018) — names/paths, no values."""
 
@@ -5027,10 +5049,16 @@ class _ProvidersScreen:
             self._setup(win)
             return
         listed: list[dict[str, Any]] | None = None
-        if proxy_mod._LISTING_SUPPORT.get(provider_id) != "unsupported":
+        if proxy_mod.listing_supported(provider_id):
+            public_listing = proxy_mod.listing_is_public(provider_id)
             confirmed = tui.Modal(
                 f"Query {fact['display']} for its model list?",
                 [
+                    "one read-only GET to the provider's model listing —"
+                    " the endpoint is public; no key is sent."
+                ]
+                if public_listing
+                else [
                     "one read-only GET /v1/models to the provider — nothing",
                     "else is sent; the key travels in the auth header only.",
                 ],
@@ -5070,7 +5098,7 @@ class _ProvidersScreen:
                         f"{entry['id']}"
                         + (
                             f" · {entry['context_length']} ctx"
-                            if entry.get("context_length")
+                            if isinstance(entry.get("context_length"), int)
                             else ""
                         )
                     )
@@ -5084,10 +5112,15 @@ class _ProvidersScreen:
                 multi=True,
             )
             picked = chooser.run(win, self.palette)
-            if not picked:
+            if picked is None:
                 return self._cancelled("Add models")
+            if not picked:
+                self.message = "Add models: nothing selected (Space toggles, Enter marks)."
+                self.message_role = "warn"
+                return
             errors: list[str] = []
             marked = 0
+            taken_ids = set(registry["models"]) | set(self.runtime.catalog.models)
             for index in picked:
                 entry = fresh[index]
                 context = entry.get("context_length")
@@ -5107,10 +5140,21 @@ class _ProvidersScreen:
                     except ValueError:
                         errors.append(f"{entry['id']}: invalid context {answer!r}")
                         continue
+                # The wire id is not always a valid registry key (OpenRouter
+                # wires carry `author/model` slashes) — derive a slash-free
+                # key: the model basename, then the dash-joined full wire on
+                # collisions.
+                registry_id = _registry_id_for_wire(entry["id"], taken_ids)
+                if registry_id is None:
+                    errors.append(
+                        f"{entry['id']}: no free registry key (basename and "
+                        "dash-joined form both taken)"
+                    )
+                    continue
                 try:
                     custom.add_model(
                         self.runtime.environ,
-                        entry["id"],
+                        registry_id,
                         wire_model=entry["id"],
                         provider=provider_id,
                         context_tokens=context,
@@ -5119,6 +5163,7 @@ class _ProvidersScreen:
                         catalog_providers=self.runtime.catalog.providers,
                         catalog_models=tuple(self.runtime.catalog.models.keys()),
                     )
+                    taken_ids.add(registry_id)
                     marked += 1
                 except (custom.CustomModelsError, OSError, ValueError) as exc:
                     errors.append(f"{entry['id']}: {exc}")

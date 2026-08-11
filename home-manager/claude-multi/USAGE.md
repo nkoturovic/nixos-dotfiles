@@ -36,7 +36,7 @@ A card shows the composition (lead, team, policy, context). Then:
   presets, most-recently-used first (this directory's
   recent compositions lead, then globally recent, then the rest). Cycling
   away from unsaved composition edits asks first (2.16.0). Current
-  set: `default` (Opus 5 + Sol + Kimi), `opus-sol` (Opus 5 + Sol), `opus-kimi` (Opus 5 + Kimi), `fable`, `fable-sol-qwen-glm`, `kimi-sol`, `kimi-sol-qwen`, `kimi-sol-qwen-glm`, `kimi-sol-qwen-glm-fable`, `qwen-sol`, `glm-sol`, `sol-direct`
+  set: `default` (Opus 5 + Sol + Kimi), `opus-sol` (Opus 5 + Sol), `opus-kimi` (Opus 5 + Kimi), `fable`, `fable-sol-qwen-glm`, `kimi-sol`, `kimi-sol-qwen`, `kimi-sol-qwen-glm`, `kimi-sol-qwen-glm-fable`, `qwen-sol`, `glm-sol`, `sol-direct`, `deepseek`, `grok-deepseek`
 - **W** — toggle workflows on/off
 - **G** — gateway models: pick a model, launch with no composition (see "Ordinary gateway sessions"); the picker's selected row shows the exact typed `/model` selectors, **M** browses the full catalog+custom list (Enter = details; **E** jumps to that model's Availability row in the composition editor), and **P** opens the providers pane (per-provider local status, connect instructions, masked key entry)
 - **E** — edit the composition (form editor; `?` explains each field)
@@ -89,6 +89,8 @@ on this machine (all creatable in seconds with `compose new` /
 | `qwen-sol` | Qwen3.8 Max | Sol preferred · Qwen alternates | Qwen lead work |
 | `glm-sol` | GLM-5.2 | Sol preferred · GLM alternates | GLM 1M lead work (max reasoning) |
 | `sol-direct` | GPT 5.6 Sol | — | single-model direct sessions |
+| `deepseek` | DeepSeek V4 Flash | Flash high everywhere · Flash max reviewer | the fast, cheap side-task rig |
+| `grok-deepseek` | Grok 4.5 (OpenRouter) | Flash high preferred · Grok alternates | x-ai lead + deepseek side lanes, cross-family review |
 
 Every profile keeps workflows native, worktree isolation on implementers,
 cross-provider subagent preference, the model fence, and the compaction pin.

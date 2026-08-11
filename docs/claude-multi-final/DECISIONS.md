@@ -1050,6 +1050,45 @@ unconfirmed", never "unsaved". (10) **`package.nix` filters
 `__pycache__`** — test artifacts reached the store share tree and
 churned the source hash.
 
+**D54 — DeepSeek & OpenRouter providers; the 500K `grok` profile (2.17.0).**
+Two Anthropic-compatible providers join the catalog (blueprint 022):
+**deepseek** (`https://api.deepseek.com/anthropic`, x-api-key, family
+deepseek) carrying `deepseek-flash` (wire `deepseek-v4-flash`, the
+latest-alias) and **openrouter** (`https://openrouter.ai/api` Anthropic
+skin, x-api-key, family x-ai — the review family tracks the model maker,
+not the aggregator) carrying `grok45` (wire `x-ai/grok-4.5`). Decisions
+worth recording: (1) **the Anthropic-path effort vocabulary is
+`output_config.effort` {low, high, max}** — no xhigh, no medium,
+`budget_tokens` ignored (verified docs); `reasoning_effort` is
+OpenAI-path-only for DeepSeek. New render contract `output-config-high`;
+flash lanes: high (default; the lead enters through it — the catalog
+pins the top-level selector to the default lane) + max. (2) **A 500K
+model gets its own ordinary profile** (`grok`): the fence is the bound
+(neither `sol` 372K nor `large` 1M fits); the window comes from the
+profile-derived scope env (`CLAUDE_CODE_AUTO_COMPACT_WINDOW=500000`),
+never from a `[1m]` selector — grok45 is not 1M-class. Two schema enums
+gained `"grok"` (models ordinary_profile, session context_profile).
+(3) **Model ids stay squashed** (`grok45`, per qwen38/glm52 convention;
+the composition slot pattern rejects dots) while wire_model patterns
+(catalog + custom registry) gained exactly-one-`/segment` for OpenRouter
+slugs. (4) **Listing becomes descriptor-driven** (`_LISTING_SUPPORT`):
+status (verified/attempt/unsupported) + url/auth/shape overrides;
+OpenRouter's listing is public (`auth: none` — no secret resolved; the
+pane's query modal says so) and OpenAI-shaped (name/context_length/
+top_provider.max_completion_tokens/reasoning.supported_efforts mapped);
+deepseek attempts the Anthropic path (probe-pending) with the documented
+OpenAI-shape `/models` fallback noted. (5) **The Anthropic skin's
+non-Anthropic behavior is probe-gated**: OpenRouter only guarantees
+Anthropic first-party models; a third-party empty-result failure mode
+(content-block ordering) exists — grok45's `lead` capability and any
+effort lane beyond `high` (no contract yet) stand on the pre-activation
+probe battery. (6) **grok45 tiered pricing** (>=200K prompts bill $4/$12
+for ALL tokens) rides in the qualification/routing text. Compositions
+(operator-level): `deepseek` (all-flash side-task rig) and
+`grok-deepseek` (grok lead, flash agents, cross-family review). deepseek
+in `large` keeps the profile window at 983616 (min member bound — the
+fence protects the smallest member).
+
 ## User decision summary (what you're approving by accepting this design)
 
 1. Selected agents become **real files** in a per-session scope; the failure

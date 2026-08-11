@@ -197,17 +197,19 @@ class DirectProviderLaneTests(unittest.TestCase):
 class SecretBoundaryTests(unittest.TestCase):
     def test_missing_secret_omits_provider_atomically(self) -> None:
         def resolver(name: str):
-            assert name in ("KIMI_CLAUDE_API_KEY", "QWEN_CLAUDE_API_KEY")
+            assert name in ("KIMI_CLAUDE_API_KEY", "QWEN_CLAUDE_API_KEY", "DEEPSEEK_CLAUDE_API_KEY", "OPENROUTER_CLAUDE_API_KEY")
             return None
 
         result = _render(resolve_secret=resolver)
         self.assertEqual(result.available_providers, ("anthropic", "openai"))
-        self.assertEqual(len(result.unavailable), 2)
+        self.assertEqual(len(result.unavailable), 4)
         self.assertEqual(
-            {entry["provider"] for entry in result.unavailable}, {"kimi", "qwen"}
+            {entry["provider"] for entry in result.unavailable}, {"kimi", "qwen", "deepseek", "openrouter"}
         )
         self.assertNotIn("claude-multi-kimi-k3", result.yaml)
         self.assertNotIn("claude-multi-qwen38-max", result.yaml)
+        self.assertNotIn("claude-multi-deepseek-flash", result.yaml)
+        self.assertNotIn("claude-multi-grok45", result.yaml)
         self.assertNotIn("output_config.effort", result.yaml)
         self.assertNotIn("reasoning_effort", result.yaml)
         self.assertNotIn('"thinking"', result.yaml)

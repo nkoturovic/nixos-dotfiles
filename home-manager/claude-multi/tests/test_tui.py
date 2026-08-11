@@ -494,8 +494,11 @@ class SelectListTests(unittest.TestCase):
 
         chooser = tui.SelectList("Multi", refresh(), multi=True)
         win = FakeWindow([" ", ENTER])
-        self.assertIsNone(
-            chooser.run(win, tui.MONO_PALETTE, on_toggle=toggle, refresh=refresh)
+        # Multi-mode Enter returns the widget-tracked toggled indexes;
+        # callback callers may ignore it (the editor works via on_toggle).
+        self.assertEqual(
+            chooser.run(win, tui.MONO_PALETTE, on_toggle=toggle, refresh=refresh),
+            [0],
         )
         self.assertEqual(state, {"a": True, "b": True})
         self.assertTrue(any("[x] a" in frame for frame in win.frames))

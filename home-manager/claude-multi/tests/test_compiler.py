@@ -825,3 +825,75 @@ class SessionDisplayNameTests(unittest.TestCase):
         _bundle, _resolved, result = _compile()
         index = result.argv.index("--name")
         self.assertEqual(result.argv[index + 1], "cm:default")
+
+
+class GrokProfileFenceTests(unittest.TestCase):
+    """022: the grok 500K profile — its own fence, derived from the bound."""
+
+    def test_grok_profile_window_and_trigger(self) -> None:
+        bundle = catalog.load_catalog(CATALOG_ROOT)
+        scalar, window, trigger = compiler.direct_profile_context(bundle.docs, "grok")
+        self.assertIsNone(scalar)
+        self.assertEqual(window, 500000)
+        # (500000 - 20000) * 0.9 — the deterministic reactive trigger.
+        self.assertEqual(trigger, 432000)
+
+    def test_grok_profile_fences_only_grok(self) -> None:
+        bundle = catalog.load_catalog(CATALOG_ROOT)
+        self.assertEqual(
+            compiler.direct_profile_selectors(bundle.docs, "grok"),
+            ("claude-multi-grok45",),
+        )
+
+    def test_grok_selector_carries_no_1m_suffix(self) -> None:
+        # 500K is not 1M-class: the selector must not self-classify as
+        # extended-context; the window comes from the profile env.
+        bundle = catalog.load_catalog(CATALOG_ROOT)
+        model = bundle.models["grok45"]
+        self.assertNotIn("[1m]", model["client_selector"])
+        for lane in model["lanes"].values():
+            self.assertNotIn("[1m]", lane["client_selector"])
+
+    def test_deepseek_flash_lane_selectors_and_profile(self) -> None:
+        bundle = catalog.load_catalog(CATALOG_ROOT)
+        self.assertEqual(
+            compiler.direct_context_profile(bundle.docs, "deepseek-flash"), "large"
+        )
+        self.assertEqual(
+            compiler.direct_profile_selectors(bundle.docs, "large"),
+            (
+                "claude-fable-5[1m]",
+                "claude-multi-deepseek-flash-high[1m]",
+                "claude-multi-deepseek-flash-max[1m]",
+                "claude-multi-glm52-max[1m]",
+                "claude-multi-kimi-k3[1m]",
+                "claude-multi-opus-4-8[1m]",
+                "claude-multi-opus-5[1m]",
+                "claude-multi-qwen38-max[1m]",
+            ),
+        )
+
+    def test_new_provider_selector_forms_resolve(self) -> None:
+        bundle = catalog.load_catalog(CATALOG_ROOT)
+        # Wire names, lane selectors, and the canonical wire+'[1m]' report
+        # form all resolve (the last is the SessionStart hook's form).
+        self.assertEqual(
+            compiler.direct_model_for_selector(bundle.docs, "deepseek-v4-flash"),
+            ("deepseek-flash", "large"),
+        )
+        self.assertEqual(
+            compiler.direct_model_for_selector(bundle.docs, "claude-multi-deepseek-flash-max[1m]"),
+            ("deepseek-flash", "large"),
+        )
+        self.assertEqual(
+            compiler.direct_model_for_selector(bundle.docs, "deepseek-v4-flash[1m]"),
+            ("deepseek-flash", "large"),
+        )
+        self.assertEqual(
+            compiler.direct_model_for_selector(bundle.docs, "x-ai/grok-4.5"),
+            ("grok45", "grok"),
+        )
+        self.assertEqual(
+            compiler.direct_model_for_selector(bundle.docs, "claude-multi-grok45"),
+            ("grok45", "grok"),
+        )

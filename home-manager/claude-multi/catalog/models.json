@@ -1,5 +1,57 @@
 {
   "models": {
+    "deepseek-flash": {
+      "capabilities": [
+        "lead",
+        "agents"
+      ],
+      "client_selector": "claude-multi-deepseek-flash-high[1m]",
+      "compatible_roles": [
+        "cm-lead",
+        "cm-analyst",
+        "cm-implementer",
+        "cm-reviewer"
+      ],
+      "context": {
+        "client_tokens": 1000000,
+        "declared_tokens": 1000000,
+        "ordinary_profile": "large",
+        "provider_tokens": 1000000,
+        "qualification": "Provider-documented bound: DeepSeek's Models & Pricing doc states 1M context and 384K max output for deepseek-v4-flash (docs verified 2026-08-11). The [1m] client selector gives Claude Code extended-context classification; the compiler applies the 90% auto-compaction percentage to the provider window (composition leads get the full 1M; the ordinary large-profile fence derives the current min, 983616). Near-limit real-provider behavior remains unverified until a live acceptance call.",
+        "scalar_tokens": null,
+        "validated_tokens": 1000000
+      },
+      "default_lane": "high",
+      "display": "DeepSeek V4 Flash",
+      "lanes": {
+        "high": {
+          "agent_effort": "high",
+          "client_selector": "claude-multi-deepseek-flash-high[1m]",
+          "proxy_effort_contract": "output-config-high"
+        },
+        "max": {
+          "agent_effort": "max",
+          "client_selector": "claude-multi-deepseek-flash-max[1m]",
+          "proxy_effort_contract": "output-config-max"
+        }
+      },
+      "lead": {
+        "effort": "ultracode",
+        "env": {}
+      },
+      "minimum_tested": {
+        "claude_code": "2.1.216",
+        "cliproxyapi": "7.2.80"
+      },
+      "provider": "deepseek",
+      "role_hints": {
+        "cm-analyst": "Use for fast, cheap exploration, analysis, and side-task sweeps.",
+        "cm-implementer": "Use for bounded, selective implementation tasks.",
+        "cm-reviewer": "Use for a quick second look; not the deepest review lane."
+      },
+      "routing_note": "DeepSeek flash (latest alias, currently V4-Flash-0731); thinking always on (effort pinned per lane; budget_tokens ignored upstream). Extremely fast and cheap side-task workhorse; text-only upstream.",
+      "wire_model": "deepseek-v4-flash"
+    },
     "fable": {
       "capabilities": [
         "lead",
@@ -22,7 +74,7 @@
         "validated_tokens": 1000000
       },
       "default_lane": "max",
-      "display": "Fable 5 \u00b7 1M selector",
+      "display": "Fable 5 · 1M selector",
       "lanes": {
         "max": {
           "agent_effort": "max",
@@ -46,6 +98,53 @@
       },
       "routing_note": "Sustained long-horizon, high-complexity synthesis and coordination.",
       "wire_model": "claude-fable-5"
+    },
+    "glm52": {
+      "capabilities": [
+        "lead",
+        "agents"
+      ],
+      "client_selector": "claude-multi-glm52-max[1m]",
+      "compatible_roles": [
+        "cm-lead",
+        "cm-analyst",
+        "cm-implementer",
+        "cm-reviewer"
+      ],
+      "context": {
+        "client_tokens": 1000000,
+        "declared_tokens": 1048576,
+        "ordinary_profile": "large",
+        "provider_tokens": 1000000,
+        "qualification": "HF-documented 1M context (zai-org/GLM-5.2, 1M-token window); canary-verified served at the Qwen Token Plan apps/anthropic path with wire id glm-5.2 and default-on thinking (2026-07-29, one bounded approved call). [1m] client selector with the compiler's 90% auto-compaction percentage of the 1M window; near-limit real-provider behavior unverified until a separately approved live acceptance.",
+        "scalar_tokens": null,
+        "validated_tokens": 200000
+      },
+      "default_lane": "max",
+      "display": "GLM-5.2",
+      "lanes": {
+        "max": {
+          "agent_effort": "max",
+          "client_selector": "claude-multi-glm52-max[1m]",
+          "proxy_effort_contract": "reasoning-effort-max"
+        }
+      },
+      "lead": {
+        "effort": "ultracode",
+        "env": {}
+      },
+      "minimum_tested": {
+        "claude_code": "2.1.216",
+        "cliproxyapi": "7.2.80"
+      },
+      "provider": "qwen",
+      "role_hints": {
+        "cm-analyst": "Use for broad architecture, security, or repository-wide synthesis.",
+        "cm-implementer": "Use when implementation requires broad context across many files.",
+        "cm-reviewer": "Use for architecture/plan validation, security review, and broad cross-cutting, complex, high-risk, or large-context changes."
+      },
+      "routing_note": "GLM-5.2 (Zhipu) flagship reasoning model; thinking default-on (canary-verified); reasoning_effort=max per HF docs. Served via the Qwen Token Plan (same apps/anthropic endpoint and key as qwen38).",
+      "wire_model": "glm-5.2"
     },
     "gpt55": {
       "capabilities": [
@@ -85,6 +184,53 @@
       "routing_note": "Routine bounded independent review and tie-breaking.",
       "wire_model": "gpt-5.5"
     },
+    "grok45": {
+      "capabilities": [
+        "lead",
+        "agents"
+      ],
+      "client_selector": "claude-multi-grok45",
+      "compatible_roles": [
+        "cm-lead",
+        "cm-analyst",
+        "cm-implementer",
+        "cm-reviewer"
+      ],
+      "context": {
+        "client_tokens": 500000,
+        "declared_tokens": 500000,
+        "ordinary_profile": "grok",
+        "provider_tokens": 500000,
+        "qualification": "Provider-advertised bound: OpenRouter lists x-ai/grok-4.5 at 500K context (model page verified 2026-08-11). Not 1M-class: no [1m] selector; the 500K window comes from the profile-derived scope env. Anthropic-skin behavior for x-ai models is probe-gated (tool use, streaming block order) before lead use is trusted; near-limit behavior unverified until a live acceptance call.",
+        "scalar_tokens": null,
+        "validated_tokens": 500000
+      },
+      "default_lane": "high",
+      "display": "Grok 4.5",
+      "lanes": {
+        "high": {
+          "agent_effort": "high",
+          "client_selector": "claude-multi-grok45",
+          "proxy_effort_contract": null
+        }
+      },
+      "lead": {
+        "effort": "ultracode",
+        "env": {}
+      },
+      "minimum_tested": {
+        "claude_code": "2.1.216",
+        "cliproxyapi": "7.2.80"
+      },
+      "provider": "openrouter",
+      "role_hints": {
+        "cm-analyst": "Use for a strong second perspective from the x-ai family.",
+        "cm-implementer": "Use for frontier coding implementation when a non-OpenAI/non-Moonshot family is wanted.",
+        "cm-reviewer": "Use for independent x-ai-family review of alibaba/moonshot/openai work."
+      },
+      "routing_note": "Grok 4.5 via OpenRouter's Anthropic skin (no xAI subscription needed). Tiered pricing: >=200K prompts bill $4/$12 for ALL tokens. Skin behavior for x-ai models is probe-gated.",
+      "wire_model": "x-ai/grok-4.5"
+    },
     "kimi-k3": {
       "capabilities": [
         "lead",
@@ -109,7 +255,7 @@
         "validated_tokens": 208034
       },
       "default_lane": "max",
-      "display": "Kimi K3 \u00b7 1M selector",
+      "display": "Kimi K3 · 1M selector",
       "lanes": {
         "max": {
           "agent_effort": "max",
@@ -154,7 +300,7 @@
         "validated_tokens": 1000000
       },
       "default_lane": "xhigh",
-      "display": "Opus 4.8 \u00b7 1M selector",
+      "display": "Opus 4.8 · 1M selector",
       "lanes": {
         "xhigh": {
           "agent_effort": "xhigh",
@@ -194,12 +340,12 @@
         "declared_tokens": 1048576,
         "ordinary_profile": "large",
         "provider_tokens": 1000000,
-        "qualification": "Opus-family 1M selector carried over from 4.8; the release announcement states no context bound \u2014 user-attested until near-limit acceptance.",
+        "qualification": "Opus-family 1M selector carried over from 4.8; the release announcement states no context bound — user-attested until near-limit acceptance.",
         "scalar_tokens": null,
         "validated_tokens": 200000
       },
       "default_lane": "xhigh",
-      "display": "Opus 5 \u00b7 1M selector",
+      "display": "Opus 5 · 1M selector",
       "lanes": {
         "xhigh": {
           "agent_effort": "xhigh",
@@ -321,53 +467,6 @@
       },
       "routing_note": "Main implementation and bounded-reasoning workhorse.",
       "wire_model": "gpt-5.6-sol"
-    },
-    "glm52": {
-      "capabilities": [
-        "lead",
-        "agents"
-      ],
-      "client_selector": "claude-multi-glm52-max[1m]",
-      "compatible_roles": [
-        "cm-lead",
-        "cm-analyst",
-        "cm-implementer",
-        "cm-reviewer"
-      ],
-      "context": {
-        "client_tokens": 1000000,
-        "declared_tokens": 1048576,
-        "ordinary_profile": "large",
-        "provider_tokens": 1000000,
-        "qualification": "HF-documented 1M context (zai-org/GLM-5.2, 1M-token window); canary-verified served at the Qwen Token Plan apps/anthropic path with wire id glm-5.2 and default-on thinking (2026-07-29, one bounded approved call). [1m] client selector with the compiler's 90% auto-compaction percentage of the 1M window; near-limit real-provider behavior unverified until a separately approved live acceptance.",
-        "scalar_tokens": null,
-        "validated_tokens": 200000
-      },
-      "default_lane": "max",
-      "display": "GLM-5.2",
-      "lanes": {
-        "max": {
-          "agent_effort": "max",
-          "client_selector": "claude-multi-glm52-max[1m]",
-          "proxy_effort_contract": "reasoning-effort-max"
-        }
-      },
-      "lead": {
-        "effort": "ultracode",
-        "env": {}
-      },
-      "minimum_tested": {
-        "claude_code": "2.1.216",
-        "cliproxyapi": "7.2.80"
-      },
-      "provider": "qwen",
-      "role_hints": {
-        "cm-analyst": "Use for broad architecture, security, or repository-wide synthesis.",
-        "cm-implementer": "Use when implementation requires broad context across many files.",
-        "cm-reviewer": "Use for architecture/plan validation, security review, and broad cross-cutting, complex, high-risk, or large-context changes."
-      },
-      "routing_note": "GLM-5.2 (Zhipu) flagship reasoning model; thinking default-on (canary-verified); reasoning_effort=max per HF docs. Served via the Qwen Token Plan (same apps/anthropic endpoint and key as qwen38).",
-      "wire_model": "glm-5.2"
     }
   },
   "version": 1

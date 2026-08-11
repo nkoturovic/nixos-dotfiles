@@ -1,5 +1,47 @@
 # STATUS — live tracker
 
+## 2026-08-12 — v2.17.0: DeepSeek & OpenRouter providers (D54, blueprint 022, working tree)
+
+- **Two new Anthropic-compatible providers** (research workflow:
+  glm52 DeepSeek leg + kimi-k3 OpenRouter leg, docs-verified):
+  `deepseek` (x-api-key, `https://api.deepseek.com/anthropic`) with
+  `deepseek-flash` (wire `deepseek-v4-flash` latest-alias, 1M, `large`
+  profile, high+max lanes via `output_config.effort`) and `openrouter`
+  (Anthropic skin, x-api-key, `https://openrouter.ai/api`) with `grok45`
+  (wire `x-ai/grok-4.5`, 500K in the NEW `grok` ordinary profile —
+  window 500K via scope env, no `[1m]`, trigger 432000).
+- **Schema/enum extensions**: `ordinary_profile` + `context_profile`
+  gain `"grok"`; `wire_model` patterns (catalog + custom registry) accept
+  exactly one `/segment` (OpenRouter author/model slugs).
+- **New render contract** `output-config-high`; deepseek contracts are
+  output-config-* (the Anthropic path's effort vocabulary is low/high/
+  max; budget_tokens ignored upstream; reasoning_effort is OpenAI-only).
+- **Listing is descriptor-driven** (`_LISTING_SUPPORT`): openrouter is
+  public + OpenAI-shaped (auth:none; name/context_length/max_completion/
+  supported_efforts mapped); deepseek attempts the Anthropic path
+  (probe-pending). The pane's query modal is honest about public
+  endpoints.
+- **Compositions** (operator-level, store-validated): `deepseek`
+  (all-flash side-task rig) and `grok-deepseek` (grok lead + flash
+  agents + cross-family review) — both resolve; fence math pinned
+  (1M→882K, 500K→432K).
+- **Verification**: full host discovery **1,658 tests OK** (18+8 pins;
+  one run carried the documented pty flake — green in isolation and on
+  the clean re-run); sandbox green; golden diff reviewed (exactly the
+  two provider sections + two override entries).
+- **Cross-family review**: glm52 **approve** (no P0/P1; header-hygiene +
+  qualification-precision nits fixed). sol-xhigh leg → revise: slash-id
+  registry keys, listing parse hardening (missing `data` ≠ empty success,
+  type confusion normalized, bool≠int, RecursionError wrapped) — all
+  fixed + pinned; the sweep also exposed a 020-shipped defect (the pane's
+  multi picker could never return a selection — SelectList now tracks
+  toggles internally; the fetch-mark flow is pinned end-to-end).
+- **Probe-gated before activation**: DeepSeek listing/auth variants,
+  OpenRouter grok45 fields, DeepSeek smoke, OpenRouter skin tool-use +
+  streaming-ordering + effort acceptance. grok45's lead trust and any
+  lane beyond `high` stand on the probes.
+- Activation (HM switch) awaits the operator green light.
+
 ## 2026-08-11 — v2.16.0: deep analysis hardening (D53, blueprint 021, activated gen 123)
 
 - **Activated**: HM gen 123, `doctor --repair-all` converged 33 durable

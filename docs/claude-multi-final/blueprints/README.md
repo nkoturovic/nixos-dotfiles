@@ -14,6 +14,7 @@ shared across both so every work item has a unique id.
 | 019 | [Post-release improvements](019-post-release-improvements/) | 2.14.0 | landed (activated, gen 121) |
 | 020 | [Custom providers & ordinary models](020-custom-ordinary-models/) | 2.15.0 | landed (activated, gen 122) |
 | 021 | [Deep analysis hardening](021-deep-analysis-hardening/) | 2.16.0 | landed (activated, gen 123) |
+| 022 | [DeepSeek & OpenRouter providers](022-deepseek-openrouter/) | 2.17.0 | implemented, probes pending |
 
 Batch approval flow: blueprints → implementation → per-item review → full suite
 → commits on `feature/term-only` → **operator green light** → HM activation

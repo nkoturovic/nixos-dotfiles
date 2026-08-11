@@ -26,6 +26,27 @@
         "pool": "claude"
       }
     },
+    "deepseek": {
+      "adapter": "cliproxy-claude-compatible-v1",
+      "display": "DeepSeek",
+      "independence_family": "deepseek",
+      "passthrough_routes": [],
+      "payload_contracts": [
+        "output-config-high",
+        "output-config-max"
+      ],
+      "support": "locally-validated-experimental",
+      "support_note": "DeepSeek's Anthropic-compatible endpoint (docs verified 2026-08-11): x-api-key auth, 1M context, thinking default-on. Text-only (no images/documents); cache_control ignored (provider-side implicit prefix cache); MCP server-side tool content unsupported. China-based provider, no region pinning.",
+      "transport": {
+        "auth": {
+          "header": "x-api-key",
+          "kind": "header",
+          "secret_ref": "env:DEEPSEEK_CLAUDE_API_KEY"
+        },
+        "base_url": "https://api.deepseek.com/anthropic",
+        "kind": "direct"
+      }
+    },
     "kimi": {
       "adapter": "cliproxy-claude-compatible-v1",
       "display": "Kimi",
@@ -61,6 +82,24 @@
       "transport": {
         "kind": "oauth-pool",
         "pool": "codex"
+      }
+    },
+    "openrouter": {
+      "adapter": "cliproxy-claude-compatible-v1",
+      "display": "OpenRouter",
+      "independence_family": "x-ai",
+      "passthrough_routes": [],
+      "payload_contracts": [],
+      "support": "locally-validated-experimental",
+      "support_note": "OpenRouter's Anthropic skin (aggregator; no prompt logging by default, no training-provider routing unless opted in). Only guaranteed by OpenRouter for Anthropic first-party models — non-Anthropic models (x-ai/*) are qualified per-model by probe. Anthropic-skin listing is undocumented; the public OpenAI-shape GET /api/v1/models is the listing surface.",
+      "transport": {
+        "auth": {
+          "header": "x-api-key",
+          "kind": "header",
+          "secret_ref": "env:OPENROUTER_CLAUDE_API_KEY"
+        },
+        "base_url": "https://openrouter.ai/api",
+        "kind": "direct"
       }
     },
     "qwen": {

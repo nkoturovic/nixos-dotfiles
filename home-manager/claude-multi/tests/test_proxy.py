@@ -930,3 +930,176 @@ class ListingRedirectAndErrorShapeTests(unittest.TestCase):
                     fetch=lambda _url, _headers: b"[1, 2]",
                 )
         self.assertIn("unexpected shape", str(ctx.exception))
+
+
+class ListingDescriptorTests(unittest.TestCase):
+    """022: per-provider listing descriptors — deepseek attempt,
+    openrouter public OpenAI-shape listing."""
+
+    def _providers(self):
+        from claude_multi import catalog
+
+        return catalog.load_catalog(
+            Path(__file__).resolve().parents[1]
+        ).docs["providers"]["providers"]
+
+    def test_openrouter_listing_needs_no_secret_and_parses_openai_shape(self) -> None:
+        payload = (
+            b'{"data": ['
+            b'{"id": "x-ai/grok-4.5", "name": "Grok 4.5", "context_length": 500000,'
+            b' "top_provider": {"max_completion_tokens": 64000},'
+            b' "reasoning": {"supported_efforts": ["high", "max"]}},'
+            b' "junk", {"no_id": true},'
+            b' {"id": "deepseek/deepseek-v4-flash", "name": "DeepSeek V4 Flash", "context_length": 1000000}'
+            b']}'
+        )
+        captured = {}
+
+        def fetch(url, headers):
+            captured["url"] = url
+            captured["headers"] = headers
+            return payload
+
+        # resolve_secret raises if called: the public listing must never
+        # touch the secret machinery.
+        with mock.patch.object(
+            proxy, "resolve_secret", side_effect=AssertionError("secret read")
+        ):
+            entries = proxy.list_provider_models(
+                "openrouter", self._providers(), fetch=fetch
+            )
+        self.assertEqual(captured["url"], "https://openrouter.ai/api/v1/models")
+        self.assertNotIn("Authorization", captured["headers"])
+        self.assertNotIn("x-api-key", captured["headers"])
+        self.assertEqual(
+            entries,
+            [
+                {
+                    "id": "x-ai/grok-4.5",
+                    "display_name": "Grok 4.5",
+                    "context_length": 500000,
+                    "max_completion_tokens": 64000,
+                    "think_efforts": ["high", "max"],
+                },
+                {
+                    "id": "deepseek/deepseek-v4-flash",
+                    "display_name": "DeepSeek V4 Flash",
+                    "context_length": 1000000,
+                },
+            ],
+        )
+
+    def test_deepseek_attempts_anthropic_shape_on_configured_base(self) -> None:
+        captured = {}
+
+        def fetch(url, headers):
+            captured["url"] = url
+            captured["headers"] = headers
+            return b'{"data": [{"id": "deepseek-v4-flash", "display_name": "DeepSeek V4 Flash", "context_length": 1000000}]}'
+
+        with mock.patch.object(proxy, "resolve_secret", return_value="ds"):
+            entries = proxy.list_provider_models(
+                "deepseek", self._providers(), fetch=fetch
+            )
+        self.assertEqual(
+            captured["url"], "https://api.deepseek.com/anthropic/v1/models"
+        )
+        self.assertEqual(captured["headers"]["x-api-key"], "ds")
+        self.assertEqual(entries[0]["id"], "deepseek-v4-flash")
+
+    def test_qwen_unsupported_carries_its_note(self) -> None:
+        with self.assertRaises(proxy.ProxyError) as ctx:
+            proxy.list_provider_models("qwen", self._providers())
+        self.assertIn("404", str(ctx.exception))
+
+    def test_unknown_provider_attempts_generic_shape(self) -> None:
+        # A custom provider (no descriptor) attempts the Anthropic shape on
+        # its own base — the discover path for operator-added providers.
+        providers = {
+            "lab": {
+                "id": "lab",
+                "transport": {
+                    "kind": "direct",
+                    "base_url": "https://lab.example.com/apps/anthropic",
+                    "auth": {"kind": "header", "header": "x-api-key", "secret_ref": "env:LAB_KEY"},
+                },
+            }
+        }
+        captured = {}
+
+        def fetch(url, headers):
+            captured["url"] = url
+            return b'{"data": []}'
+
+        with mock.patch.object(proxy, "resolve_secret", return_value="k"):
+            entries = proxy.list_provider_models("lab", providers, fetch=fetch)
+        self.assertEqual(captured["url"], "https://lab.example.com/apps/anthropic/v1/models")
+        self.assertEqual(entries, [])
+
+
+class ListingReviewHardeningTests(unittest.TestCase):
+    """022 review (sol-xhigh leg): parse-boundary hardening pins."""
+
+    def _providers(self):
+        from claude_multi import catalog
+
+        return catalog.load_catalog(
+            Path(__file__).resolve().parents[1]
+        ).docs["providers"]["providers"]
+
+    def test_missing_data_member_is_an_error_not_empty_success(self) -> None:
+        # A 200 error body must not read as "the provider has no models".
+        with mock.patch.object(proxy, "resolve_secret", return_value="x"):
+            with self.assertRaises(proxy.ProxyError) as ctx:
+                proxy.list_provider_models(
+                    "kimi",
+                    self._providers(),
+                    fetch=lambda _u, _h: b'{"error": {"message": "fixture"}}',
+                )
+        self.assertIn("unexpected shape", str(ctx.exception))
+
+    def test_wrongly_typed_fields_drop_to_defaults(self) -> None:
+        payload = (
+            b'{"data": [{"id": "m1", "name": {"not": "a string"},'
+            b' "context_length": "500000"}]}'
+        )
+        with mock.patch.object(proxy, "resolve_secret", return_value="x"):
+            entries = proxy.list_provider_models(
+                "kimi", self._providers(), fetch=lambda _u, _h: payload
+            )
+        self.assertEqual(
+            entries, [{"id": "m1", "display_name": "", "context_length": None}]
+        )
+
+    def test_deeply_nested_body_is_a_clean_error(self) -> None:
+        depth = 60000
+        body = b"[" * depth + b"]" * depth
+        with mock.patch.object(proxy, "resolve_secret", return_value="x"):
+            with self.assertRaises(proxy.ProxyError) as ctx:
+                proxy.list_provider_models(
+                    "kimi", self._providers(), fetch=lambda _u, _h: body
+                )
+        self.assertIn("unexpected shape", str(ctx.exception))
+
+    def test_json_booleans_are_not_integers(self) -> None:
+        # bool subclasses int: a `true` context must normalize to None
+        # (022 review), never render as "True ctx".
+        payload = (
+            b'{"data": [{"id": "m1", "name": "Valid", "context_length": true,'
+            b' "top_provider": {"max_completion_tokens": true}}]}'
+        )
+        with mock.patch.object(proxy, "resolve_secret", return_value="x"):
+            entries = proxy.list_provider_models(
+                "openrouter", self._providers(), fetch=lambda _u, _h: payload
+            )
+        self.assertEqual(
+            entries,
+            [{"id": "m1", "display_name": "Valid", "context_length": None}],
+        )
+
+    def test_descriptors_are_immutable(self) -> None:
+        # Review: descriptors route credentials — mutation must be impossible.
+        with self.assertRaises(TypeError):
+            proxy._LISTING_SUPPORT["kimi"] = {"url": "https://evil.example.com"}
+        with self.assertRaises(TypeError):
+            proxy._LISTING_SUPPORT["kimi"]["url"] = "https://evil.example.com"

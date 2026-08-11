@@ -42,6 +42,11 @@ ADAPTER_PAYLOAD_CONTRACTS: dict[str, dict[str, dict[str, Any]]] = {
         },
     },
     "cliproxy-claude-compatible-v1": {
+        "output-config-high": {
+            "kind": "override",
+            "protocol": "claude",
+            "params": {"output_config.effort": "high"},
+        },
         "output-config-max": {
             "kind": "override",
             "protocol": "claude",
