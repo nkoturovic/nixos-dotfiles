@@ -173,7 +173,7 @@
     "scope_generation": { "type": "integer", "minimum": 0 },
     "workflows": { "enum": ["native", "off"] },
     "ordinary_model": { "type": "string", "minLength": 1 },
-    "context_profile": { "enum": ["sol", "large"] },
+    "context_profile": { "oneOf": [{ "enum": ["sol", "large"] }, { "type": "string", "pattern": "^custom-[0-9]+$" }] },
     "catalog_version": { "type": "integer", "minimum": 1 },
     "catalog_hash": { "type": "string", "pattern": "^sha256:[0-9a-f]{64}$" },
     "launcher_version": { "type": "string", "pattern": "^[0-9]+\\.[0-9]+\\.[0-9]+$" },

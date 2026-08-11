@@ -624,7 +624,7 @@ class KeyBarOverflowTests(unittest.TestCase):
                 ("E", "edit"),
                 ("D", "details"),
                 ("S", "sessions"),
-                ("G", "new gateway"),
+                ("G", "gateway models"),
                 ("H", "health"),
                 ("?", "help"),
                 ("Esc", "cancel"),

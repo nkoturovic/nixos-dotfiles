@@ -36,7 +36,7 @@ A card shows the composition (lead, team, policy, context). Then:
   recent compositions lead, then globally recent, then the rest). Current
   set: `default` (Opus 5 + Sol + Kimi), `opus-sol` (Opus 5 + Sol), `opus-kimi` (Opus 5 + Kimi), `fable`, `fable-sol-qwen-glm`, `kimi-sol`, `kimi-sol-qwen`, `kimi-sol-qwen-glm`, `kimi-sol-qwen-glm-fable`, `qwen-sol`, `glm-sol`, `sol-direct`
 - **W** — toggle workflows on/off
-- **G** — new gateway session: pick a model, launch with no composition (see "Ordinary gateway sessions"); the picker's selected row shows the exact typed `/model` selectors, and **P** opens the providers pane (per-provider local status, connect instructions, masked key entry)
+- **G** — gateway models: pick a model, launch with no composition (see "Ordinary gateway sessions"); the picker's selected row shows the exact typed `/model` selectors, **M** browses the full catalog+custom list (Enter = details; **E** jumps to that model's Availability row in the composition editor), and **P** opens the providers pane (per-provider local status, connect instructions, masked key entry)
 - **E** — edit the composition (form editor; `?` explains each field)
 - **S** — open the sessions picker
 - **H** — health: doctor in place (with an optional repair-all prompt)
@@ -222,7 +222,20 @@ opens the **providers pane**: per-provider local status (credential source
 by name/count only, rendered/served selector counts), the exact connect
 command per provider, masked key entry for direct providers (written to the
 standard `~/.config/secrets/claude.env`, 0600 atomic, value never shown),
-and OAuth sign-in command guidance. The CLI equivalent:
+and OAuth sign-in command guidance. The pane is also where custom setup
+lives: **N** registers a new provider (id → endpoint → auth kind → key env
+var name → masked key entry only if that variable is unset), **A** on a
+provider row adds models — for Kimi it offers to fetch the real model list
+(one read-only call, confirmed by the keypress) and checkbox-mark entries
+with their advertised context bounds; otherwise (and for Qwen, which has no
+listing endpoint) it falls back to manual type-in. Marked models land in
+the custom registry (`~/.config/claude-multi/custom.json`) and appear in
+the picker as `custom · <bound> context` groups — same-bound customs share
+an in-session `/model` fence; **D** on a custom row removes it. Customs are
+ordinary-session only by design (compositions onboard via `claude-multi-dev
+model add --like`). Apply any change with `claude-multi-proxy init` +
+`systemctl --user restart cli-proxy-api` (between turns).
+The CLI equivalent:
 
 ```bash
 claude-gateway                       # ordinary session, default model (sol)
@@ -266,6 +279,10 @@ claude-multi compose use-as-template <src> <dst># same idea, explicitly as a sta
 claude-multi compose rename <src> <dst>
 claude-multi compose delete <name>
 claude-multi compose restore-default            # reset 'default' to the trusted seed
+claude-multi custom list                        # custom providers/models (ordinary sessions)
+claude-multi custom add-model X --provider kimi --wire k3-256k --context 262144
+claude-multi custom add-provider my-lab --base-url https://… --auth bearer --secret-env MY_LAB_API_KEY
+claude-multi custom remove-model X / remove-provider my-lab
 ```
 
 The editor edits slots (lead, per-role model/lane/preferred), workflow

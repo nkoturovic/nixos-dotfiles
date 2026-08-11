@@ -1,5 +1,35 @@
 # STATUS — live tracker
 
+## 2026-08-11 — v2.15.0: custom providers & ordinary models (D52, blueprint 020) — built, AWAITING ACTIVATION
+
+- **The "new model released" funnel is complete**: discover (015) → mark
+  in the TUI (this) → try in an ordinary session → adopt into the catalog
+  for compositions (019 scaffold).
+- **`custom.json` registry** (0600, schema-validated): custom providers
+  (Anthropic-compatible endpoint + key env var; masked key entry reuses
+  the standard secret file) + custom models (wire id + context bound —
+  provider-listed bounds come from the verified Kimi listing).
+- **TUI flows** (providers pane): N new provider, A add models
+  (fetch-confirm → checkbox marking; manual type-in fallback), D removes
+  a custom model in the picker, Enter on a custom provider offers
+  key-replace/remove. Customs render in the picker as per-bound groups;
+  the models browser (M in G) shows them ordinary-only.
+- **Safety mechanics**: per-bound fences (compaction can't strand a small
+  model into a 1M policy); the doctor served/drift radar covers customs
+  automatically; composition resolution never sees them (R1/D3 intact).
+- Also in: **M models browser** (full catalog TUI view) with the E
+  enable-jump into the editor's Availability row; **G renamed "gateway
+  models"** (it is the models surface, not just a launcher).
+- **Review sweep** (glm52 integration + qwen38 system scan; sol-xhigh died
+  on context, its seams covered by the system leg): the system leg caught
+  the two P0s the UI-level tests couldn't reach — the session schema
+  rejected custom profiles (record save dead-ended every custom launch)
+  and `_connect_hint` KeyError'd on custom providers (crashed line-mode
+  g) — plus P1 doctor-census/repair coverage of custom sessions and a
+  fetch-path shadow-guard miss. All fixed with seam-level regression tests
+  (record save, converge, census, listing, render-with-customs).
+- Evidence: **1,582 host tests OK (skipped=2)**, sandbox green.
+
 ## 2026-08-11 — v2.14.0: post-release improvement pass (D51, blueprint 019, activated gen 121)
 
 - **Activated**: HM gen 121, doctor **Ready** (no repair-all needed — no

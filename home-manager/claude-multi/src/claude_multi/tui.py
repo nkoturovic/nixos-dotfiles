@@ -1646,6 +1646,7 @@ class FormEditorScreen:
         open_in_editor: Callable[[str], int] | None = None,
         suspender: Callable[[Any], contextlib.AbstractContextManager[Any]] | None = None,
         environ: Mapping[str, str] | None = None,
+        initial_row: tuple[str, str] | None = None,
     ):
         self.state = state
         self.palette = palette or MONO_PALETTE
@@ -1655,6 +1656,9 @@ class FormEditorScreen:
         self.environ = dict(os.environ if environ is None else environ)
         self.name_input = TextInput(state.document.get("name", ""), max_length=64)
         self.desc_input = TextInput(state.document.get("description", ""))
+        # Optional opening focus (kind, payload-key) — e.g. ("avail", model)
+        # from the models browser's enable jump (2.14.0).
+        self._initial_row = initial_row
         self.focus = 0
         self.scroll = 0
         self.radio_cursor: dict[str, int] = {}
@@ -2150,6 +2154,18 @@ class FormEditorScreen:
 
     def run(self, win: Any) -> EditorOutcome | None:
         hide_cursor()
+        if self._initial_row is not None:
+            # One-time opening focus (kind, payload-key), e.g. ("avail",
+            # model) — lands on the row if it exists, else the first field.
+            kind, key_id = self._initial_row
+            rows = self._build_rows()
+            for index, row in enumerate(rows):
+                if row.kind == kind and key_id in (
+                    row.payload[1] if isinstance(row.payload, tuple) else row.payload
+                ):
+                    self.focus = index
+                    break
+            self._initial_row = None
         while True:
             self._rows = self._build_rows()
             height, width = win.getmaxyx()

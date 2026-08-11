@@ -96,6 +96,63 @@ class ForkRuleTests(unittest.TestCase):
         self.assertIn("fork: false", fable_block)
 
 
+class CustomRegistryRenderTests(unittest.TestCase):
+    """020: custom providers/models render as ordinary direct routes."""
+
+    def _merged(self):
+        from claude_multi import custom
+
+        registry = {
+            "version": 1,
+            "providers": {
+                "my-lab": {
+                    "base_url": "https://lab.example.com/apps/anthropic",
+                    "auth_kind": "bearer",
+                    "secret_env": "MY_LAB_API_KEY",
+                }
+            },
+            "models": {
+                "lab-model": {
+                    "wire_model": "lab-1",
+                    "provider": "my-lab",
+                    "context_tokens": 262144,
+                    "created_via": "manual",
+                }
+            },
+        }
+        bundle = catalog.load_catalog(CATALOG_ROOT)
+        return custom.merge_docs(bundle.docs, registry)
+
+    def test_custom_provider_and_model_render(self) -> None:
+        docs = self._merged()
+        yaml = _render(
+            models=docs["models"]["models"],
+            providers=docs["providers"]["providers"],
+        ).yaml
+        self.assertIn('name: "lab-1"', yaml)
+        self.assertIn('alias: "custom-lab-model"', yaml)
+        self.assertIn("https://lab.example.com/apps/anthropic", yaml)
+        self.assertIn("context-length: 262144", yaml)
+
+    def test_rendered_selectors_cover_customs(self) -> None:
+        docs = self._merged()
+        result = _render(
+            models=docs["models"]["models"],
+            providers=docs["providers"]["providers"],
+        )
+        document, _avail, _unavail = render.build_config_document(
+            docs["gateway"],
+            docs["providers"]["providers"],
+            docs["models"]["models"],
+            home=Path("/home/test"),
+            gateway_token="a" * 64,
+            resolve_secret=lambda name: "dummy",
+        )
+        selectors = render.rendered_selectors(document)
+        self.assertIn("custom-lab-model", selectors)
+        self.assertIn("claude-multi-kimi-k3", selectors)
+
+
 class DirectProviderLaneTests(unittest.TestCase):
     def test_every_lane_selector_rendered_for_direct_provider(self) -> None:
         bundle = catalog.load_catalog(CATALOG_ROOT)

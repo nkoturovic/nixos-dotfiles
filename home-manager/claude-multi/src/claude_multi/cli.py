@@ -30,6 +30,7 @@ from . import (
     catalog,
     compiler,
     composition,
+    custom,
     launch,
     proxy as proxy_mod,
     render,
@@ -346,6 +347,19 @@ class Runtime:
     def launcher_version(self) -> str:
         return self.catalog.docs["version"]["launcher_version"]
 
+    @property
+    def ordinary_docs(self) -> dict[str, Any]:
+        """Catalog docs + the custom registry merged (020).
+
+        The ONLY docs view the ordinary-gateway paths may use (picker,
+        prepare_direct, listings, profile math, ordinary scope recompile).
+        Managed composition resolution keeps using ``catalog.docs`` —
+        customs are never composition-eligible. Computed per access: the
+        registry is a small 0600 file and never cached stale.
+        """
+
+        return custom.merge_docs(self.catalog.docs, custom.load_registry(self.environ))
+
     def reload_catalog(self) -> None:
         """Re-load the catalog after an operator contract override changed.
 
@@ -588,10 +602,10 @@ class Runtime:
             raise CLIError(f"unknown direct launch action {action!r}")
 
         launch_epoch = 1 if prior is None else prior.get("launch_epoch", 0) + 1
-        profile = compiler.direct_context_profile(self.catalog.docs, selected_model)
+        profile = compiler.direct_context_profile(self.ordinary_docs, selected_model)
         scope_dir = scope_mod.scope_dir(self.session_store.root, stable_id)
         result = compiler.compile_direct_launch(
-            docs=self.catalog.docs,
+            docs=self.ordinary_docs,
             session_action=session_action,
             model_id=selected_model,
             passthrough=passthrough,
@@ -744,7 +758,7 @@ def build_parser() -> argparse.ArgumentParser:
     direct_parser = commands.add_parser(
         "direct", help="launch an ordinary gateway session without a composition"
     )
-    direct_parser.add_argument("--model", dest="direct_model", help="catalog model id (see `claude-multi models` for ids and typed /model selectors)")
+    direct_parser.add_argument("--model", dest="direct_model", help="catalog or custom-registry model id (see `claude-multi models` and `claude-multi custom list`)")
     direct_parser.add_argument("--force", action="store_true", default=argparse.SUPPRESS, help="resume despite a background-liveness marker (only bypasses the heuristic ● check)")
     direct_parser.add_argument("--print-launch", action="store_true")
     direct_identity = direct_parser.add_mutually_exclusive_group()
@@ -758,6 +772,32 @@ def build_parser() -> argparse.ArgumentParser:
     compose_parser = commands.add_parser("compose", help="manage saved compositions")
     compose_commands = compose_parser.add_subparsers(dest="compose_command", required=True)
     compose_commands.add_parser("list", help="list compositions, most-recently-used first, with last-used age")
+
+    custom_parser = commands.add_parser(
+        "custom", help="manage custom providers/models (the ordinary-session registry)"
+    )
+    custom_commands = custom_parser.add_subparsers(dest="custom_command", required=True)
+    custom_commands.add_parser("list", help="list custom providers and models")
+    add_provider = custom_commands.add_parser(
+        "add-provider", help="register an Anthropic-compatible endpoint"
+    )
+    add_provider.add_argument("name")
+    add_provider.add_argument("--base-url", required=True)
+    add_provider.add_argument("--auth", choices=("bearer", "header"), required=True)
+    add_provider.add_argument("--header", default=None, help="header name when --auth header")
+    add_provider.add_argument("--secret-env", required=True, help="env var in the secret file")
+    add_provider.add_argument("--display", default=None)
+    for action in ("remove-provider", "remove-model"):
+        item = custom_commands.add_parser(action, help=f"{action} by name")
+        item.add_argument("name")
+    add_model = custom_commands.add_parser(
+        "add-model", help="mark a model into the ordinary registry"
+    )
+    add_model.add_argument("name")
+    add_model.add_argument("--provider", required=True)
+    add_model.add_argument("--wire", required=True, help="the exact id the API expects")
+    add_model.add_argument("--context", required=True, type=int, help="context window in tokens")
+    add_model.add_argument("--display", default=None)
     show_comp = compose_commands.add_parser("show", help="show a composition")
     show_comp.add_argument("name")
     for action in ("new", "edit", "delete"):
@@ -1435,9 +1475,9 @@ def quick_footer(plan: QuickPlan, *, update_hint: tuple[str, str] | None = None)
     update = " · U update" if update_hint is not None else ""
     if plan.record is not None:
         primary = "Enter launch" if plan.ready else "Enter transition hint"
-        return (f"{primary} · D details · S sessions · G new gateway · ? help · H health{update} · Q cancel",)
+        return (f"{primary} · D details · S sessions · G gateway models · ? help · H health{update} · Q cancel",)
     primary = "Enter launch" if plan.ready else "Enter edit"
-    return (f"{primary} · E edit · D details · S sessions · G new gateway · ? help · P preset · W wf on/off · H health{update} · Q cancel",)
+    return (f"{primary} · E edit · D details · S sessions · G gateway models · ? help · P preset · W wf on/off · H health{update} · Q cancel",)
 
 
 def validate_quick_passthrough(
@@ -1610,7 +1650,7 @@ QUICK_HELP = (
     "H — doctor in place (health: Ready / Attention / BLOCKED).\n"
     "U — re-pin Claude when the update badge shows (curses only).\n"
     "S — sessions: managed + native picker (resume, switch comp/model, adopt).\n"
-    "G — new gateway session: ignores this card; pick a model, no composition.\n"
+    "G — gateway models: pick a model (no composition), browse the full catalog (M), or manage providers (P).\n"
     "P (line mode) — cycle presets.\n"
     "? — this help, then the workflow guarantees below.\n"
     "Esc — cancel (everywhere; in text fields Esc is also the way out).\n"
@@ -1983,7 +2023,7 @@ class _QuickConfirmScreen:
             bindings.append(("U", "update"))
         # ? sits right before Esc: on narrow terminals the KeyBar compacts
         # middle bindings first, and help is the discovery mechanism (D30).
-        bindings.extend((("D", "details"), ("S", "sessions"), ("G", "new gateway"), ("H", "health"), ("?", "help"), ("Esc", "cancel")))
+        bindings.extend((("D", "details"), ("S", "sessions"), ("G", "gateway models"), ("H", "health"), ("?", "help"), ("Esc", "cancel")))
         return tui.KeyBar(bindings)
 
     # -- health / update actions ----------------------------------------------
@@ -2178,6 +2218,14 @@ class _QuickConfirmScreen:
         model_id = _OrdinaryScreen(self.runtime, palette=self.palette).run(win)
         if model_id is None:
             return None
+        if isinstance(model_id, tuple):
+            # Models-browser E jump: edit this model's Availability scope in
+            # the card's composition (fresh plans only — R1 P1 on managed).
+            if self.plan.record is not None:
+                self._recorded_only_modal(win)
+                return None
+            self._edit(win, focus_model=model_id[1])
+            return None
         try:
             prepared = self.runtime.prepare_direct(
                 action="fresh",
@@ -2209,12 +2257,18 @@ class _QuickConfirmScreen:
             buttons=(("Close", True),),
         ).run(win, self.palette, background=self._draw)
 
-    def _edit(self, win: Any) -> str | None:
+    def _edit(self, win: Any, *, focus_model: str | None = None) -> str | None:
         editor_state = _editor_state_for_plan(self.runtime, self.plan)
+        if focus_model is not None:
+            editor_state.message = (
+                f"set the {focus_model} scope (lead+agents / lead / agents "
+                "/ off), then ^O to save or launch"
+            )
         screen = tui.FormEditorScreen(
             editor_state,
             palette=self.palette,
             name_taken=self.runtime.compositions.contains,
+            initial_row=("avail", focus_model) if focus_model else None,
         )
         try:
             outcome = screen.run(win)
@@ -3539,7 +3593,7 @@ class _SessionsScreen:
             return None
         old_profile = record["context_profile"]
         new_profile = compiler.direct_context_profile(
-            self.runtime.catalog.docs, picked
+            self.runtime.ordinary_docs, picked
         )
         profile_line = (
             f"same context profile ({old_profile})"
@@ -3602,12 +3656,14 @@ ORDINARY_PROFILE_NOTES = {
 ORDINARY_PROFILE_NOTE_DEFAULT = "/model switches freely within this group"
 ORDINARY_KEYBAR = (
     ("Enter", "launch"),
+    ("M", "all models"),
     ("P", "providers"),
     ("?", "help"),
     ("Esc", "back"),
 )
 ORDINARY_KEYBAR_SWITCH = (
     ("Enter", "select"),
+    ("M", "all models"),
     ("P", "providers"),
     ("?", "help"),
     ("Esc", "back"),
@@ -3650,8 +3706,10 @@ ORDINARY_HELP_SHARED = (
     "screen (S) or with claude-gateway --continue, with the usual resume gate.\n"
     "\n"
     "P opens the providers pane: per-provider local status (credential source,\n"
-    "rendered/served selectors), exact connect instructions, and masked key\n"
-    "entry for direct providers (written to the standard secret env file).\n"
+    "rendered/served selectors), exact connect instructions, masked key\n"
+    "entry, and the custom provider/model flows (N new provider, A add\n"
+    "models). M browses the full catalog+custom model list; D removes a\n"
+    "custom model row.\n"
     "\n"
     "Arrow keys move; Esc closes this panel."
 )
@@ -3681,7 +3739,7 @@ def _ordinary_unavailable(runtime: Runtime) -> dict[str, str]:
     rather than crashing an advisory preflight.
     """
 
-    providers = runtime.catalog.docs["providers"]["providers"]
+    providers = runtime.ordinary_docs["providers"]["providers"]
     try:
         entries = render.unavailable_providers(
             providers,
@@ -3721,13 +3779,13 @@ def _ordinary_typed_selectors(model: dict[str, Any]) -> str:
 def _print_ordinary_listing(runtime: Runtime, output_stream: Any) -> None:
     """Text-mode ordinary launch listing (mirrors the G picker, D46)."""
 
-    docs = runtime.catalog.docs
+    docs = runtime.ordinary_docs
     models = docs["models"]["models"]
     unavailable = _ordinary_unavailable(runtime)
     output_stream.write(
         "ordinary gateway sessions (no composition; /model within a group):\n"
     )
-    for profile, model_ids in compiler.ordinary_launch_models(docs).items():
+    for profile, model_ids in compiler.ordinary_launch_models(runtime.ordinary_docs).items():
         note = ORDINARY_PROFILE_NOTES.get(profile, ORDINARY_PROFILE_NOTE_DEFAULT)
         output_stream.write(f"  {profile} · {note}:\n")
         for model_id in model_ids:
@@ -3750,11 +3808,201 @@ def _print_ordinary_listing(runtime: Runtime, output_stream: Any) -> None:
         )
 
 
+MODELS_TITLE = "models — catalog + custom"
+MODELS_SUBTITLE = (
+    "the `claude-multi models` list as a screen · enable/disable is a "
+    "composition act (E → Availability)"
+)
+MODELS_HELP = (
+    "Every catalog model plus operator-added customs, with provider,\ncapabilities,\n"
+    "context profile, and the exact typed /model selectors (the native\n"
+    "picker display-filters custom aliases — typed selectors hit the\n"
+    "allow-list). Enter opens the full detail (wire id, context bounds,\n"
+    "routing note).\n"
+    "\n"
+    "There is no global enable/disable by design: availability is\n"
+    "composition intent — the editor owns it (E on the card → Availability,\n"
+    "per model: lead+agents / lead / agents / off). 'not in default' marks\n"
+    "models the default composition does not enable. When E is offered in\n"
+    "the keybar, it jumps straight to this model's Availability row in the\n"
+    "composition on the card behind this picker.\n"
+    "\n"
+    "Provider-advertised models that are NOT here are onboarding candidates\n"
+    "(`claude-multi discover <provider>`); the catalog owns admission."
+)
+
+
+class _ModelsScreen:
+    """Read-only catalog model browser (2.14.0): the TUI form of `models`.
+
+    Deliberately read-only — a global enable/disable would be a third
+    intent authority beside compositions and records (D3); the row detail
+    points at the editor's Availability section instead.
+    """
+
+    def __init__(
+        self,
+        runtime: Runtime,
+        *,
+        palette: tui.Palette,
+        allow_edit_jump: bool = False,
+    ):
+        self.runtime = runtime
+        self.palette = palette
+        # The edit jump is offered only from the launch-purpose G picker:
+        # it returns up to the card, which opens the editor on this model's
+        # Availability row (fresh plans only — R1 P1 guards the rest).
+        self.allow_edit_jump = allow_edit_jump
+        self.rows = sorted(runtime.ordinary_docs["models"]["models"])
+        default_models = runtime.compositions.load("default")["availability"]["models"]
+        self.in_default = {m for m in self.rows if m in default_models}
+        self.selected = 0
+
+    def _keybar(self) -> tui.KeyBar:
+        bindings: list[tuple[str, str]] = [("Enter", "details")]
+        # The enable jump targets the editor's Availability section, which
+        # exists only for catalog models — customs are ordinary-only and
+        # get the scaffold pointer in their detail modal instead.
+        if (
+            self.allow_edit_jump
+            and self.rows
+            and self.rows[self.selected] in self.runtime.catalog.models
+        ):
+            bindings.append(("E", "enable in composition"))
+        bindings.extend((("?", "help"), ("Esc", "back")))
+        return tui.KeyBar(bindings)
+
+    def _draw(self, win: Any) -> None:
+        win.erase()
+        palette = self.palette
+        height, width = win.getmaxyx()
+        keybar = self._keybar()
+        bar_rows = keybar.rows(width)
+        wrap_width = max(20, width - 4)
+        selector_lines = (
+            textwrap.wrap(
+                f"in-session: {_ordinary_typed_selectors(self.runtime.ordinary_docs['models']['models'][self.rows[self.selected]])}",
+                wrap_width,
+            )
+            if self.rows
+            else []
+        )
+        needed = 5 + len(self.rows) + len(selector_lines) + 1
+        if height < needed or width < 44:
+            tui.safe_add(win, 1, 2, MODELS_TITLE, palette.attr("accent") | curses.A_BOLD)
+            tui.safe_add(
+                win, 3, 2, "terminal too small; `claude-multi models` is the text form.",
+                palette.attr("warn"),
+            )
+            keybar.draw(win, height - 1, palette)
+            win.refresh()
+            return
+        tui.safe_add(win, 1, 2, MODELS_TITLE, palette.attr("accent") | curses.A_BOLD)
+        tui.safe_add(win, 2, 2, "─" * min(width - 1, 62), palette.attr("dim"))
+        tui.safe_add(win, 3, 2, MODELS_SUBTITLE, palette.attr("dim"))
+        row = 5
+        models = self.runtime.ordinary_docs["models"]["models"]
+        providers = self.runtime.ordinary_docs["providers"]["providers"]
+        for index, model_id in enumerate(self.rows):
+            model = models[model_id]
+            family = providers[model["provider"]]["independence_family"]
+            capabilities = ",".join(model["capabilities"])
+            profile = model["context"]["ordinary_profile"] or "agents-only"
+            label = f"{model_id} — {model['display']} · {family} · {capabilities} · {profile}"
+            if model_id not in self.runtime.catalog.models:
+                label += "  (custom · ordinary only)"
+            elif model_id not in self.in_default:
+                label += "  (not in default)"
+            attr = palette.attr("normal")
+            if index == self.selected:
+                attr |= curses.A_REVERSE
+            prefix = "> " if index == self.selected else "  "
+            tui.safe_add(win, row, 2, prefix + label, attr)
+            row += 1
+        message_row = height - bar_rows - 1
+        start = message_row - len(selector_lines) + 1
+        for offset, line in enumerate(selector_lines):
+            tui.safe_add(win, start + offset, 2, line, palette.attr("dim"))
+        keybar.draw(win, height - 1, palette)
+        win.refresh()
+
+    def _details(self, win: Any) -> None:
+        model_id = self.rows[self.selected]
+        model = self.runtime.ordinary_docs["models"]["models"][model_id]
+        context = model["context"]
+        scalar = context["scalar_tokens"] or "none"
+        wrap_width = max(20, min(64, win.getmaxyx()[1] - 8))
+        lines = [
+            f"provider: {model['provider']} · capabilities: {','.join(model['capabilities'])}",
+            f"wire: {model['wire_model']}",
+            f"context: client={context['client_tokens']} provider={context['provider_tokens']} scalar={scalar}",
+            f"ordinary profile: {context['ordinary_profile'] or 'agents-only'} · default lane: {model['default_lane']}",
+            f"in-session: {_ordinary_typed_selectors(model)}",
+        ]
+        for line in textwrap.wrap(f"routing: {model['routing_note']}", wrap_width):
+            lines.append(line)
+        if model_id not in self.runtime.catalog.models:
+            lines.extend(
+                textwrap.wrap(
+                    "custom (ordinary sessions only) — for composition use, "
+                    "onboard it into the catalog: `claude-multi-dev model add "
+                    "--like <sibling>`",
+                    wrap_width,
+                )
+            )
+        tui.Modal(
+            f"{model_id} — {model['display']}",
+            lines,
+            buttons=(("Close", True),),
+        ).run(win, self.palette, background=self._draw)
+
+    def run(self, win: Any) -> str | None:
+        """None on Esc; the selected model id on an enabled E (edit jump)."""
+
+        tui.hide_cursor()
+        while True:
+            self._draw(win)
+            key = tui.read_key(win)
+            if key.kind == "resize":
+                continue
+            if key.kind == "ctrl" and key.ch == "c":
+                raise KeyboardInterrupt
+            if key.kind == "esc":
+                return None
+            if key.kind == "char" and key.ch == "?":
+                tui.Modal(
+                    MODELS_TITLE + " — help",
+                    MODELS_HELP.splitlines(),
+                    buttons=(("Close", True),),
+                ).run(win, self.palette, background=self._draw)
+                continue
+            if key.kind == "up" or (key.kind == "char" and key.ch == "k"):
+                if self.selected > 0:
+                    self.selected -= 1
+                continue
+            if key.kind == "down" or (key.kind == "char" and key.ch == "j"):
+                if self.selected < len(self.rows) - 1:
+                    self.selected += 1
+                continue
+            if not self.rows:
+                continue
+            if (
+                key.kind == "char"
+                and key.ch.lower() == "e"
+                and self.allow_edit_jump
+                and self.rows[self.selected] in self.runtime.catalog.models
+            ):
+                return self.rows[self.selected]
+            if key.kind == "enter":
+                self._details(win)
+                continue
+
+
 class _OrdinaryScreen:
     """Ordinary gateway model picker (D46/D48), launch or switch purpose.
 
     Sections are ordinary context profiles — the native /model fence of the
-    session. Rows are catalog models (lanes stay in-session via /model).
+    session. Rows are catalog + custom models (lanes stay in-session via /model).
     Rows whose provider secret is missing render dimmed with a (no secret)
     marker: the marking is render-time availability (the gateway omits
     providers rendered without their secret), so Enter on one rechecks the
@@ -3775,7 +4023,7 @@ class _OrdinaryScreen:
         self.runtime = runtime
         self.palette = palette
         self.purpose = purpose
-        self.groups = compiler.ordinary_launch_models(runtime.catalog.docs)
+        self.groups = compiler.ordinary_launch_models(runtime.ordinary_docs)
         self.rows = [
             model_id for model_ids in self.groups.values() for model_id in model_ids
         ]
@@ -3800,14 +4048,17 @@ class _OrdinaryScreen:
         return ORDINARY_TITLE if self.purpose == "launch" else ORDINARY_TITLE_SWITCH
 
     def _row_reason(self, model_id: str) -> str | None:
-        model = self.runtime.catalog.models[model_id]
+        model = self.runtime.ordinary_docs["models"]["models"][model_id]
         return self.unavailable.get(model["provider"])
+
+    def _row_is_custom(self, model_id: str) -> bool:
+        return model_id in custom.load_registry(self.runtime.environ)["models"]
 
     def _row_signin_pool(self, model_id: str) -> str | None:
         """OAuth pool name when the row's provider has no credential record."""
 
-        model = self.runtime.catalog.models[model_id]
-        transport = self.runtime.catalog.providers[model["provider"]]["transport"]
+        model = self.runtime.ordinary_docs["models"]["models"][model_id]
+        transport = self.runtime.ordinary_docs["providers"]["providers"][model["provider"]]["transport"]
         if transport["kind"] != "oauth-pool":
             return None
         pool = transport["pool"]
@@ -3821,7 +4072,7 @@ class _OrdinaryScreen:
         never flaps while browsing.
         """
 
-        providers = self.runtime.catalog.docs["providers"]["providers"]
+        providers = self.runtime.ordinary_docs["providers"]["providers"]
         candidates = [
             f"missing required secret {p['transport']['auth']['secret_ref']}"
             for p in providers.values()
@@ -3848,7 +4099,7 @@ class _OrdinaryScreen:
             (
                 len(
                     textwrap.wrap(
-                        f"in-session: {_ordinary_typed_selectors(self.runtime.catalog.models[m])}",
+                        f"in-session: {_ordinary_typed_selectors(self.runtime.ordinary_docs['models']['models'][m])}",
                         wrap_width,
                     )
                 )
@@ -3862,9 +4113,12 @@ class _OrdinaryScreen:
         win.erase()
         palette = self.palette
         height, width = win.getmaxyx()
-        keybar = tui.KeyBar(
+        bindings = list(
             ORDINARY_KEYBAR if self.purpose == "launch" else ORDINARY_KEYBAR_SWITCH
         )
+        if self.rows and self._row_is_custom(self.rows[self.selected]):
+            bindings.insert(-2, ("D", "remove"))  # custom rows only, before ?/Esc
+        keybar = tui.KeyBar(tuple(bindings))
         bar_rows = keybar.rows(width)
         # Layout: title, separator, subtitle, blank, per group header + rows
         # (+ a blank after each), trailing blank, wrapped detail lines above
@@ -3893,11 +4147,15 @@ class _OrdinaryScreen:
         tui.safe_add(win, 3, 2, ORDINARY_SUBTITLE, palette.attr("dim"))
         row = 5
         index = 0
-        models = self.runtime.catalog.models
-        providers = self.runtime.catalog.providers
+        models = self.runtime.ordinary_docs["models"]["models"]
+        providers = self.runtime.ordinary_docs["providers"]["providers"]
         for profile, model_ids in self.groups.items():
-            note = ORDINARY_PROFILE_NOTES.get(profile, ORDINARY_PROFILE_NOTE_DEFAULT)
-            tui.safe_add(win, row, 2, f"{profile} · {note}", palette.attr("dim"))
+            header = (
+                custom.profile_label(profile)
+                if profile.startswith("custom-")
+                else f"{profile} · {ORDINARY_PROFILE_NOTES.get(profile, ORDINARY_PROFILE_NOTE_DEFAULT)}"
+            )
+            tui.safe_add(win, row, 2, header, palette.attr("dim"))
             row += 1
             for model_id in model_ids:
                 reason = self._row_reason(model_id)
@@ -3988,6 +4246,15 @@ class _OrdinaryScreen:
             if key.kind == "char" and key.ch.lower() == "p":
                 _ProvidersScreen(self.runtime, palette=self.palette).run(win)
                 continue
+            if key.kind == "char" and key.ch.lower() == "m":
+                jump = _ModelsScreen(
+                    self.runtime,
+                    palette=self.palette,
+                    allow_edit_jump=self.purpose == "launch",
+                ).run(win)
+                if jump is not None:
+                    return ("edit-availability", jump)
+                continue
             if key.kind == "up" or (key.kind == "char" and key.ch == "k"):
                 if self.selected > 0:
                     self.selected -= 1
@@ -3999,6 +4266,27 @@ class _OrdinaryScreen:
             if not self.rows:
                 # Same empty-list guard as the sessions screen: action keys
                 # never index an empty catalog.
+                continue
+            if key.kind == "char" and key.ch.lower() == "d":
+                picked_id = self.rows[self.selected]
+                if not self._row_is_custom(picked_id):
+                    continue  # catalog models are code; D is a no-op on them
+                confirmed = tui.Modal(
+                    f"Remove custom model {picked_id}?",
+                    [
+                        "Removes it from the custom registry (sessions keep",
+                        "their transcript; the alias disappears after apply).",
+                        "Apply: `claude-multi-proxy init` + restart (between turns).",
+                    ],
+                    buttons=(("Remove", True), ("Cancel", False)),
+                ).run(win, self.palette, background=self._draw)
+                if confirmed:
+                    custom.remove_model(self.runtime.environ, picked_id)
+                    self.groups = compiler.ordinary_launch_models(self.runtime.ordinary_docs)
+                    self.rows = [
+                        m for ids in self.groups.values() for m in ids
+                    ]
+                    self.selected = min(self.selected, max(0, len(self.rows) - 1))
                 continue
             if key.kind == "enter":
                 model_id = self.rows[self.selected]
@@ -4014,7 +4302,7 @@ class _OrdinaryScreen:
                 if (reason is not None or signin_pool is not None) and not (
                     self.purpose == "switch" and model_id == self._initial_model
                 ):
-                    model = self.runtime.catalog.models[model_id]
+                    model = self.runtime.ordinary_docs["models"]["models"][model_id]
                     _height, modal_width = win.getmaxyx()
                     wrap_width = max(20, min(60, modal_width - 8))
                     lines = [
@@ -4062,6 +4350,8 @@ PROVIDERS_LEGEND = (
 )
 PROVIDERS_KEYBAR = (
     ("Enter", "setup"),
+    ("N", "new provider"),
+    ("A", "add models"),
     ("R", "refresh"),
     ("?", "help"),
     ("Esc", "back"),
@@ -4087,7 +4377,7 @@ PROVIDERS_HELP = (
 def _connect_hint(runtime: Runtime, provider_id: str) -> str:
     """Exact per-provider connect instruction (018) — names/paths, no values."""
 
-    provider = runtime.catalog.providers[provider_id]
+    provider = runtime.ordinary_docs["providers"]["providers"][provider_id]
     transport = provider["transport"]
     if transport["kind"] == "oauth-pool":
         pool = transport["pool"]
@@ -4119,8 +4409,10 @@ def _provider_facts(runtime: Runtime) -> ProviderFacts:
     counts that the running daemon can't.
     """
 
-    providers = runtime.catalog.providers
-    models = runtime.catalog.models
+    merged = runtime.ordinary_docs
+    providers = merged["providers"]["providers"]
+    models = merged["models"]["models"]
+    custom_registry = custom.load_registry(runtime.environ)
     unavailable = _ordinary_unavailable(runtime)
     try:
         token = launch.read_gateway_token(runtime.catalog.docs["gateway"])
@@ -4175,6 +4467,7 @@ def _provider_facts(runtime: Runtime) -> ProviderFacts:
                 "id": provider_id,
                 "display": provider["display"],
                 "kind": kind,
+                "custom": provider_id in custom_registry["providers"],
                 "credential": credential,
                 "expected": len(expected),
                 "served_note": served_note,
@@ -4212,6 +4505,7 @@ class _ProvidersScreen:
         self.facts = loaded.facts
         self.config_drift = loaded.config_drift
         self.gateway_down = loaded.gateway_down
+        self.selected = min(self.selected, max(0, len(self.facts) - 1))
 
     def _draw(self, win: Any) -> None:
         win.erase()
@@ -4271,6 +4565,8 @@ class _ProvidersScreen:
         row += 1
         for index, fact in enumerate(self.facts):
             kind_label = "OAuth pool" if fact["kind"] == "oauth-pool" else "direct key"
+            if fact.get("custom"):
+                kind_label += " · custom"
             head = f"{fact['display']} · {kind_label} · {fact['credential']}"
             attr = palette.attr("normal")
             if index == self.selected:
@@ -4294,7 +4590,7 @@ class _ProvidersScreen:
 
     def _setup(self, win: Any) -> None:
         fact = self.facts[self.selected]
-        provider = self.runtime.catalog.providers[fact["id"]]
+        provider = self.runtime.ordinary_docs["providers"]["providers"][fact["id"]]
         transport = provider["transport"]
         if transport["kind"] == "oauth-pool":
             pool = transport["pool"]
@@ -4311,6 +4607,97 @@ class _ProvidersScreen:
                 buttons=(("Close", True),),
             ).run(win, self.palette, background=self._draw)
             return
+        if fact.get("custom"):
+            # Custom providers are operator state: offer modify/remove
+            # alongside the key entry (catalog providers stay view+key only).
+            chooser = tui.SelectList(
+                f"{fact['display']} — custom provider",
+                [
+                    tui.SelectItem("set / replace the API key (masked)"),
+                    tui.SelectItem("edit endpoint / auth fields"),
+                    tui.SelectItem("remove this provider"),
+                ],
+                footer=(("Enter", "choose"), ("Esc", "back")),
+            )
+            choice = chooser.run(win, self.palette)
+            if choice == 1:
+                spec = custom.load_registry(self.runtime.environ)["providers"][fact["id"]]
+                base_url = self._prompt(
+                    win, "API endpoint", ["base URL"], initial=spec["base_url"]
+                )
+                if not base_url:
+                    return self._cancelled("Edit provider")
+                auth_index = tui.SelectList(
+                    "auth kind",
+                    [
+                        tui.SelectItem("bearer (Authorization: Bearer …)"),
+                        tui.SelectItem("header (x-api-key style)"),
+                    ],
+                    footer=(("Enter", "choose"), ("Esc", "cancel")),
+                ).run(win, self.palette)
+                if auth_index is None:
+                    return self._cancelled("Edit provider")
+                auth_kind = "bearer" if auth_index == 0 else "header"
+                header = spec.get("header")
+                if auth_kind == "header":
+                    header = self._prompt(
+                        win, "auth header name", [], initial=header or "x-api-key"
+                    )
+                    if not header:
+                        return self._cancelled("Edit provider")
+                secret_env = self._prompt(
+                    win, "key env variable name", [], initial=spec["secret_env"]
+                )
+                if not secret_env:
+                    return self._cancelled("Edit provider")
+                try:
+                    custom.add_provider(
+                        self.runtime.environ,
+                        fact["id"],
+                        base_url=base_url,
+                        auth_kind=auth_kind,
+                        secret_env=secret_env,
+                        header=header,
+                        display=spec.get("display"),
+                        catalog_providers=tuple(self.runtime.catalog.providers.keys()),
+                    )
+                except (custom.CustomModelsError, OSError, ValueError) as exc:
+                    self.message = str(exc)
+                    self.message_role = "warn"
+                    return
+                self._load_facts()
+                self.message = (
+                    f"provider {fact['id']} updated — apply: `claude-multi-proxy "
+                    "init` + restart (between turns)"
+                )
+                self.message_role = "accent"
+                return
+            if choice == 2:
+                confirmed = tui.Modal(
+                    f"Remove {fact['display']}?",
+                    [
+                        "Removes the provider from the custom registry. Its",
+                        "custom models must be removed first (the picker D key).",
+                        "Apply afterwards: `claude-multi-proxy init` + restart.",
+                    ],
+                    buttons=(("Remove", True), ("Cancel", False)),
+                ).run(win, self.palette, background=self._draw)
+                if confirmed:
+                    try:
+                        custom.remove_provider(self.runtime.environ, fact["id"])
+                        self._load_facts()
+                        self.message = (
+                            f"provider {fact['id']} removed — apply: "
+                            "`claude-multi-proxy init` + restart (between turns)"
+                        )
+                        self.message_role = "accent"
+                    except (custom.CustomModelsError, OSError) as exc:
+                        self.message = str(exc)
+                        self.message_role = "warn"
+                return
+            if choice is None:
+                return
+            # choice 0 falls through to the masked key entry below
         name = transport["auth"]["secret_ref"].removeprefix("env:")
         path = proxy_mod.secret_env_path(self.runtime.environ)
         modal = tui.Modal(
@@ -4348,6 +4735,290 @@ class _ProvidersScreen:
             "cli-proxy-api` (between turns)"
         )
 
+    def _prompt(
+        self,
+        win: Any,
+        title: str,
+        lines: list[str],
+        *,
+        masked: bool = False,
+        initial: str = "",
+    ) -> str | None:
+        """One labeled input modal; None on cancel. Values never logged."""
+
+        modal = tui.Modal(
+            title,
+            lines,
+            buttons=(("OK", True), ("Cancel", False)),
+            input=tui.TextInput(initial, mask="•" if masked else None),
+        )
+        confirmed = modal.run(win, self.palette, background=self._draw)
+        value = modal.input.value.strip()
+        modal.input.value = ""  # never let a typed secret linger in widgets
+        if not confirmed:
+            return None
+        return value
+
+    def _add_provider(self, win: Any) -> None:
+        """N — register a custom Anthropic-compatible provider (020)."""
+
+        provider_id = self._prompt(
+            win,
+            "New provider — id",
+            ["letters/digits/dashes (e.g. my-lab); Anthropic-compatible API"],
+        )
+        if not provider_id:
+            return self._cancelled("New provider")
+        base_url = self._prompt(
+            win,
+            f"New provider {provider_id} — API endpoint",
+            ["base URL, e.g. https://host.example.com/apps/anthropic"],
+        )
+        if not base_url:
+            return self._cancelled("New provider")
+        chooser = tui.SelectList(
+            "auth kind",
+            [
+                tui.SelectItem("bearer (Authorization: Bearer …)"),
+                tui.SelectItem("header (x-api-key style)"),
+            ],
+            footer=(("Enter", "choose"), ("Esc", "cancel")),
+        )
+        auth_index = chooser.run(win, self.palette)
+        if auth_index is None:
+            return self._cancelled("New provider")
+        auth_kind = "bearer" if auth_index == 0 else "header"
+        header = None
+        if auth_kind == "header":
+            header = self._prompt(
+                win, "auth header name", ["e.g. x-api-key"], initial="x-api-key"
+            )
+            if not header:
+                return self._cancelled("New provider")
+        suggested = f"{provider_id.upper().replace('-', '_')}_API_KEY"
+        secret_env = self._prompt(
+            win,
+            "key env variable name",
+            [f"a variable in ~/.config/secrets/claude.env, e.g. {suggested};",
+             "naming an EXISTING variable reuses it (no key prompt)"],
+            initial=suggested,
+        )
+        if not secret_env:
+            return self._cancelled("New provider")
+        try:
+            custom.add_provider(
+                self.runtime.environ,
+                provider_id,
+                base_url=base_url,
+                auth_kind=auth_kind,
+                secret_env=secret_env,
+                header=header,
+                catalog_providers=tuple(self.runtime.catalog.providers.keys()),
+            )
+        except (custom.CustomModelsError, OSError, ValueError) as exc:
+            self.message = str(exc)
+            self.message_role = "warn"
+            return
+        # The key prompt is skipped when the variable already has a value.
+        if proxy_mod.resolve_secret(secret_env, environ=self.runtime.environ) is None:
+            key = self._prompt(
+                win,
+                f"set {secret_env} (masked)",
+                ["the API key — written 0600, never shown or logged"],
+                masked=True,
+            )
+            if key:
+                try:
+                    proxy_mod.set_secret_value(
+                        proxy_mod.secret_env_path(self.runtime.environ),
+                        secret_env,
+                        key,
+                    )
+                except proxy_mod.ProxyError as exc:
+                    self.message = str(exc)
+                    self.message_role = "warn"
+                    return
+        key_set = proxy_mod.resolve_secret(secret_env, environ=self.runtime.environ) is not None
+        self._load_facts()
+        self.message_role = "accent"
+        self.message = (
+            f"provider {provider_id} saved"
+            + ("" if key_set else f" (key {secret_env} not set — Enter on its row later)")
+            + " — next: A add models on its row, "
+            "then `claude-multi-proxy init` + `systemctl --user restart "
+            "cli-proxy-api` (between turns)"
+        )
+
+    def _cancelled(self, what: str) -> None:
+        self.message = f"{what} cancelled."
+        self.message_role = "warn"
+
+    def _add_models(self, win: Any) -> None:
+        """A — mark provider models into the custom registry (020)."""
+
+        fact = self.facts[self.selected]
+        provider_id = fact["id"]
+        provider = self.runtime.ordinary_docs["providers"]["providers"][provider_id]
+        if provider["transport"]["kind"] == "oauth-pool":
+            self._setup(win)
+            return
+        listed: list[dict[str, Any]] | None = None
+        if proxy_mod._LISTING_SUPPORT.get(provider_id) != "unsupported":
+            confirmed = tui.Modal(
+                f"Query {fact['display']} for its model list?",
+                [
+                    "one read-only GET /v1/models to the provider — nothing",
+                    "else is sent; the key travels in the auth header only.",
+                ],
+                buttons=(("Query", True), ("Type in manually", False)),
+            ).run(win, self.palette, background=self._draw)
+            if confirmed:
+                try:
+                    listed = proxy_mod.list_provider_models(
+                        provider_id,
+                        self.runtime.ordinary_docs["providers"]["providers"],
+                        environ=self.runtime.environ,
+                    )
+                except proxy_mod.ProxyError as exc:
+                    self.message = f"{exc} — falling back to manual entry"
+                    self.message_role = "warn"
+        if listed is not None:
+            registry = custom.load_registry(self.runtime.environ)
+            catalog_wires = {
+                model["wire_model"] for model in self.runtime.catalog.models.values()
+            }
+            custom_wires = {spec["wire_model"] for spec in registry["models"].values()}
+            fresh = [
+                entry
+                for entry in listed
+                if entry["id"] not in catalog_wires and entry["id"] not in custom_wires
+            ]
+            if not fresh:
+                self.message = (
+                    "nothing new: every listed model is already cataloged or marked"
+                )
+                self.message_role = "accent"
+                return
+            chooser = tui.SelectList(
+                f"mark models from {fact['display']}",
+                [
+                    tui.SelectItem(
+                        f"{entry['id']}"
+                        + (
+                            f" · {entry['context_length']} ctx"
+                            if entry.get("context_length")
+                            else ""
+                        )
+                    )
+                    for entry in fresh
+                ],
+                footer=(
+                    ("Space", "toggle"),
+                    ("Enter", "mark selected"),
+                    ("Esc", "cancel"),
+                ),
+                multi=True,
+            )
+            picked = chooser.run(win, self.palette)
+            if not picked:
+                return self._cancelled("Add models")
+            errors: list[str] = []
+            marked = 0
+            for index in picked:
+                entry = fresh[index]
+                context = entry.get("context_length")
+                if not isinstance(context, int) or context < 8192:
+                    # Never guess the bound: ask when the provider omits it.
+                    answer = self._prompt(
+                        win,
+                        f"context tokens for {entry['id']}",
+                        ["the listing gave no context_length — the bound",
+                         "drives the session's compaction policy"],
+                    )
+                    if not answer:
+                        errors.append(f"{entry['id']}: skipped (no context bound)")
+                        continue
+                    try:
+                        context = int(answer)
+                    except ValueError:
+                        errors.append(f"{entry['id']}: invalid context {answer!r}")
+                        continue
+                try:
+                    custom.add_model(
+                        self.runtime.environ,
+                        entry["id"],
+                        wire_model=entry["id"],
+                        provider=provider_id,
+                        context_tokens=context,
+                        display=entry.get("display_name") or None,
+                        created_via="discover",
+                        catalog_providers=tuple(self.runtime.catalog.providers.keys()),
+                        catalog_models=tuple(self.runtime.catalog.models.keys()),
+                    )
+                    marked += 1
+                except (custom.CustomModelsError, OSError, ValueError) as exc:
+                    errors.append(f"{entry['id']}: {exc}")
+            self._load_facts()
+            self.message_role = "accent" if not errors else "warn"
+            self.message = (
+                f"marked {marked} model(s) — apply with `claude-multi-proxy init` "
+                "+ `systemctl --user restart cli-proxy-api` (between turns)"
+                + ("; failed: " + "; ".join(errors) if errors else "")
+            )
+            return
+        # Manual entry (the fallback and the qwen path).
+        model_id = self._prompt(win, "model id", ["registry key, letters/digits/dashes"])
+        if not model_id:
+            return self._cancelled("Add models")
+        wire = self._prompt(
+            win,
+            "wire model id",
+            [f"the exact id the API expects (e.g. {model_id})"],
+            initial=model_id,
+        )
+        if not wire:
+            return self._cancelled("Add models")
+        context_raw = self._prompt(
+            win, "context tokens", ["the model's context window, e.g. 262144"]
+        )
+        if not context_raw:
+            return self._cancelled("Add models")
+        try:
+            context = int(context_raw)
+        except ValueError:
+            self.message = f"context tokens must be a number, got {context_raw!r}"
+            self.message_role = "warn"
+            return
+        display = self._prompt(
+            win,
+            "display name (optional)",
+            ["shown in pickers; empty uses the id"],
+        )
+        if display is None:
+            return self._cancelled("Add models")
+        try:
+            custom.add_model(
+                self.runtime.environ,
+                model_id,
+                wire_model=wire,
+                provider=provider_id,
+                context_tokens=context,
+                display=display or None,
+                created_via="manual",
+                catalog_providers=tuple(self.runtime.catalog.providers.keys()),
+                catalog_models=tuple(self.runtime.catalog.models.keys()),
+            )
+        except (custom.CustomModelsError, OSError, ValueError) as exc:
+            self.message = str(exc)
+            self.message_role = "warn"
+            return
+        self._load_facts()
+        self.message_role = "accent"
+        self.message = (
+            f"marked {model_id} — apply with `claude-multi-proxy init` + "
+            "`systemctl --user restart cli-proxy-api` (between turns)"
+        )
+
     def run(self, win: Any) -> None:
         tui.hide_cursor()
         while True:
@@ -4373,6 +5044,12 @@ class _ProvidersScreen:
                     PROVIDERS_HELP.splitlines(),
                     buttons=(("Close", True),),
                 ).run(win, self.palette, background=self._draw)
+                continue
+            if key.kind == "char" and key.ch.lower() == "n":
+                self._add_provider(win)
+                continue
+            if key.kind == "char" and key.ch.lower() == "a":
+                self._add_models(win)
                 continue
             if key.kind == "char" and key.ch.lower() == "r":
                 self._load_facts()
@@ -5293,7 +5970,7 @@ _SESSION_START_SOURCES = frozenset({"startup", "resume", "clear", "compact", "fo
 def _direct_model_for_selector(
     runtime: Runtime, selector: str
 ) -> tuple[str, str] | None:
-    return compiler.direct_model_for_selector(runtime.catalog.docs, selector)
+    return compiler.direct_model_for_selector(runtime.ordinary_docs, selector)
 
 
 def _write_session_start_context(output_stream: TextIO, message: str) -> None:
@@ -5550,9 +6227,9 @@ def _gateway_snapshot(runtime: Runtime, token: str) -> GatewaySnapshot:
     drift: bool | None = None
     try:
         document, _available, _unavailable = render.build_config_document(
-            runtime.catalog.docs["gateway"],
-            runtime.catalog.docs["providers"]["providers"],
-            runtime.catalog.docs["models"]["models"],
+            runtime.ordinary_docs["gateway"],
+            runtime.ordinary_docs["providers"]["providers"],
+            runtime.ordinary_docs["models"]["models"],
             home=home,
             gateway_token=token,
             resolve_secret=lambda name: proxy_mod.resolve_secret(
@@ -5829,7 +6506,7 @@ def handle_command(
             # surface the same live-process caution a managed transition gates.
             prior_record = runtime.session_store.resolve(identifier)
             new_profile = compiler.direct_context_profile(
-                runtime.catalog.docs, args.direct_model
+                runtime.ordinary_docs, args.direct_model
             )
             if new_profile != prior_record["context_profile"]:
                 output_stream.write(
@@ -5846,10 +6523,10 @@ def handle_command(
         if args.print_launch:
             _print_launch_plan(prepared, output_stream)
             return 0
-        launched_model = runtime.catalog.docs["models"]["models"][
+        launched_model = runtime.ordinary_docs["models"]["models"][
             prepared.record["ordinary_model"]
         ]
-        launched_provider = runtime.catalog.docs["providers"]["providers"][
+        launched_provider = runtime.ordinary_docs["providers"]["providers"][
             launched_model["provider"]
         ]
         if launched_provider["transport"]["kind"] == "direct":
@@ -5874,6 +6551,67 @@ def handle_command(
             prepared,
             resume_decision="force" if getattr(args, "force", False) else None,
         )
+
+    if args.command == "custom":
+        command = args.custom_command
+        if command == "list":
+            registry = custom.load_registry(runtime.environ)
+            if not registry["providers"] and not registry["models"]:
+                output_stream.write("(no custom providers or models registered)\n")
+                return 0
+            for provider_id, spec in sorted(registry["providers"].items()):
+                output_stream.write(
+                    f"provider {tui.visible_text(provider_id)}\t{spec['base_url']} · "
+                    f"{spec['auth_kind']} · env:{spec['secret_env']}\n"
+                )
+            for model_id, spec in sorted(registry["models"].items()):
+                output_stream.write(
+                    f"model {tui.visible_text(model_id)}\twire={spec['wire_model']} · "
+                    f"provider={spec['provider']} · context={spec['context_tokens']} · "
+                    f"{spec['created_via']}\n"
+                )
+            return 0
+        if command == "add-provider":
+            custom.add_provider(
+                runtime.environ,
+                args.name,
+                base_url=args.base_url,
+                auth_kind=args.auth,
+                secret_env=args.secret_env,
+                header=args.header,
+                display=args.display,
+                catalog_providers=tuple(runtime.catalog.providers.keys()),
+            )
+            output_stream.write(
+                f"provider {args.name} registered — apply with "
+                "`claude-multi-proxy init` + `systemctl --user restart cli-proxy-api`\n"
+            )
+            return 0
+        if command == "remove-provider":
+            removed = custom.remove_provider(runtime.environ, args.name)
+            output_stream.write(f"{'Removed' if removed else 'Not found'}: {args.name}\n")
+            return 0 if removed else 2
+        if command == "add-model":
+            custom.add_model(
+                runtime.environ,
+                args.name,
+                wire_model=args.wire,
+                provider=args.provider,
+                context_tokens=args.context,
+                display=args.display,
+                created_via="manual",
+                catalog_providers=tuple(runtime.catalog.providers.keys()),
+                catalog_models=tuple(runtime.catalog.models.keys()),
+            )
+            output_stream.write(
+                f"model {args.name} marked — apply with `claude-multi-proxy init` "
+                "+ `systemctl --user restart cli-proxy-api`\n"
+            )
+            return 0
+        if command == "remove-model":
+            removed = custom.remove_model(runtime.environ, args.name)
+            output_stream.write(f"{'Removed' if removed else 'Not found'}: {args.name}\n")
+            return 0 if removed else 2
 
     if args.command == "compose":
         command = args.compose_command
@@ -6090,7 +6828,7 @@ def handle_command(
                 raise CLIError(f"{args.uuid!r} is not a UUIDv4")
             if args.link_model is not None:
                 profile = compiler.direct_context_profile(
-                    runtime.catalog.docs, args.link_model
+                    runtime.ordinary_docs, args.link_model
                 )
                 adopted_cwd = _original_cwd_for_adopt(
                     runtime, args.uuid, explicit_cwd=args.link_cwd
@@ -6185,7 +6923,7 @@ def handle_command(
         return 0
 
     if args.command == "discover":
-        providers = runtime.catalog.docs["providers"]["providers"]
+        providers = runtime.ordinary_docs["providers"]["providers"]
         if args.provider not in providers:
             raise CLIError(
                 f"unknown provider {args.provider!r} (have: {', '.join(sorted(providers))})"
@@ -6212,7 +6950,8 @@ def handle_command(
             status = (
                 f"cataloged as {catalog_id}"
                 if catalog_id is not None
-                else "onboarding candidate (not in the trusted catalog)"
+                else "not registered — mark it in the TUI (G → P → A) or "
+                "onboard it for compositions via `claude-multi-dev model add --like`"
             )
             context = (
                 f" ctx={entry['context_length']}"
@@ -6367,11 +7106,11 @@ def _check_scope_integrity(runtime: Runtime, record: dict[str, Any]) -> tuple[st
                 managed_id=session_id,
                 hook_command=runtime.hook_command,
                 available_models=compiler.direct_profile_selectors(
-                    runtime.catalog.docs, record["context_profile"]
+                    runtime.ordinary_docs, record["context_profile"]
                 ),
-                default_model=runtime.catalog.models[record["ordinary_model"]][
-                    "client_selector"
-                ],
+                default_model=runtime.ordinary_docs["models"]["models"][
+                    record["ordinary_model"]
+                ]["client_selector"],
                 launch_epoch=record.get("launch_epoch", 0),
                 gateway_base_url=runtime.catalog.docs["gateway"]["gateway"][
                     "base_url"
@@ -6451,7 +7190,7 @@ def _doctor_scope_report(runtime: Runtime) -> tuple[list[str], list[str], list[s
         if record["session_type"] == sessions.SESSION_TYPE_ORDINARY:
             try:
                 _scalar, window, trigger = compiler.direct_profile_context(
-                    runtime.catalog.docs, record["context_profile"]
+                    runtime.ordinary_docs, record["context_profile"]
                 )
                 target = (
                     f"ordinary model {record['ordinary_model']} · profile "
@@ -6687,6 +7426,7 @@ def _doctor_repair(runtime: Runtime, uuid: str, output_stream: TextIO) -> int:
             runtime.session_store,
             stable_id,
             runtime.catalog,
+            ordinary_docs=runtime.ordinary_docs,
         )
     except transition.TransitionError as exc:
         raise CLIError(str(exc)) from exc
@@ -6727,6 +7467,7 @@ def _doctor_repair_all(runtime: Runtime, output_stream: TextIO) -> int:
                 runtime.session_store,
                 stable_id,
                 runtime.catalog,
+                ordinary_docs=runtime.ordinary_docs,
             )
         except (
             transition.TransitionError,
@@ -6940,6 +7681,7 @@ _STDOUT_REPORT_COMMANDS = frozenset(
         ("update", None),
         ("session-event", None),
         ("compose", "list"),
+        ("custom", "list"),
         ("compose", "show"),
         ("compose", "delete"),
         ("compose", "duplicate"),
@@ -7155,7 +7897,7 @@ def main(
             gateway_checked=gateway_checked,
             resume_decision="force" if args.force else None,
         )
-    except (CLIError, sessions.SessionError, state.StateError, catalog.CatalogError, compiler.CompilerError, composition.CompositionError, launch.LaunchError) as exc:
+    except (CLIError, sessions.SessionError, state.StateError, catalog.CatalogError, compiler.CompilerError, composition.CompositionError, launch.LaunchError, custom.CustomModelsError) as exc:
         output.write(f"claude-multi: {tui.visible_message(exc)}\n")
         output.flush()
         return 2

@@ -24,7 +24,7 @@ health    gateway ok · pin 2.1.218
 update    Claude 2.1.219 available · pinned 2.1.218 · press U to update
 
 Status  Ready
-Enter launch · E edit · Tab preset · W wf · D details · S sessions · G new gateway · ? help · U update · H health · Esc cancel
+Enter launch · E edit · Tab preset · W wf · D details · S sessions · G gateway models · H health · ? help · U update · Esc cancel
 ```
 
 (The `update` row and the **U** binding appear only when a newer Claude is
@@ -43,7 +43,7 @@ Elements and their honesty semantics:
 
 ## 1.5 Gateway picker (G, 2.10.0; providers pane P, 2.13.0)
 
-**G new gateway** (shared keybar tail, available on every card state) opens
+**G gateway models** (shared keybar tail, available on every card state) opens
 the ordinary-session launch picker — the TUI twin of `claude-gateway`:
 
 ```

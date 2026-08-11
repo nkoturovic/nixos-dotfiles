@@ -709,18 +709,26 @@ def _ordinary_expected_plan(
     trusted: Catalog,
     hook_command: str,
     token_helper_command: str,
+    *,
+    ordinary_docs: dict[str, Any] | None = None,
 ) -> scope.ScopePlan:
-    """The record-authoritative ordinary gateway scope."""
+    """The record-authoritative ordinary gateway scope.
 
-    model = trusted.docs["models"]["models"].get(record["ordinary_model"])
+    ``ordinary_docs`` (catalog + custom registry merged, 020) lets repair
+    converge custom sessions; without it only catalog models resolve.
+    """
+
+    docs = ordinary_docs if ordinary_docs is not None else trusted.docs
+    model = docs["models"]["models"].get(record["ordinary_model"])
     if model is None:
         raise TransitionError(
             f"ordinary model {record['ordinary_model']!r} is no longer in the "
-            "installed catalog; resume with an explicit supported `--model`"
+            "installed catalog or the custom registry; resume with an "
+            "explicit supported `--model`"
         )
     try:
         selectors = compiler.direct_profile_selectors(
-            trusted.docs, record["context_profile"]
+            docs, record["context_profile"]
         )
     except compiler.CompilerError as exc:
         raise TransitionError(str(exc)) from exc
@@ -867,6 +875,7 @@ def converge(
     trusted: Catalog,
     *,
     dir_fsync: Callable[[Path], None] | None = None,
+    ordinary_docs: dict[str, Any] | None = None,
 ) -> list[str]:
     """Converge a session's scope state to record authority (section 4).
 
@@ -919,7 +928,11 @@ def converge(
         token_helper_command = scope.ensure_token_helper_command(store.root)
         if record["session_type"] == sessions.SESSION_TYPE_ORDINARY:
             expected = _ordinary_expected_plan(
-                record, trusted, hook_command, token_helper_command
+                record,
+                trusted,
+                hook_command,
+                token_helper_command,
+                ordinary_docs=ordinary_docs,
             )
         else:
             # Repair-time record refresh: re-resolve the recorded composition

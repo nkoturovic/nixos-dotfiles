@@ -987,6 +987,30 @@ not-benchmark-verified phrase stays). (2) **`claude-multi-dev model add
 judgment fields) plus `--help` and the promote runbook — the mechanical/
 judgment split is now encoded instead of tribal.
 
+**D52 — Custom providers & ordinary models: the operator registry (2.15.0).**
+The "switch to newer models when released" funnel, completed: discover
+(015) → mark in the TUI (this) → try in an ordinary session → adopt into
+the catalog for compositions (019 scaffold). `custom.json` (0600, schema
+`custom.schema.json`) holds operator-added **providers** (Anthropic-
+compatible endpoint + key env var; type field is anthropic-only in v1) and
+**models** (wire id + provider + the safety fact `context_tokens`).
+Customs are ordinary-session-only by construction — never visible to
+composition resolution (R1/D3: the trusted catalog is untouched; the
+merge happens only in `Runtime.ordinary_docs` and the render path).
+Safety mechanics: each distinct context bound is its own picker
+group/fence (compaction can never strand a small model into a 1M policy);
+the renderer emits them as plain direct routes so the doctor served/drift
+radar covers them automatically (an unapplied add = config drift problem
+naming init+restart). TUI flows (providers pane): **N** new provider
+(id → endpoint → auth kind → env var name → masked key only when the
+variable is unset), **A** add models (explicit fetch confirm = the
+per-call approval; checkbox marking with advertised context; 404/unsupported
+→ manual type-in fallback), **D** on a custom picker row removes (confirm),
+Enter on a custom provider row offers key-replace/remove. Models browser
+(M in G) lists customs as ordinary-only. The Kimi listing supplies real
+context bounds (262144/1048576) — the provider-stated value flows into
+the fence, never a guess.
+
 ## User decision summary (what you're approving by accepting this design)
 
 1. Selected agents become **real files** in a per-session scope; the failure

@@ -194,7 +194,7 @@ class QuickConfirmTests(CLITestCase):
         self.assertEqual(
             cli.quick_footer(plan),
             (
-                "Enter launch · D details · S sessions · G new gateway · ? help · H health · Q cancel",
+                "Enter launch · D details · S sessions · G gateway models · ? help · H health · Q cancel",
             ),
         )
 
@@ -207,7 +207,7 @@ class QuickConfirmTests(CLITestCase):
         self.assertEqual(
             cli.quick_footer(plan),
             (
-                "Enter transition hint · D details · S sessions · G new gateway · ? help · H health · Q cancel",
+                "Enter transition hint · D details · S sessions · G gateway models · ? help · H health · Q cancel",
             ),
         )
         self.assertNotIn("Enter launch", "\n".join(cli.quick_footer(plan)))
@@ -3756,7 +3756,7 @@ class OrdinaryCardKeyTests(CLITestCase):
         self.assertIsNotNone(outcome)
         self.assertEqual(outcome[0], "perform")
         self.assertEqual(outcome[1].record["ordinary_model"], "kimi-k3")
-        self.assertIn("G new gateway", win.text())
+        self.assertIn("G gateway models", win.text())
 
     def test_line_mode_g_prints_listing_and_hint(self) -> None:
         code, out = self.run_cli([], "g\nq\n", interactive=True)
@@ -4590,7 +4590,7 @@ class ImprovementBatchTests(CLITestCase):
             code, out = self.run_cli(["discover", "kimi"], interactive=False)
         self.assertEqual(code, 0)
         self.assertIn("k3\tcataloged as kimi-k3", out)
-        self.assertIn("k4\tonboarding candidate", out)
+        self.assertIn("k4\tnot registered", out)
         self.assertIn("ctx=1048576", out)
 
     def test_discover_unknown_provider_is_exit_2(self) -> None:
@@ -4670,6 +4670,277 @@ class ImprovementBatchTests(CLITestCase):
         win = FakeWindow(["u", "\x1b", "\x1b"])  # u → modal → Esc cancels
         screen.run(win)
         self.assertEqual(calls, [])
+
+
+class ModelsBrowserTests(CLITestCase):
+    """2.15.0: the read-only catalog browser (M in G) + enable jump."""
+
+    def _open(self, keys, allow=True, **kw):
+        from test_tui import FakeWindow
+
+        screen = cli._ModelsScreen(
+            self.runtime, palette=tui.MONO_PALETTE, allow_edit_jump=allow
+        )
+        win = FakeWindow(keys, **kw)
+        result = screen.run(win)
+        return result, win, screen
+
+    def test_lists_every_catalog_model_including_agents_only(self) -> None:
+        _result, win, _screen = self._open(["\x1b"])
+        text = win.text()
+        for model_id in ("fable", "glm52", "kimi-k3", "opus", "opus5", "qwen38", "sol"):
+            self.assertIn(model_id, text)
+        # gpt55 never appears in the G picker (no ordinary profile) but is
+        # a full catalog member and must be visible here.
+        self.assertIn("gpt55", text)
+        self.assertIn("not in default", text)
+
+    def test_details_modal_shows_wire_context_and_routing(self) -> None:
+        _result, win, _screen = self._open(["\n", "\x1b", "\x1b"])  # fable row
+        self.assertTrue(
+            any("wire: claude-fable-5" in frame for frame in win.frames)
+        )
+        self.assertTrue(any("routing:" in frame for frame in win.frames))
+
+    def test_e_jump_returns_model_only_when_allowed(self) -> None:
+        result, _win, _screen = self._open(["e"])
+        self.assertEqual(result, "fable")  # first row alphabetically
+        # without the flag E is dead and the keybar hides it; Esc leaves
+        result2, win2, _s2 = self._open(["e", "\x1b"], allow=False)
+        self.assertIsNone(result2)
+        self.assertNotIn("enable in composition", win2.text())
+
+    def test_picker_m_keybar_and_jump_thread_to_card_editor(self) -> None:
+        from test_tui import FakeWindow
+
+        plan = cli.build_quick_plan(
+            self.runtime,
+            self.runtime.compositions.load("default"),
+            action="fresh", source="t",
+        )
+        screen = cli._QuickConfirmScreen(
+            self.runtime, plan, passthrough=[], palette=tui.MONO_PALETTE,
+            gateway_check=lambda: None,
+        )
+        # g (picker) → m (browser) → e (jump on fable) → editor opens
+        # focused with the guidance message → Esc leaves → Esc leaves card.
+        win = FakeWindow(["g", "m", "e", "\x1b", "\x1b"])
+        screen.run(win)
+        self.assertTrue(
+            any("set the fable scope" in frame for frame in win.frames),
+            "editor should open with the enable guidance for fable",
+        )
+
+
+class CustomModelsTests(CLITestCase):
+    """020: custom providers & ordinary models registry + integration."""
+
+    def _add_kimi_custom(self, model_id="k3-256k", context=262144):
+        cli.custom.add_model(
+            self.runtime.environ,
+            model_id,
+            wire_model=model_id,
+            provider="kimi",
+            context_tokens=context,
+            created_via="discover",
+            catalog_providers=tuple(self.runtime.catalog.providers.keys()),
+        )
+
+    def test_registry_roundtrip_and_mode(self) -> None:
+        cli.custom.add_provider(
+            self.runtime.environ,
+            "my-lab",
+            base_url="https://lab.example.com/apps/anthropic",
+            auth_kind="bearer",
+            secret_env="MY_LAB_API_KEY",
+        )
+        registry = cli.custom.load_registry(self.runtime.environ)
+        self.assertIn("my-lab", registry["providers"])
+        path = cli.custom.registry_path(self.runtime.environ)
+        self.assertEqual(stat.S_IMODE(path.stat().st_mode), 0o600)
+        self.assertTrue(cli.custom.remove_provider(self.runtime.environ, "my-lab"))
+
+    def test_invalid_registry_fails_closed(self) -> None:
+        path = cli.custom.registry_path(self.runtime.environ)
+        state.ensure_private_dir(path.parent)
+        state.atomic_write(path, b'{"version": 1, "models": {"x": {}}, "providers": {}}')
+        with self.assertRaises(cli.custom.CustomModelsError):
+            cli.custom.load_registry(self.runtime.environ)
+
+    def test_ordinary_docs_merges_but_catalog_never_sees_customs(self) -> None:
+        self._add_kimi_custom()
+        self.assertIn("k3-256k", self.runtime.ordinary_docs["models"]["models"])
+        self.assertNotIn("k3-256k", self.runtime.catalog.models)
+        # Composition resolution is catalog-only: a custom id must fail there.
+        document = self.runtime.compositions.load("default")
+        document["slots"].append({"role": "cm-reviewer", "model": "k3-256k"})
+        with self.assertRaises(ValueError):
+            self.runtime.resolve_document(document)
+
+    def test_picker_shows_custom_group_and_launches(self) -> None:
+        self._add_kimi_custom()
+        from test_tui import FakeWindow
+
+        screen = cli._OrdinaryScreen(self.runtime, palette=tui.MONO_PALETTE)
+        # The custom row sorts first; the cursor starts on sol — go up to it.
+        keys = ["k"] * (len(screen.rows) - 1) + ["\x1b"]
+        win = FakeWindow(keys)
+        screen.run(win)
+        text = win.text()
+        self.assertIn("custom · 256K context", text)
+        self.assertIn("k3-256k", text)
+        self.assertIn("/model custom-k3-256k", text)
+        # Launch path: prepare_direct compiles with the custom profile.
+        prepared = self.runtime.prepare_direct(
+            action="fresh", model_id="k3-256k", passthrough=[]
+        )
+        self.assertEqual(prepared.record["context_profile"], "custom-262144")
+        self.assertEqual(prepared.record["ordinary_model"], "k3-256k")
+
+    def test_picker_d_removes_custom_model(self) -> None:
+        self._add_kimi_custom()
+        from test_tui import FakeWindow
+
+        screen = cli._OrdinaryScreen(self.runtime, palette=tui.MONO_PALETTE)
+        # custom row is first; cursor starts on sol (last) — go all the way up
+        keys = ["k"] * (len(screen.rows) - 1) + ["d", "\n", "\x1b"]
+        win = FakeWindow(keys)
+        screen.run(win)
+        registry = cli.custom.load_registry(self.runtime.environ)
+        self.assertNotIn("k3-256k", registry["models"])
+
+    def test_catalog_row_d_is_a_noop(self) -> None:
+        from test_tui import FakeWindow
+
+        screen = cli._OrdinaryScreen(self.runtime, palette=tui.MONO_PALETTE)
+        before = len(screen.rows)
+        win = FakeWindow(["d", "\x1b"])  # cursor on fable (catalog)
+        screen.run(win)
+        self.assertEqual(len(screen.rows), before)
+
+    def test_doctor_flags_unapplied_custom_as_config_drift(self) -> None:
+        self._add_kimi_custom()
+        config_dir = cli.proxy_mod.config_dir(Path(self.runtime.environ["HOME"]))
+        state.ensure_private_dir(config_dir)
+        # On-disk config rendered WITHOUT the custom model → drift problem.
+        state.atomic_write(config_dir / "config.yaml", b"old: true\n")
+        with unittest.mock.patch.object(
+            cli.launch, "served_models", return_value=set()
+        ):
+            problems, _info = cli._doctor_served_report(self.runtime, "t" * 64)
+        self.assertTrue(any("claude-multi-proxy init" in p for p in problems))
+
+    def test_pane_manual_add_model_flow(self) -> None:
+        from test_tui import FakeWindow
+
+        screen = cli._ProvidersScreen(self.runtime, palette=tui.MONO_PALETTE)
+        import curses as _curses
+
+        # kimi row (index 1), a → query modal → Right to "Type in manually"
+        keys = ["j", "a", _curses.KEY_RIGHT, "\n"]
+        keys += list("my-model") + ["\n", "\n"]   # id prompt
+        keys += ["\n", "\n"]                       # wire: accept the prefill
+        keys += list("262144") + ["\n", "\n"]      # context
+        keys += ["\n", "\n"]                       # display: accept empty
+        keys += ["\x1b"]                            # leave the pane
+        win = FakeWindow(keys)
+        screen.run(win)
+        registry = cli.custom.load_registry(self.runtime.environ)
+        self.assertIn("my-model", registry["models"])
+        self.assertEqual(registry["models"]["my-model"]["wire_model"], "my-model")
+        self.assertEqual(registry["models"]["my-model"]["context_tokens"], 262144)
+
+    def test_pane_new_provider_flow_writes_provider_and_masked_key(self) -> None:
+        from test_tui import FakeWindow
+
+        screen = cli._ProvidersScreen(self.runtime, palette=tui.MONO_PALETTE)
+        keys = ["n"]
+        keys += list("my-lab") + ["\n", "\n"]               # id
+        keys += list("https://lab.example.com/apps/anthropic") + ["\n", "\n"]
+        keys += ["\n"]                                       # auth: bearer (first)
+        keys += ["\n", "\n"]                                 # env name default
+        keys += list("sk-lab-key-9") + ["\n", "\n"]          # masked key
+        keys += ["\x1b"]
+        win = FakeWindow(keys)
+        screen.run(win)
+        registry = cli.custom.load_registry(self.runtime.environ)
+        self.assertIn("my-lab", registry["providers"])
+        content = self.secret_file.read_text()
+        self.assertIn("MY_LAB_API_KEY=sk-lab-key-9", content)
+        for frame in win.frames:
+            self.assertNotIn("sk-lab-key-9", frame)
+
+
+    def test_record_save_accepts_custom_profile(self) -> None:
+        # P0 regression: the session schema must accept custom-<n> profiles,
+        # else no custom ordinary session can ever be recorded.
+        self._add_kimi_custom()
+        prepared = self.runtime.prepare_direct(
+            action="fresh", model_id="k3-256k", passthrough=[]
+        )
+        self.runtime.session_store.save(prepared.record)
+        loaded = self.runtime.session_store.load(
+            prepared.record["managed_id"]
+        )
+        self.assertEqual(loaded["context_profile"], "custom-262144")
+
+    def test_line_mode_listing_with_custom_provider_no_crash(self) -> None:
+        # P0 regression: _connect_hint must resolve custom providers.
+        cli.custom.add_provider(
+            self.runtime.environ,
+            "my-lab",
+            base_url="https://lab.example.com/apps/anthropic",
+            auth_kind="bearer",
+            secret_env="MY_LAB_API_KEY",
+            catalog_providers=tuple(self.runtime.catalog.providers.keys()),
+        )
+        self._add_kimi_custom()
+        out = io.StringIO()
+        cli._print_ordinary_listing(self.runtime, out)  # must not raise
+        self.assertIn("my-lab", out.getvalue())
+
+    def test_doctor_census_accepts_custom_sessions(self) -> None:
+        # P1 regression: the scope census must not flag a custom session.
+        self._add_kimi_custom()
+        prepared = self.runtime.prepare_direct(
+            action="fresh", model_id="k3-256k", passthrough=[]
+        )
+        self.runtime.session_store.save(prepared.record)
+        problems, info, _attention = cli._collect_doctor_reports(self.runtime)
+        joined = "\n".join(problems)
+        self.assertNotIn("no longer", joined)
+        self.assertNotIn("custom-262144", joined)
+
+    def test_converge_repairs_custom_sessions(self) -> None:
+        # P1 regression: doctor --repair must converge custom sessions.
+        from claude_multi import transition as transition_mod
+
+        self._add_kimi_custom()
+        prepared = self.runtime.prepare_direct(
+            action="fresh", model_id="k3-256k", passthrough=[]
+        )
+        self.runtime.session_store.save(prepared.record)
+        report = transition_mod.converge(
+            self.runtime.session_store.root,
+            self.runtime.session_store,
+            prepared.record["managed_id"],
+            self.runtime.catalog,
+            ordinary_docs=self.runtime.ordinary_docs,
+        )
+        self.assertTrue(any("authoritative" in line for line in report))
+
+    def test_fetch_mark_rejects_catalog_id_shadowing(self) -> None:
+        with self.assertRaises(cli.custom.CustomModelsError):
+            cli.custom.add_model(
+                self.runtime.environ,
+                "sol",  # a catalog id — must never be shadowed
+                wire_model="whatever-wire",
+                provider="kimi",
+                context_tokens=262144,
+                created_via="discover",
+                catalog_providers=tuple(self.runtime.catalog.providers.keys()),
+                catalog_models=tuple(self.runtime.catalog.models.keys()),
+            )
 
 
 class PolishBatchTests(CLITestCase):

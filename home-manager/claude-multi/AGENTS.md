@@ -158,7 +158,8 @@ Two modes:
 | `tui.py` | curses widget layer | every external string through `visible_text`; `read_key` does not re-merge Alt+chords (ncurses splits them by design); Esc is the only exit key; uniform col-2 margin; KeyBar wraps upward (≤2 rows) and past that compacts middle bindings behind an ellipsis — the exit binding is unclippable; screens must reserve `KeyBar.rows(width)` above the bar |
 | `catalog.py` | trusted JSON load + validate | closed schemas; `version.json` single source of version |
 | `render.py` | gateway YAML | secrets resolve only at runtime into mode-0600 artifacts; `rendered_selectors`/`provider_selectors` are the served-set authority (aliases only — wire names are never served) |
-| `proxy.py` | gateway process control | loopback only; token file 0600; `set_secret_value` = parse-preserving 0600 masked-entry writer (018) |
+| `custom.py` | custom providers/models registry (020) | `custom.json` 0600 schema-validated; synthetic catalog-shaped entries; merge feeds ordinary/render paths only — never compositions |
+| `proxy.py` | gateway process control | loopback only; token file 0600; `set_secret_value` = parse-preserving 0600 masked-entry writer (018); `list_provider_models` = explicit-invocation provider listing |
 | `dev.py` | draft→check→review→promote | promotes only models/providers; dummy secrets in checks; pretty post-images |
 | `probe.py` | dev-only loopback harness | never touches live daemon/providers/transcripts; fixture roots only |
 

@@ -24,6 +24,7 @@ from pathlib import Path
 from typing import Any, Callable
 
 from . import catalog as catalog_mod
+from . import custom as custom_mod
 from . import launch as launch_mod
 from . import render as render_mod
 from . import state, strict_json
@@ -131,7 +132,8 @@ def resolve_secret(
 # Verified provider model-listing support (2026-08-10, approval-gated probes):
 # kimi answers the Anthropic-shape GET {base}/v1/models; the Qwen Token Plan
 # apps/anthropic path returns 404 "Not support"; OAuth pools have no direct
-# API credential to list with.
+# API credential to list with. Any other DIRECT provider (incl. customs) is
+# attempted with the same Anthropic shape and falls back to manual entry.
 _LISTING_SUPPORT = {
     "kimi": "anthropic-v1-models",
     "qwen": "unsupported",
@@ -148,30 +150,26 @@ def list_provider_models(
 ) -> list[dict[str, Any]]:
     """List the models a provider advertises — an EXPLICIT provider call.
 
-    Runs only when the operator invokes `claude-multi discover PROVIDER`
-    (the invocation is the per-call approval); never from doctor, the pane,
-    or any automatic path. Secrets are read for the request and never
-    logged, returned, or embedded in errors.
+    Runs only on explicit operator invocation (the `discover` command, or a
+    confirmed fetch in the providers pane) — the invocation is the per-call
+    approval; never from doctor or any automatic path. Secrets are read for
+    the request and never logged, returned, or embedded in errors.
     """
 
     provider = providers[provider_id]
+    transport = provider["transport"]
     support = _LISTING_SUPPORT.get(provider_id)
     if support == "unsupported":
         raise ProxyError(
             f"provider {provider_id!r} does not support model listing "
             "(verified 2026-08-10: its Anthropic path answers 404 'Not support')"
         )
-    if support != "anthropic-v1-models":
-        transport_kind = provider["transport"]["kind"]
-        if transport_kind == "oauth-pool":
-            raise ProxyError(
-                f"provider {provider_id!r} is an OAuth pool — there is no "
-                "direct API credential to list models with"
-            )
+    if transport["kind"] == "oauth-pool":
         raise ProxyError(
-            f"no verified model-listing endpoint for provider {provider_id!r}"
+            f"provider {provider_id!r} is an OAuth pool — there is no "
+            "direct API credential to list models with"
         )
-    transport = provider["transport"]
+    # support is "anthropic-v1-models" (verified) or None (attempt).
     secret_ref = transport["auth"]["secret_ref"]
     env_name = secret_ref.removeprefix("env:")
     secret = resolve_secret(env_name, environ=environ)
@@ -398,10 +396,18 @@ def render_runtime_config(
         bundle = catalog_mod.load_catalog(assets_root(environ))
         token = ensure_token(home)
         resolve = resolver or (lambda name: resolve_secret(name, environ=environ))
+        # Custom providers/models (020) render as ordinary direct routes;
+        # the merge keeps the served/drift radar covering them.
+        docs = custom_mod.merge_docs(
+            bundle.docs,
+            custom_mod.load_registry(
+                dict(os.environ if environ is None else environ)
+            ),
+        )
         result = render_mod.render_config(
-            bundle.docs["gateway"],
-            bundle.docs["providers"]["providers"],
-            bundle.docs["models"]["models"],
+            docs["gateway"],
+            docs["providers"]["providers"],
+            docs["models"]["models"],
             home=home,
             gateway_token=token,
             resolve_secret=resolve,

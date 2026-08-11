@@ -121,6 +121,13 @@ untouched; `claude-gateway` is the ordinary non-composition entrypoint.
   **^O** save chord; readable dark-theme muted color. Live acceptance call
   proved `qwen3.8-max` routing; `doctor --repair-all` converged all 33
   durable sessions; doctor Ready.
+- **2.15.0 built, awaiting activation** (D52; blueprint 020): custom
+  providers & ordinary models via the `custom.json` registry — N/A/D
+  flows in the providers pane (fetch-mark with advertised context bounds
+  for Kimi, manual type-in anywhere), per-bound picker groups, doctor
+  radar coverage automatic; compositions untouched by design. Plus the M
+  models browser with the E enable-jump and the G "gateway models" rename.
+  Activation: HM switch + doctor check.
 - **2.14.0 improvement pass live** (gen 121) (D51; blueprint
   019): BLOCKED cards point at the in-TUI key fix; OAuth `(sign in needed)`
   row marking; line-mode H; hardened secret writes (locked + re-parsed);
