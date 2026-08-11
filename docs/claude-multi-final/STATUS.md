@@ -1,6 +1,10 @@
 # STATUS — live tracker
 
-## 2026-08-11 — v2.15.0: custom providers & ordinary models (D52, blueprint 020) — built, AWAITING ACTIVATION
+## 2026-08-11 — v2.15.0: custom providers & ordinary models (D52, blueprint 020, activated gen 122)
+
+- **Activated**: HM gen 122, doctor **Ready** (no repair-all needed).
+  Live smoke: `custom list` answers, `compose list` MRU-first, models
+  two-line output with wire + typed selectors.
 
 - **The "new model released" funnel is complete**: discover (015) → mark
   in the TUI (this) → try in an ordinary session → adopt into the catalog
@@ -28,7 +32,8 @@
   g) — plus P1 doctor-census/repair coverage of custom sessions and a
   fetch-path shadow-guard miss. All fixed with seam-level regression tests
   (record save, converge, census, listing, render-with-customs).
-- Evidence: **1,582 host tests OK (skipped=2)**, sandbox green.
+- Evidence: **1,582 host tests OK (skipped=2)**, sandbox green;
+  post-activation doctor Ready (gen 122).
 
 ## 2026-08-11 — v2.14.0: post-release improvement pass (D51, blueprint 019, activated gen 121)
 

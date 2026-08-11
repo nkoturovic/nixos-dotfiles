@@ -12,7 +12,7 @@ shared across both so every work item has a unique id.
 | 017 | [Muted color visibility](017-muted-color-visibility/) | 2.13.0 | landed (activated, gen 120) |
 | 018 | [Providers pane](018-providers-pane/) | 2.13.0 | landed (activated, gen 120) |
 | 019 | [Post-release improvements](019-post-release-improvements/) | 2.14.0 | landed (activated, gen 121) |
-| 020 | [Custom providers & ordinary models](020-custom-ordinary-models/) | 2.15.0 | landed (awaiting activation) |
+| 020 | [Custom providers & ordinary models](020-custom-ordinary-models/) | 2.15.0 | landed (activated, gen 122) |
 
 Batch approval flow: blueprints → implementation → per-item review → full suite
 → commits on `feature/term-only` → **operator green light** → HM activation
