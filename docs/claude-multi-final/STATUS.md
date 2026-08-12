@@ -18,9 +18,32 @@
   max; budget_tokens ignored upstream; reasoning_effort is OpenAI-only).
 - **Listing is descriptor-driven** (`_LISTING_SUPPORT`): openrouter is
   public + OpenAI-shaped (auth:none; name/context_length/max_completion/
-  supported_efforts mapped); deepseek attempts the Anthropic path
-  (probe-pending). The pane's query modal is honest about public
-  endpoints.
+  supported_efforts mapped); deepseek lists via its documented OpenAI-shape
+  `GET /models` (Bearer) — verified 2026-08-12; the Anthropic path 404s.
+  The pane's query modal is honest about public endpoints and names the
+  exact URL it will fetch.
+- **Probes landed 2026-08-12** (approval-gated, ~10 tiny calls): DeepSeek
+  smoke green on x-api-key AND Bearer; OpenRouter skin verified for
+  grok-4.5 (well-formed tool_use, canonical streaming block order, effort
+  params accepted); grok45's reasoning is mandatory with high as the top
+  effort — matching the shipped single-high-lane shape.
+- **Sol codex-route correction (D56)**: recurring mid-turn
+  prompt-too-long failures pinpointed to the route's July 2026 budget
+  cuts (server catalog 272K at 95% effective ≈ 258.4K); sol/gpt55 fenced
+  at 258,400 (trigger 214,560), with the revert path recorded in the
+  qualification (restore 372000 if the server catalog returns to 372K+).
+- **Multi-route strategy (D55)**: one catalog entry per (model, route) —
+  context/effort/qualification are route-scoped by construction; discover
+  wire mapping is provider-scoped; the catalog rejects duplicate
+  (provider, wire) pairs; per-model family override deferred with a
+  trigger.
+- **Review sweep 2** (deep workflow: glm52 approve + qwen38 revise, all
+  confirmed findings fixed): fetch-mark picker toggles were invisible
+  (SelectList multi-mode markers now render from the widget-tracked set);
+  the pane's non-public listing modal misnamed the endpoint for the
+  bearer-listing provider (names the exact URL now); stale ledger lines
+  flipped. The sol-xhigh catalog reviewer died mid-run with "Prompt is
+  too long" — the D55 failure class on our own tooling.
 - **Compositions** (operator-level, store-validated): `deepseek`
   (all-flash side-task rig) and `grok-deepseek` (grok lead + flash
   agents + cross-family review) — both resolve; fence math pinned

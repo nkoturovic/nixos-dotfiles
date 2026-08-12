@@ -99,8 +99,8 @@ untouched; `claude-gateway` is the ordinary non-composition entrypoint.
   skin; 500K in its own `grok` profile — window from the scope env, no
   `[1m]`). Compositions: `deepseek` (all-flash side-task rig),
   `grok-deepseek` (grok lead + flash agents, cross-family review).
-  Listing: deepseek attempts the Anthropic path (probe-pending; the
-  documented fallback is OpenAI-shape `/models` with Bearer); openrouter
+  Listing: deepseek lists via the documented OpenAI-shape `GET /models`
+  (Bearer — verified 2026-08-12; the Anthropic path 404s); openrouter
   lists via the PUBLIC OpenAI-shape `GET /api/v1/models` (no key).
 - **GLM-5.2 live on the qwen provider** (2.9.0, D45): wire `glm-5.2` at the
   Token Plan endpoint, selector `claude-multi-glm52-max[1m]`, lead+agents,
@@ -170,7 +170,7 @@ untouched; `claude-gateway` is the ordinary non-composition entrypoint.
 Qwen3.8 Max lead (production since 2026-08-03 GA; ultracode, thinking always on, `reasoning_effort: xhigh`
 — the provider maximum), Sol preferred analyst/implementer/reviewer
 variants, Qwen-max alternates. Cross-family review: Sol (openai) reviews
-Qwen (alibaba) work and vice versa. Sol variants retain the process-wide 372K
+Qwen (alibaba) work and vice versa. Sol variants retain the process-wide 258K (D56)
 scalar, while the `[1m]` Qwen lead uses a provider-safe 983,616 compaction
 capacity plus the explicit 90% override. Pinned 2.1.220 reserves 20K output,
 so the deterministic reactive trigger is 867,254; proactive preparation is

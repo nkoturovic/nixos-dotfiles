@@ -425,6 +425,7 @@ def validate_catalog(raw: dict[str, Any]) -> list[str]:
     }
 
     lane_selectors: dict[str, str] = {}
+    route_wires: dict[str, str] = {}
     for model_id in sorted(models):
         model = models[model_id]
         where = f"models.{model_id}"
@@ -433,6 +434,19 @@ def validate_catalog(raw: dict[str, Any]) -> list[str]:
             errors.append(f"{where}.provider: unknown provider {provider_id!r}")
             continue
         provider = providers[provider_id]
+        # One entry per (provider, wire): two entries with the same wire on
+        # the SAME provider would make listing/radar attribution ambiguous
+        # (D55). The same wire on DIFFERENT providers is the multi-route
+        # convention — each entry is its own route.
+        route_key = f"{provider_id}:{model['wire_model']}"
+        if route_key in route_wires:
+            errors.append(
+                f"{where}.wire_model: duplicate route wire "
+                f"{model['wire_model']!r} on provider {provider_id!r} "
+                f"(already {route_wires[route_key]})"
+            )
+        else:
+            route_wires[route_key] = where
         context = model["context"]
         client_tokens = context["client_tokens"]
         provider_tokens = context["provider_tokens"]

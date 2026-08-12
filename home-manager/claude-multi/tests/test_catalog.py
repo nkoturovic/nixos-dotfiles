@@ -117,8 +117,8 @@ class SeedLoadTests(unittest.TestCase):
         self.assertEqual(kimi["validated_tokens"], 208034)
         self.assertEqual(kimi["provider_stated_limit_tokens"], 262144)
         self.assertEqual(kimi["user_reported_tokens"], 1000000)
-        self.assertEqual(bundle.models["sol"]["context"]["scalar_tokens"], 372000)
-        self.assertEqual(bundle.models["gpt55"]["context"]["scalar_tokens"], 272000)
+        self.assertEqual(bundle.models["sol"]["context"]["scalar_tokens"], 258400)
+        self.assertEqual(bundle.models["gpt55"]["context"]["scalar_tokens"], 258400)
 
     def test_settings_carry_no_worktree_keys(self) -> None:
         bundle = catalog.load_catalog(CATALOG_ROOT)
@@ -1014,3 +1014,46 @@ class WireSlashPatternTests(unittest.TestCase):
     def test_leading_slash_rejected(self) -> None:
         problems = self._wire_problems("/grok-4.5")
         self.assertTrue(any("wire_model" in p for p in problems))
+
+    def test_duplicate_route_wire_rejected_same_provider_allowed_cross(self) -> None:
+        # D55: same (provider, wire) twice is ambiguous; same wire across
+        # DIFFERENT providers is the multi-route convention.
+        def dup_same(raw):
+            models = raw["docs"]["models"]["models"]
+            import copy as _copy
+
+            clone = _copy.deepcopy(models["grok45"])
+            clone["client_selector"] = "claude-multi-grok45-alt"
+            clone["lanes"]["high"]["client_selector"] = "claude-multi-grok45-alt"
+            models["grok45-alt"] = clone
+
+        errors = _mutate(dup_same)
+        self.assertTrue(any("duplicate route wire" in e for e in errors))
+
+        def same_wire_other_provider(raw):
+            models = raw["docs"]["models"]["models"]
+            providers = raw["docs"]["providers"]["providers"]
+            import copy as _copy
+
+            clone = _copy.deepcopy(models["grok45"])
+            clone["provider"] = "deepseek"
+            clone["wire_model"] = "x-ai/grok-4.5"  # same wire, different provider
+            clone["client_selector"] = "claude-multi-grok45-ds"
+            clone["lanes"]["high"]["client_selector"] = "claude-multi-grok45-ds"
+            clone["lanes"]["high"]["proxy_effort_contract"] = None
+            clone["context"]["ordinary_profile"] = "grok"
+            models["grok45-ds"] = clone
+
+        errors = _mutate(same_wire_other_provider)
+        self.assertFalse(any("duplicate route wire" in e for e in errors))
+
+    def test_codex_route_fences_at_the_effective_budget(self) -> None:
+        # D56: the codex OAuth route's server budget is 272000 at 95%
+        # effective — sol/gpt55 fence at 258400, never the advertised number.
+        bundle = catalog.load_catalog(CATALOG_ROOT)
+        for model_id in ("sol", "gpt55"):
+            context = bundle.models[model_id]["context"]
+            self.assertEqual(context["provider_stated_limit_tokens"], 272000)
+            self.assertEqual(context["provider_tokens"], 258400)
+            self.assertEqual(context["validated_tokens"], 258400)
+            self.assertIn("95%", context["qualification"])

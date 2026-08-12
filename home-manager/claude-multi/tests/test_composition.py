@@ -139,7 +139,7 @@ class SolReviewerTests(unittest.TestCase):
         bundle, document = self._sol_reviewer_doc(lanes=("xhigh",))
         resolved = composition.resolve(bundle.docs, document)
         self.assertNotIn("gpt55", {v.model for v in resolved.variants})
-        self.assertEqual(resolved.scalar_context_tokens, 372000)
+        self.assertEqual(resolved.scalar_context_tokens, 258400)
 
 
 class KimiReviewerTests(unittest.TestCase):
@@ -181,7 +181,7 @@ class KimiReviewerTests(unittest.TestCase):
         bundle, document = self._kimi_reviewer_doc()
         resolved = composition.resolve(bundle.docs, document)
         # Fable and Kimi have no process scalar; only Sol counts.
-        self.assertEqual(resolved.scalar_context_tokens, 372000)
+        self.assertEqual(resolved.scalar_context_tokens, 258400)
 
     def test_independence_rules_cover_both_reviewer_families(self) -> None:
         from claude_multi import compiler
@@ -314,7 +314,7 @@ class SnapshotTests(unittest.TestCase):
         snap = composition.snapshot(resolved)
         self.assertEqual(snap["lead"]["model"], "opus5")
         self.assertEqual(len(snap["variants"]), 6)
-        self.assertEqual(snap["scalar_context_tokens"], 372000)
+        self.assertEqual(snap["scalar_context_tokens"], 258400)
         self.assertEqual(snap["auto_compact_window_tokens"], 1000000)
         self.assertEqual(
             snap["native_agents"],

@@ -362,7 +362,7 @@ class AgentDefinitionTests(unittest.TestCase):
             session_id=FIXED_SESSION,
             composition_name="sol-native",
         )
-        self.assertIn("Lead context: 372000 client tokens", appendix)
+        self.assertIn("Lead context: 258400 client tokens", appendix)
         self.assertIn("Native agents inherit this lower-context lead", appendix)
         self.assertIn("loaded skills bounded", appendix)
         self.assertIn("does not raise this process capacity", appendix)
@@ -461,7 +461,7 @@ class EnvironmentTests(unittest.TestCase):
 
     def test_scalar_present_sets_exact_value(self) -> None:
         _, _, result = _compile()
-        self.assertEqual(result.env_set["CLAUDE_CODE_MAX_CONTEXT_TOKENS"], "372000")
+        self.assertEqual(result.env_set["CLAUDE_CODE_MAX_CONTEXT_TOKENS"], "258400")
         self.assertNotIn("CLAUDE_CODE_MAX_CONTEXT_TOKENS", result.env_unset)
 
     def test_env_set_and_unset(self) -> None:
@@ -493,7 +493,7 @@ class EnvironmentTests(unittest.TestCase):
         self.assertEqual(result.env_set["CLAUDE_MULTI_GATEWAY"], "1")
         self.assertEqual(result.env_set["CLAUDE_MULTI_SESSION_ID"], FIXED_SESSION)
         self.assertEqual(result.env_set["DISABLE_AUTOUPDATER"], "1")
-        self.assertEqual(result.env_set["CLAUDE_CODE_MAX_CONTEXT_TOKENS"], "372000")
+        self.assertEqual(result.env_set["CLAUDE_CODE_MAX_CONTEXT_TOKENS"], "258400")
         self.assertEqual(result.env_set["CLAUDE_CODE_AUTO_COMPACT_WINDOW"], "1000000")
         self.assertEqual(result.env_set["CLAUDE_AUTOCOMPACT_PCT_OVERRIDE"], "90")
         self.assertNotIn("ANTHROPIC_AUTH_TOKEN", result.env_set)
@@ -737,12 +737,12 @@ class RuntimeIdentityAndDirectCompileTests(unittest.TestCase):
             result.scope_plan.settings["availableModels"],
             ["gpt-multi-sol-high", "gpt-multi-sol-xhigh"],
         )
-        self.assertEqual(result.env_set["CLAUDE_CODE_MAX_CONTEXT_TOKENS"], "372000")
-        self.assertEqual(result.env_set["CLAUDE_CODE_AUTO_COMPACT_WINDOW"], "372000")
+        self.assertEqual(result.env_set["CLAUDE_CODE_MAX_CONTEXT_TOKENS"], "258400")
+        self.assertEqual(result.env_set["CLAUDE_CODE_AUTO_COMPACT_WINDOW"], "258400")
         self.assertEqual(result.env_set["CLAUDE_AUTOCOMPACT_PCT_OVERRIDE"], "90")
         self.assertEqual(
             compiler.direct_profile_context(bundle.docs, "sol"),
-            (372000, 372000, 316800),
+            (258400, 258400, 214560),
         )
 
     def test_direct_profile_context_is_derived_from_catalog(self) -> None:

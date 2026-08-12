@@ -3505,7 +3505,7 @@ class OrdinaryScreenTuiTests(CLITestCase):
         text = win.text()
         self.assertIn("gateway session — no composition", text)
         self.assertIn("large · 1M context", text)
-        self.assertIn("sol · 372K context", text)
+        self.assertIn("sol · 258K context", text)
         self.assertIn("grok · 500K context", text)
         for model_id in ("deepseek-flash", "fable", "glm52", "grok45", "kimi-k3", "opus", "opus5", "qwen38", "sol"):
             self.assertIn(model_id, text)
@@ -6111,7 +6111,7 @@ class SessionEventAndDirectModeTests(CLITestCase):
             "gpt-multi-sol-high",
         )
         self.assertEqual(
-            prepared.result.env_set["CLAUDE_CODE_AUTO_COMPACT_WINDOW"], "372000"
+            prepared.result.env_set["CLAUDE_CODE_AUTO_COMPACT_WINDOW"], "258400"
         )
         self.assertEqual(
             prepared.result.env_set["CLAUDE_AUTOCOMPACT_PCT_OVERRIDE"], "90"

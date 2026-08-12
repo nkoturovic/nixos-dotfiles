@@ -3735,7 +3735,7 @@ ORDINARY_SUBTITLE = (
 )
 ORDINARY_PROFILE_NOTES = {
     "large": "1M context · /model switches freely within this group",
-    "sol": "372K context · lanes high/xhigh via /model",
+    "sol": "258K context · lanes high/xhigh via /model",
     "grok": "500K context · /model switches freely within this group",
 }
 ORDINARY_PROFILE_NOTE_DEFAULT = "/model switches freely within this group"
@@ -5051,6 +5051,9 @@ class _ProvidersScreen:
         listed: list[dict[str, Any]] | None = None
         if proxy_mod.listing_supported(provider_id):
             public_listing = proxy_mod.listing_is_public(provider_id)
+            listing_path = proxy_mod.listing_endpoint(
+                provider_id, self.runtime.ordinary_docs["providers"]["providers"]
+            )
             confirmed = tui.Modal(
                 f"Query {fact['display']} for its model list?",
                 [
@@ -5059,8 +5062,8 @@ class _ProvidersScreen:
                 ]
                 if public_listing
                 else [
-                    "one read-only GET /v1/models to the provider — nothing",
-                    "else is sent; the key travels in the auth header only.",
+                    f"one read-only GET {listing_path} — nothing else is",
+                    "sent; the key travels in the auth header only.",
                 ],
                 buttons=(("Query", True), ("Type in manually", False)),
             ).run(win, self.palette, background=self._draw)
@@ -7298,10 +7301,15 @@ def handle_command(
             raise CLIError(str(exc)) from exc
         by_wire: dict[str, str] = {}
         for catalog_id, model in runtime.catalog.models.items():
-            by_wire.setdefault(model["wire_model"], catalog_id)
+            # Provider-scoped: the same wire on a DIFFERENT provider is a
+            # different route, not this listing's catalog entry (022 — the
+            # multi-route convention: one entry per (model, provider)).
+            if model["provider"] == args.provider:
+                by_wire.setdefault(model["wire_model"], catalog_id)
         custom_wires: dict[str, str] = {}
         for custom_id, spec in custom.load_registry(runtime.environ)["models"].items():
-            custom_wires.setdefault(spec["wire_model"], custom_id)
+            if spec["provider"] == args.provider:
+                custom_wires.setdefault(spec["wire_model"], custom_id)
         if not entries:
             output_stream.write(f"{args.provider}: the provider advertised no models\n")
             return 0

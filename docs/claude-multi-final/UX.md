@@ -59,7 +59,7 @@ large · 1M context · /model switches freely within this group
   opus5 — Opus 5 · 1M selector · anthropic
   qwen38 — Qwen3.8 Max · alibaba  (no secret)
 
-sol · 372K context · lanes high/xhigh via /model
+sol · 258K context · lanes high/xhigh via /model
 > sol — GPT-5.6 Sol · openai
 
 in-session: /model gpt-multi-sol-high · /model gpt-multi-sol-xhigh

@@ -155,13 +155,14 @@
         "cm-reviewer"
       ],
       "context": {
-        "client_tokens": 272000,
+        "client_tokens": 258400,
         "declared_tokens": 272000,
         "ordinary_profile": null,
-        "provider_tokens": 272000,
-        "qualification": "Configured 272K subscription context fallback in ordinary v1 operation.",
-        "scalar_tokens": 272000,
-        "validated_tokens": 272000
+        "provider_stated_limit_tokens": 272000,
+        "provider_tokens": 258400,
+        "qualification": "Same Codex subscription route as sol: server catalog 272000 with 95% effective → fence at 258,400 (corrected 2026-08-12 alongside sol; was 272K).",
+        "scalar_tokens": 258400,
+        "validated_tokens": 258400
       },
       "default_lane": "high",
       "display": "GPT-5.5",
@@ -429,13 +430,14 @@
         "cm-reviewer"
       ],
       "context": {
-        "client_tokens": 372000,
-        "declared_tokens": 372000,
+        "client_tokens": 258400,
+        "declared_tokens": 272000,
         "ordinary_profile": "sol",
-        "provider_tokens": 372000,
-        "qualification": "Configured 372K effective context for the OAuth subscription route used by claude-multi; this is intentionally route-specific and lower than the model's separately documented API maximum. Per-request output cap follows Claude Code's derived behavior.",
-        "scalar_tokens": 372000,
-        "validated_tokens": 372000
+        "provider_stated_limit_tokens": 272000,
+        "provider_tokens": 258400,
+        "qualification": "Codex OAuth route budget, corrected 2026-08-12 after recurring mid-turn prompt-too-long failures: server catalog advertises context_window 272000 at 95% effective (~258,400; the 1.05M API max does not apply here). History: 372K worked in the v0.144.5 era (500K = ~372K + 128K reserve) until the July 2026 cuts. We fence at 258,400 so the reactive trigger (~214.5K) lands requests inside the real ceiling. Not benchmark-verified at the limit. REVERT: if the server catalog returns to 372K+, restore client/provider/scalar/validated to 372000 in this block and re-run the suite + bless; a bounded probe settles the true cap.",
+        "scalar_tokens": 258400,
+        "validated_tokens": 258400
       },
       "default_lane": "high",
       "display": "GPT-5.6 Sol",

@@ -22,20 +22,20 @@ class ScalarTests(unittest.TestCase):
         self.assertIsNone(composition.compute_scalar(_models("fable", "kimi-k3")))
 
     def test_sol_only_372k(self) -> None:
-        self.assertEqual(composition.compute_scalar(_models("sol")), 372000)
+        self.assertEqual(composition.compute_scalar(_models("sol")), 258400)
 
     def test_gpt55_only_272k(self) -> None:
-        self.assertEqual(composition.compute_scalar(_models("gpt55")), 272000)
+        self.assertEqual(composition.compute_scalar(_models("gpt55")), 258400)
 
     def test_mixed_selector_and_scalar(self) -> None:
         selected = _models("fable", "kimi-k3", "sol", "gpt55")
-        self.assertEqual(composition.compute_scalar(selected), 272000)
+        self.assertEqual(composition.compute_scalar(selected), 258400)
 
     def test_extended_model_without_scalar_never_reduces_scalar(self) -> None:
         # Kimi's validated 208,034 evidence is below GPT-5.5's 272,000 route,
         # but its explicit process scalar is null.
         selected = _models("kimi-k3", "gpt55")
-        self.assertEqual(composition.compute_scalar(selected), 272000)
+        self.assertEqual(composition.compute_scalar(selected), 258400)
 
     def test_only_explicit_scalar_tokens_are_used(self) -> None:
         selected = _models("sol")
@@ -66,7 +66,7 @@ class ResolvedScalarTests(unittest.TestCase):
     def test_default_seed_scalar(self) -> None:
         bundle = catalog.load_catalog(CATALOG_ROOT)
         resolved = composition.resolve(bundle.docs, bundle.default_composition)
-        self.assertEqual(resolved.scalar_context_tokens, 372000)
+        self.assertEqual(resolved.scalar_context_tokens, 258400)
 
     def test_default_mixed_scalar_models_keep_large_process_capacity(self) -> None:
         bundle = catalog.load_catalog(CATALOG_ROOT)
@@ -94,7 +94,7 @@ class ResolvedScalarTests(unittest.TestCase):
             "opus5": (1_000_000, 1_000_000, 882_000),
             "kimi-k3": (1_000_000, 1_000_000, 882_000),
             "qwen38": (1_000_000, 983_616, 867_254),
-            "sol": (372_000, 372_000, 316_800),
+            "sol": (258_400, 258_400, 214_560),
         }
         for model_id, values in expected.items():
             with self.subTest(model=model_id):

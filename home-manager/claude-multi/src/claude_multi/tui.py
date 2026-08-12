@@ -836,8 +836,14 @@ class SelectList:
             if not item.enabled:
                 attr = palette.attr("dim") | (curses.A_REVERSE if focused else 0)
             marker = ""
-            if item.checked is not None:
-                marker = "[x] " if item.checked else "[ ] "
+            checked = item.checked
+            if checked is None and self.multi:
+                # Widget-tracked toggles render too: a multi picker without
+                # item-level checked state (no refresh callback) must never
+                # toggle invisibly (022 review — the fetch-mark picker).
+                checked = index in self.toggled
+            if checked is not None:
+                marker = "[x] " if checked else "[ ] "
             cursor = ">" if focused else " "
             safe_add(win, screen_row, 0, f"{cursor} {marker}{item.label}", attr)
             if item.note:

@@ -744,3 +744,16 @@ class ModalRenderTests(unittest.TestCase):
         self.assertGreater(len(win.frames), frames_before)
 
 
+
+    def test_multi_toggle_without_items_checked_still_renders_markers(self):
+        # 022 review: a multi picker built from bare SelectItems (checked=None)
+        # must render [x]/[ ] from the widget-tracked toggled set — toggling
+        # must never be invisible.
+        chooser = tui.SelectList(
+            "Multi", [tui.SelectItem("a"), tui.SelectItem("b")], multi=True
+        )
+        win = FakeWindow([" ", ENTER])
+        result = chooser.run(win, tui.MONO_PALETTE)
+        self.assertEqual(result, [0])
+        self.assertTrue(any("[x] a" in frame for frame in win.frames))
+        self.assertTrue(any("[ ] b" in frame for frame in win.frames))

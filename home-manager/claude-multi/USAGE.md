@@ -63,8 +63,9 @@ composition only via `sessions transition`).
 
 Reference surfaces: `claude-multi models` lists every catalog model with its
 wire id and exact typed `/model` selectors; `claude-multi discover <provider>`
-asks a provider what IT serves (an explicit provider call — currently Kimi
-only; Qwen's Token Plan has no listing endpoint, verified 2026-08-10) and
+asks a provider what IT serves (an explicit provider call — Kimi and
+OpenRouter listings verified; DeepSeek lists via its OpenAI-shape `/models`;
+Qwen's Token Plan has no listing endpoint, verified 2026-08-10) and
 marks each answer cataloged vs an onboarding candidate. New models/providers
 are onboarded through `claude-multi-dev` (`--help` maps the two tracks;
 `model add --like <sibling>` scaffolds the draft).

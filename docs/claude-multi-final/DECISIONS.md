@@ -1064,7 +1064,7 @@ OpenAI-path-only for DeepSeek. New render contract `output-config-high`;
 flash lanes: high (default; the lead enters through it — the catalog
 pins the top-level selector to the default lane) + max. (2) **A 500K
 model gets its own ordinary profile** (`grok`): the fence is the bound
-(neither `sol` 372K nor `large` 1M fits); the window comes from the
+(neither `sol` 258K nor `large` 1M fits); the window comes from the
 profile-derived scope env (`CLAUDE_CODE_AUTO_COMPACT_WINDOW=500000`),
 never from a `[1m]` selector — grok45 is not 1M-class. Two schema enums
 gained `"grok"` (models ordinary_profile, session context_profile).
@@ -1076,18 +1076,62 @@ status (verified/attempt/unsupported) + url/auth/shape overrides;
 OpenRouter's listing is public (`auth: none` — no secret resolved; the
 pane's query modal says so) and OpenAI-shaped (name/context_length/
 top_provider.max_completion_tokens/reasoning.supported_efforts mapped);
-deepseek attempts the Anthropic path (probe-pending) with the documented
-OpenAI-shape `/models` fallback noted. (5) **The Anthropic skin's
-non-Anthropic behavior is probe-gated**: OpenRouter only guarantees
-Anthropic first-party models; a third-party empty-result failure mode
-(content-block ordering) exists — grok45's `lead` capability and any
-effort lane beyond `high` (no contract yet) stand on the pre-activation
-probe battery. (6) **grok45 tiered pricing** (>=200K prompts bill $4/$12
+deepseek lists via its documented OpenAI-shape `GET /models` (Bearer) —
+verified 2026-08-12; the Anthropic path 404s. (5) **The Anthropic skin's
+non-Anthropic behavior was probe-gated, then verified**: OpenRouter only
+guarantees Anthropic first-party models; the 2026-08-12 probe battery
+verified grok45 through the skin (well-formed tool_use, canonical
+streaming block order, effort params accepted) — the third-party
+empty-result failure mode did not reproduce. grok45's reasoning is
+mandatory (high/medium/low; high is the top), so its single `high` lane
+with no contract is the exact shape. (6) **grok45 tiered pricing** (>=200K prompts bill $4/$12
 for ALL tokens) rides in the qualification/routing text. Compositions
 (operator-level): `deepseek` (all-flash side-task rig) and
 `grok-deepseek` (grok lead, flash agents, cross-family review). deepseek
 in `large` keeps the profile window at 983616 (min member bound — the
 fence protects the smallest member).
+
+**D55 — Same model via multiple routes: one catalog entry per (model,
+route), everything route-scoped.** A model reachable through two
+providers (glm52 direct vs via OpenRouter; Sol via the codex pool vs a
+hypothetical OpenRouter route) is TWO catalog entries, never one entry
+with two routes: each entry carries its own provider, wire_model (the
+provider's slug), selectors, lanes, contracts, and — critically — its
+own context block. Route bounds genuinely differ (kimi's 262,144
+provider-stated pre-canonical route vs the 1M canonical route; sol's
+codex subscription budget vs the API maximum), so context/effort/
+qualification are route-specific by construction. Conventions: the entry
+id names the route only when ambiguous (`grok45` is the OpenRouter
+route; a future direct-xAI entry would be `grok45-xai`); display names
+carry the route on duplicates (`GLM-5.2 (OpenRouter)`); aliases stay
+unique per entry (the served radar covers each); `discover`'s
+wire→catalog mapping is provider-scoped (fixed in 022 — a same-wire
+other-provider entry no longer misreports "already cataloged"); the
+catalog rejects duplicate (provider, wire) pairs. `independence_family`
+tracks the model MAKER, not the aggregator (OpenRouter's grok45 is x-ai;
+a glm52-via-OpenRouter entry stays alibaba) — per-model family override
+is deferred with a trigger: the first second-family model on an
+aggregator provider.
+
+**D56 — Sol codex-route budget correction (258,400) with a recorded
+revert path.** Recurring mid-turn "Prompt is too long" failures on sol
+subagents (the agent visibly worked, then died) were pinpointed to the
+codex OAuth route's July 2026 budget cuts: the v0.144.5-era 372K figure
+(500K total = ~372K input + 128K output reserve) no longer holds — the
+server catalog advertises context_window 272000 at 95% effective
+(~258,400; the 1.05M API maximum never applied to this route). Our
+compaction trigger sat at ~316.8K, so sol agents grew past the real
+ceiling before compacting. sol + gpt55 now fence at provider_tokens
+258,400 (reactive trigger 214,560 — always inside the ceiling with a
+turn of margin); provider_stated_limit_tokens records the 272,000 server
+figure. Evidence class: server-catalog observation + convergent
+third-party reports + the operator's recurring-failure report; NOT
+benchmark-verified (a bounded approval-gated probe settles the true cap
+if failures persist). REVERT is one block: restore
+client/provider/scalar/validated to 372000 when the server catalog
+returns to 372K+ (the qualification text carries these instructions).
+This is the kimi lesson generalized: route bounds move; the catalog
+entry is the route's verified truth, not the model's marketing maximum.
 
 ## User decision summary (what you're approving by accepting this design)
 

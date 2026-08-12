@@ -151,7 +151,7 @@ def resolve_secret(
 # credential-bearing probe).
 def _freeze_descriptors(
     table: dict[str, dict[str, str]],
-) -> dict[str, Mapping[str, str]]:
+) -> Mapping[str, Mapping[str, str]]:
     return types.MappingProxyType(
         {key: types.MappingProxyType(dict(value)) for key, value in table.items()}
     )
@@ -192,6 +192,16 @@ def listing_is_public(provider_id: str) -> bool:
     """Whether the listing endpoint is unauthenticated (no key is sent)."""
 
     return _LISTING_SUPPORT.get(provider_id, {}).get("auth") == "none"
+
+
+def listing_endpoint(provider_id: str, providers: dict[str, Any]) -> str:
+    """The exact URL a listing would fetch (for the pane's consent text)."""
+
+    descriptor = _LISTING_SUPPORT.get(provider_id, {})
+    if descriptor.get("url"):
+        return descriptor["url"]
+    base = providers[provider_id]["transport"]["base_url"].rstrip("/")
+    return base + "/v1/models"
 
 
 def list_provider_models(
