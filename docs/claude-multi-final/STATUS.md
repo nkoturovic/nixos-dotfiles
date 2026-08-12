@@ -1,6 +1,10 @@
 # STATUS — live tracker
 
-## 2026-08-12 — v2.17.0: DeepSeek & OpenRouter providers (D54, blueprint 022, working tree)
+## 2026-08-12 — v2.17.0: DeepSeek & OpenRouter providers (D54–D56, blueprint 022, activated gen 124)
+
+- **Activated**: HM gen 124, `doctor --repair-all` converged 33 durable
+  sessions onto catalog 17 (incl. the D56 sol fence), re-run doctor
+  **Ready**.
 
 - **Two new Anthropic-compatible providers** (research workflow:
   glm52 DeepSeek leg + kimi-k3 OpenRouter leg, docs-verified):

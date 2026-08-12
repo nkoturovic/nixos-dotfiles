@@ -76,7 +76,7 @@ untouched; `claude-gateway` is the ordinary non-composition entrypoint.
 
 ## Installed state (2026-07-29)
 
-- claude-multi **2.16.0** active (HM generation 123; rollback: gen 122/121),
+- claude-multi **2.17.0** active (HM generation 124; rollback: gen 123/122),
   Claude pinned at **2.1.220** (hash-verified, symlink-aligned).
   Resume gate live (D41): repair-needed records get one-keypress Repair &
   resume in the TUI, daemon-owned resumes gate with Stop & resume /
@@ -91,8 +91,7 @@ untouched; `claude-gateway` is the ordinary non-composition entrypoint.
   `qwen-sol`, `glm-sol`, `sol-direct`, `deepseek`, `grok-deepseek`
   all live); gateway serves `claude-opus-5` and `claude-multi-opus-5`
   (CLIProxy registry patched); binary pinned at 2.1.220 and symlink-matched.
-- **DeepSeek + OpenRouter providers** (2.17.0, D54 — working tree,
-  activation pending): `deepseek-flash`
+- **DeepSeek + OpenRouter providers** (2.17.0, D54): `deepseek-flash`
   (wire `deepseek-v4-flash`, the latest-alias; 1M, `large` profile, lanes
   high/max with `output_config.effort` pinned per lane — budget_tokens is
   ignored upstream) and `grok45` (wire `x-ai/grok-4.5` via the Anthropic
