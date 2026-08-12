@@ -989,23 +989,31 @@ class ListingDescriptorTests(unittest.TestCase):
             ],
         )
 
-    def test_deepseek_attempts_anthropic_shape_on_configured_base(self) -> None:
+    def test_deepseek_lists_via_openai_shape_with_bearer(self) -> None:
+        # Verified 2026-08-12: the Anthropic path 404s; the documented
+        # listing is OpenAI-shape GET /models with Bearer.
         captured = {}
 
         def fetch(url, headers):
             captured["url"] = url
             captured["headers"] = headers
-            return b'{"data": [{"id": "deepseek-v4-flash", "display_name": "DeepSeek V4 Flash", "context_length": 1000000}]}'
+            return b'{"data": [{"id": "deepseek-v4-flash"}, {"id": "deepseek-v4-pro"}]}'
 
         with mock.patch.object(proxy, "resolve_secret", return_value="ds"):
             entries = proxy.list_provider_models(
                 "deepseek", self._providers(), fetch=fetch
             )
+        self.assertEqual(captured["url"], "https://api.deepseek.com/models")
+        self.assertEqual(captured["headers"]["Authorization"], "Bearer ds")
+        self.assertNotIn("x-api-key", captured["headers"])
+        # Entries carry ids only — context is asked for in the add flow.
         self.assertEqual(
-            captured["url"], "https://api.deepseek.com/anthropic/v1/models"
+            entries,
+            [
+                {"id": "deepseek-v4-flash", "display_name": "", "context_length": None},
+                {"id": "deepseek-v4-pro", "display_name": "", "context_length": None},
+            ],
         )
-        self.assertEqual(captured["headers"]["x-api-key"], "ds")
-        self.assertEqual(entries[0]["id"], "deepseek-v4-flash")
 
     def test_qwen_unsupported_carries_its_note(self) -> None:
         with self.assertRaises(proxy.ProxyError) as ctx:

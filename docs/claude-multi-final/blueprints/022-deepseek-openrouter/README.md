@@ -160,6 +160,33 @@ Secrets exist already: `DEEPSEEK_CLAUDE_API_KEY`,
 
 All probes are tiny (max_tokens ≤ 2048, < 15 requests, < $0.05).
 
+## Probe results (2026-08-12, approval-gated, ~10 calls)
+
+1. **DeepSeek listing**: the Anthropic path 404s (like qwen); the
+   documented OpenAI-shape `GET https://api.deepseek.com/models` (Bearer)
+   answers 200 with `{deepseek-v4-flash, deepseek-v4-pro}` (ids only — no
+   context advertised). Descriptor updated: verified, url+auth:bearer+
+   shape:openai overrides; the add flow asks for context (never guesses).
+2. **OpenRouter grok-4.5 lookup** (public): context 500000 confirmed;
+   `reasoning.mandatory: true` with supported_efforts [high, medium,
+   low] (default high) — **high IS grok's top effort**, so the shipped
+   single-high-lane shape is exactly right; `tools`/`tool_choice`
+   supported; max completion unpublished.
+3. **DeepSeek smoke**: 200 with x-api-key AND Bearer (both work; we ship
+   x-api-key, kimi-shape); canonical thinking+text blocks; correct reply.
+4. **OpenRouter skin (grok-4.5)**: well-formed tool_use
+   (`stop_reason: tool_use`, parsed input) with thinking +
+   redacted_thinking blocks (Claude-Code-native shapes); streaming event
+   order canonical (message_start → block start → deltas → stops →
+   message_delta/stop — no text-before-thinking inversion, the
+   empty-result failure mode absent); `output_config.effort` high+max and
+   `reasoning.effort=high` all accepted (200).
+
+Post-probe catalog text flips: grok45 qualification/routing_note and both
+provider support_notes now state verified behavior (probing date-stamped);
+the qualification keeps "near-limit behavior unverified until a live
+acceptance call" (true of every 1M-class entry until its acceptance run).
+
 ## As-built amendments (implementation findings)
 
 - **Model id is `grok45`**, not `grok-4.5`: the composition slot pattern

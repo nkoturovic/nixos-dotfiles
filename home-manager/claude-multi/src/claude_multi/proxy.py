@@ -140,8 +140,10 @@ def resolve_secret(
 #           Anthropic-shape attempt on the configured base) | "unsupported"
 #   note:   operator-facing detail for the unsupported refusal
 #   url:    override the default <base_url>/v1/models target
-#   auth:   "provider" (the configured secret/header; default) | "none"
-#           (public endpoint — no secret is resolved or required)
+#   auth:   "provider" (the configured secret/header; default) | "bearer"
+#           (the configured secret as Authorization: Bearer — for providers
+#           whose listing lives on a different surface than the Anthropic
+#           route) | "none" (public endpoint — no secret is resolved)
 #   shape:  "anthropic" (default) | "openai" ({data:[{id, name,
 #           context_length, ...}]}, e.g. OpenRouter's public listing)
 # Descriptors route credentials — the table is immutable trusted config
@@ -162,10 +164,14 @@ _LISTING_SUPPORT = _freeze_descriptors({
         "note": "verified 2026-08-10: its Anthropic path answers 404 'Not support'",
     },
     "deepseek": {
-        "status": "attempt",
-        # The documented listing is OpenAI-shape GET https://api.deepseek.com/
-        # models (Bearer); whether the Anthropic path answers /v1/models is
-        # probe-pending — the generic attempt covers it.
+        "status": "verified",
+        # Verified 2026-08-12 (approval-gated probes): the Anthropic path
+        # answers 404 for /v1/models; the documented listing is the
+        # OpenAI-shape GET https://api.deepseek.com/models (Bearer). Its
+        # entries carry ids only (no context_length) — the add flow asks.
+        "url": "https://api.deepseek.com/models",
+        "auth": "bearer",
+        "shape": "openai",
     },
     "openrouter": {
         "status": "verified",
@@ -233,6 +239,11 @@ def list_provider_models(
     url = descriptor.get("url") or transport["base_url"].rstrip("/") + "/v1/models"
     if public:
         headers = {}
+    elif descriptor.get("auth") == "bearer":
+        # Listing lives on a different surface than the Anthropic route
+        # (deepseek: OpenAI-shape /models takes Bearer; the provider's
+        # configured header auth stays for the route itself).
+        headers = {"Authorization": f"Bearer {secret}"}
     else:
         auth = transport["auth"]
         if auth["kind"] == "bearer":

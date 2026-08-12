@@ -17,7 +17,7 @@
         "declared_tokens": 1000000,
         "ordinary_profile": "large",
         "provider_tokens": 1000000,
-        "qualification": "Provider-documented bound: DeepSeek's Models & Pricing doc states 1M context and 384K max output for deepseek-v4-flash (docs verified 2026-08-11). The [1m] client selector gives Claude Code extended-context classification; the compiler applies the 90% auto-compaction percentage to the provider window (composition leads get the full 1M; the ordinary large-profile fence derives the current min, 983616). Near-limit real-provider behavior remains unverified until a live acceptance call.",
+        "qualification": "Provider-documented bound: DeepSeek's Models & Pricing doc states 1M context and 384K max output for deepseek-v4-flash (docs verified 2026-08-11). The [1m] client selector gives Claude Code extended-context classification; the compiler applies the 90% auto-compaction percentage to the provider window (composition leads get the full 1M; the ordinary large-profile fence derives the current min, 983616). Wire/auth/blocks smoke-verified 2026-08-12 (x-api-key and Bearer both answer; thinking+text blocks canonical); near-limit behavior unverified until a live acceptance call.",
         "scalar_tokens": null,
         "validated_tokens": 1000000
       },
@@ -201,7 +201,7 @@
         "declared_tokens": 500000,
         "ordinary_profile": "grok",
         "provider_tokens": 500000,
-        "qualification": "Provider-advertised bound: OpenRouter lists x-ai/grok-4.5 at 500K context (model page verified 2026-08-11). Not 1M-class: no [1m] selector; the 500K window comes from the profile-derived scope env. Anthropic-skin behavior for x-ai models is probe-gated (tool use, streaming block order) before lead use is trusted; near-limit behavior unverified until a live acceptance call.",
+        "qualification": "Provider-advertised bound: OpenRouter lists x-ai/grok-4.5 at 500K context (listing verified 2026-08-12; max completion unpublished). Not 1M-class: no [1m] selector; the 500K window comes from the profile-derived scope env. Anthropic-skin behavior verified by approval-gated probes 2026-08-12: well-formed tool_use (stop_reason tool_use), canonical streaming block order, effort params accepted; reasoning is mandatory (efforts high/medium/low — high is the top). Near-limit behavior unverified until a live acceptance call.",
         "scalar_tokens": null,
         "validated_tokens": 500000
       },
@@ -228,7 +228,7 @@
         "cm-implementer": "Use for frontier coding implementation when a non-OpenAI/non-Moonshot family is wanted.",
         "cm-reviewer": "Use for independent x-ai-family review of alibaba/moonshot/openai work."
       },
-      "routing_note": "Grok 4.5 via OpenRouter's Anthropic skin (no xAI subscription needed). Tiered pricing: >=200K prompts bill $4/$12 for ALL tokens. Skin behavior for x-ai models is probe-gated.",
+      "routing_note": "Grok 4.5 via OpenRouter's Anthropic skin (no xAI subscription needed); tool use, streaming order, and effort acceptance probe-verified. Reasoning mandatory (top effort high). Tiered pricing: >=200K prompts bill $4/$12 for ALL tokens.",
       "wire_model": "x-ai/grok-4.5"
     },
     "kimi-k3": {
