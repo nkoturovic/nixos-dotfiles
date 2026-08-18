@@ -3735,7 +3735,6 @@ ORDINARY_SUBTITLE = (
 )
 ORDINARY_PROFILE_NOTES = {
     "large": "1M context · /model switches freely within this group",
-    "sol": "258K context · lanes high/xhigh via /model",
     "grok": "500K context · /model switches freely within this group",
 }
 ORDINARY_PROFILE_NOTE_DEFAULT = "/model switches freely within this group"
@@ -7476,6 +7475,29 @@ def _check_scope_integrity(runtime: Runtime, record: dict[str, Any]) -> tuple[st
         f"Run claude-multi doctor --repair {session_id} to regenerate "
         "them from the record."
     )
+    if record["session_type"] == sessions.SESSION_TYPE_ORDINARY:
+        # A retired ordinary profile (e.g. 'sol' after D57) can never
+        # recompile — --repair would just error. Point at the re-pinning
+        # resume instead (review sweep, 023).
+        try:
+            compiler.direct_context_profile(
+                runtime.ordinary_docs, record["ordinary_model"]
+            )
+            compiler.direct_profile_selectors(
+                runtime.ordinary_docs, record["context_profile"]
+            )
+        except compiler.CompilerError as exc:
+            reason = (
+                f"its recorded model {record['ordinary_model']!r} is no longer "
+                "an ordinary lead"
+                if "lead" in str(exc)
+                else f"its recorded profile {record['context_profile']!r} is retired"
+            )
+            repair = (
+                f"{reason} — resume with an explicit supported --model to "
+                f"re-pin the record: claude-gateway -r {session_id} "
+                f"--model {record['ordinary_model']}"
+            )
     try:
         if record["session_type"] == sessions.SESSION_TYPE_ORDINARY:
             expected = scope_mod.compile_ordinary_scope(

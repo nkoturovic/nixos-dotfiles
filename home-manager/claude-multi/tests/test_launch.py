@@ -499,7 +499,8 @@ class PerformLaunchTests(LaunchTestCase):
         self.assertEqual(env["PATH"], "/usr/bin")
         self.assertNotIn("CLAUDE_CODE_SUBAGENT_MODEL", env)
         self.assertNotIn("CLAUDE_CODE_DISABLE_EXPLORE_PLAN_AGENTS", env)
-        self.assertEqual(env["CLAUDE_CODE_MAX_CONTEXT_TOKENS"], "258400")
+        # All-1M rig: no process scalar; an inherited cap must never leak.
+        self.assertNotIn("CLAUDE_CODE_MAX_CONTEXT_TOKENS", env)
         # session snapshot persisted before exec and carries no token
         stored = self.store.load(FIXED_ID)
         self.assertNotIn(
@@ -663,9 +664,33 @@ class PerformLaunchTests(LaunchTestCase):
         self.assertNotIn("CLAUDE_CODE_MAX_CONTEXT_TOKENS", captured["env"])
 
     def test_scalar_present_overrides_inherited_context_at_exec(self) -> None:
-        result = self._compile_result()
+        # A rig with a sub-1M scalar member exports the exact cap at exec.
+        import copy
+
+        document = copy.deepcopy(self.bundle.default_composition)
+        document["availability"]["providers"]["qwen"] = "agents"
+        document["availability"]["models"]["qwen38"] = "agents"
+        document["slots"].append(
+            {"role": "cm-analyst", "model": "qwen38", "preferred": False}
+        )
+        resolved = composition.resolve(self.bundle.docs, document)
+        snap = composition.snapshot(resolved)
+        result = compiler.compile_launch(
+            docs=self.bundle.docs,
+            prompt_bodies=self.bundle.prompt_bodies,
+            resolved=resolved,
+            session_action=compiler.build_fresh(FIXED_ID),
+            passthrough=[],
+            settings_path=Path("/trusted/settings.json"),
+            lead_prompt_path=compiler.lead_prompt_path(
+                self.root / "state", strict_json.bundle_digest(snap), FIXED_ID
+            ),
+            durable=True,
+            scope_dir=scope.scope_dir(self.root / "state", FIXED_ID),
+            hook_command=str(scope.hook_shim_path(self.root / "state")),
+        )
         _, captured = self._perform(result, self._record())
-        self.assertEqual(captured["env"]["CLAUDE_CODE_MAX_CONTEXT_TOKENS"], "258400")
+        self.assertEqual(captured["env"]["CLAUDE_CODE_MAX_CONTEXT_TOKENS"], "983616")
 
     def test_no_provider_path_taken(self) -> None:
         # The readiness probe only ever touches the loopback stub; a gateway

@@ -1133,6 +1133,26 @@ returns to 372K+ (the qualification text carries these instructions).
 This is the kimi lesson generalized: route bounds move; the catalog
 entry is the route's verified truth, not the model's marketing maximum.
 
+**D57 — Sol joins the 1M class (official subscription-route 1M
+enablement, 2026-08-12).** OpenAI documented a 1M-token context window
+for GPT-5.6 Sol on the ChatGPT/Codex subscription route (client-asserted
+budget: `model_context_window=1000000`, compaction ~900K). This
+supersedes D56's 258,400 correction (which was right for the cut state).
+Sol now: client/provider 1,000,000, declared/provider-stated 1,050,000
+(the documented window), validated 372,000 (the last historically-proven
+bound — the 1M budget is provider-documented, not benchmark-verified;
+the bounded acceptance probe settles it), selectors gain `[1m]`
+(`gpt-multi-sol-high[1m]` / `gpt-multi-sol-xhigh[1m]`), and
+ordinary_profile moves `sol`→`large` (the sol-only profile retires;
+ordinary sol sessions join the 1M-class /model fence). Scalar null
+(1M-class never constrains the process). gpt55 keeps the D56 fence (no
+1M support for that model). Consequences: the all-1M default rig exports
+NO process scalar (an inherited cap is actively unset); a mixed rig's
+scalar derives from the remaining sub-1M members (qwen38: 983,616). The
+trigger at the 1M lead window is 882,000 (ordinary sol sessions fence at
+the large-profile min: 983,616 window, 867,254 trigger) — marginally more
+conservative than the documented ~900K compaction point.
+
 ## User decision summary (what you're approving by accepting this design)
 
 1. Selected agents become **real files** in a per-session scope; the failure

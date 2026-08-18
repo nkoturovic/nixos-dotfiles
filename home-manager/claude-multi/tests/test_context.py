@@ -22,7 +22,7 @@ class ScalarTests(unittest.TestCase):
         self.assertIsNone(composition.compute_scalar(_models("fable", "kimi-k3")))
 
     def test_sol_only_372k(self) -> None:
-        self.assertEqual(composition.compute_scalar(_models("sol")), 258400)
+        self.assertIsNone(composition.compute_scalar(_models("sol")))  # D57: 1M-class
 
     def test_gpt55_only_272k(self) -> None:
         self.assertEqual(composition.compute_scalar(_models("gpt55")), 258400)
@@ -66,7 +66,7 @@ class ResolvedScalarTests(unittest.TestCase):
     def test_default_seed_scalar(self) -> None:
         bundle = catalog.load_catalog(CATALOG_ROOT)
         resolved = composition.resolve(bundle.docs, bundle.default_composition)
-        self.assertEqual(resolved.scalar_context_tokens, 258400)
+        self.assertIsNone(resolved.scalar_context_tokens)
 
     def test_default_mixed_scalar_models_keep_large_process_capacity(self) -> None:
         bundle = catalog.load_catalog(CATALOG_ROOT)
@@ -94,7 +94,7 @@ class ResolvedScalarTests(unittest.TestCase):
             "opus5": (1_000_000, 1_000_000, 882_000),
             "kimi-k3": (1_000_000, 1_000_000, 882_000),
             "qwen38": (1_000_000, 983_616, 867_254),
-            "sol": (258_400, 258_400, 214_560),
+            "sol": (1_000_000, 1_000_000, 882_000),
         }
         for model_id, values in expected.items():
             with self.subTest(model=model_id):

@@ -89,7 +89,7 @@ on this machine (all creatable in seconds with `compose new` /
 | `kimi-sol-qwen-glm-fable` | Kimi K3 | Sol preferred · Opus 5 option · Kimi · GLM · Qwen · **Fable specialist** | hardest tasks + finalization go to Fable |
 | `qwen-sol` | Qwen3.8 Max | Sol preferred · Qwen alternates | Qwen lead work |
 | `glm-sol` | GLM-5.2 | Sol preferred · GLM alternates | GLM 1M lead work (max reasoning) |
-| `sol-direct` | GPT 5.6 Sol | — | single-model direct sessions |
+| `sol-direct` | GPT 5.6 Sol (1M since 2.18.0, D57) | — | single-model direct sessions |
 | `deepseek` | DeepSeek V4 Flash | Flash high everywhere · Flash max reviewer | the fast, cheap side-task rig |
 | `grok-deepseek` | Grok 4.5 (OpenRouter) | Flash high preferred · Grok alternates | x-ai lead + deepseek side lanes, cross-family review |
 

@@ -3430,8 +3430,7 @@ class OrdinaryLaunchModelsTests(CLITestCase):
             groups,
             {
                 "grok": ("grok45",),
-                "large": ("deepseek-flash", "fable", "glm52", "kimi-k3", "opus", "opus5", "qwen38"),
-                "sol": ("sol",),
+                "large": ("deepseek-flash", "fable", "glm52", "kimi-k3", "opus", "opus5", "qwen38", "sol"),
             },
         )
 
@@ -3505,7 +3504,6 @@ class OrdinaryScreenTuiTests(CLITestCase):
         text = win.text()
         self.assertIn("gateway session — no composition", text)
         self.assertIn("large · 1M context", text)
-        self.assertIn("sol · 258K context", text)
         self.assertIn("grok · 500K context", text)
         for model_id in ("deepseek-flash", "fable", "glm52", "grok45", "kimi-k3", "opus", "opus5", "qwen38", "sol"):
             self.assertIn(model_id, text)
@@ -4258,7 +4256,7 @@ class OrdinarySelectorDetailTests(CLITestCase):
         cli._print_ordinary_listing(self.runtime, out)
         text = out.getvalue()
         self.assertIn("/model claude-multi-kimi-k3[1m]", text)
-        self.assertIn("/model gpt-multi-sol-high · /model gpt-multi-sol-xhigh", text)
+        self.assertIn("/model gpt-multi-sol-high[1m] · /model gpt-multi-sol-xhigh[1m]", text)
 
 
 class DoctorServedCrossCheckTests(CLITestCase):
@@ -5649,16 +5647,20 @@ class OrdinaryModelSwitchTests(CLITestCase):
 
     def test_cross_profile_confirm_names_the_rebuild(self) -> None:
         self._ordinary()
-        # From kimi-k3 (large) to sol (sol profile): the confirm modal must
-        # state the profile change and the fence/compaction rebuild.
-        # kimi(2) -> j j j j -> sol(6).
+        # From kimi-k3 (large) to grok45 (grok profile): the confirm modal
+        # must state the profile change and the fence/compaction rebuild.
+        # The fixture gains the OpenRouter key so the target row is
+        # launchable; grok45 heads the grok group (four steps up from
+        # kimi-k3 in the flattened rows).
+        with open(self.secret_file, "a") as handle:
+            handle.write("OPENROUTER_CLAUDE_API_KEY=fixture-or-key\n")
         result, win, _screen = self._run(
-            ["t", "j", "j", "j", "j", "\n", "\x1b", "\x1b"]
+            ["t", "k", "k", "k", "k", "\n", "\x1b", "\x1b"]
         )
         self.assertIsNone(result)  # confirm modal cancelled via Esc
         self.assertTrue(
             any(
-                "context profile large → sol" in frame
+                "context profile large → grok" in frame
                 and "scope fence and compaction policy are rebuilt" in frame
                 for frame in win.frames
             )
@@ -5804,7 +5806,7 @@ class SessionEventAndDirectModeTests(CLITestCase):
                 "session_id": FIXED_ID,
                 "source": "resume",
                 "cwd": self.runtime.cwd,
-                "model": "gpt-multi-sol-high",
+                "model": "gpt-multi-sol-high[1m]",
             }
         ).decode("utf-8")
         code, output = self.run_cli(
@@ -5813,7 +5815,7 @@ class SessionEventAndDirectModeTests(CLITestCase):
         self.assertEqual(code, 0, output)
         record = self.runtime.session_store.load(FIXED_ID)
         self.assertEqual(record["identity_state"], sessions.IDENTITY_REPAIR_NEEDED)
-        self.assertEqual(record["observed_model"], "gpt-multi-sol-high")
+        self.assertEqual(record["observed_model"], "gpt-multi-sol-high[1m]")
         response = strict_json.loads(output)
         context = response["hookSpecificOutput"]["additionalContext"]
         self.assertIn(f"claude-multi -r {FIXED_ID}", context)
@@ -5822,7 +5824,7 @@ class SessionEventAndDirectModeTests(CLITestCase):
     def test_managed_different_lane_is_not_treated_as_equivalent(self) -> None:
         record = self.save_session(mode="durable", scope_generation=1)
         record["snapshot"]["lead"]["model"] = "sol"
-        record["snapshot"]["lead"]["client_selector"] = "gpt-multi-sol-high"
+        record["snapshot"]["lead"]["client_selector"] = "gpt-multi-sol-high[1m]"
         record["composition_hash"] = strict_json.bundle_digest(record["snapshot"])
         self.runtime.session_store.save(record)
         payload = strict_json.canonical_bytes(
@@ -5955,7 +5957,7 @@ class SessionEventAndDirectModeTests(CLITestCase):
                 "session_id": FIXED_ID,
                 "source": "resume",
                 "cwd": self.runtime.cwd,
-                "model": "gpt-multi-sol-high",
+                "model": "claude-multi-grok45",
             }
         ).decode("utf-8")
         code, output = self.run_cli(
@@ -5965,7 +5967,7 @@ class SessionEventAndDirectModeTests(CLITestCase):
         updated = self.runtime.session_store.load(FIXED_ID)
         self.assertEqual(updated["ordinary_model"], "qwen38")
         self.assertEqual(updated["context_profile"], "large")
-        self.assertEqual(updated["observed_model"], "gpt-multi-sol-high")
+        self.assertEqual(updated["observed_model"], "claude-multi-grok45")
         self.assertEqual(updated["identity_state"], sessions.IDENTITY_REPAIR_NEEDED)
         context = strict_json.loads(output)["hookSpecificOutput"]["additionalContext"]
         self.assertIn("context/compaction profile", context)
@@ -6076,7 +6078,7 @@ class SessionEventAndDirectModeTests(CLITestCase):
             launcher_version=self.runtime.launcher_version,
             identity_state=sessions.IDENTITY_REPAIR_NEEDED,
         )
-        record["observed_model"] = "gpt-multi-sol-high"
+        record["observed_model"] = "gpt-multi-sol-high[1m]"
         self.runtime.session_store.save(record)
         with self.assertRaisesRegex(
             cli.CLIError,
@@ -6098,20 +6100,20 @@ class SessionEventAndDirectModeTests(CLITestCase):
             launcher_version=self.runtime.launcher_version,
             identity_state=sessions.IDENTITY_REPAIR_NEEDED,
         )
-        record["observed_model"] = "gpt-multi-sol-high"
+        record["observed_model"] = "gpt-multi-sol-high[1m]"
         self.runtime.session_store.save(record)
         prepared = self.runtime.prepare_direct(
             action="resume", model_id="sol", passthrough=[], session_id=FIXED_ID
         )
         self.assertTrue(prepared.model_relaunch)
         self.assertEqual(prepared.record["ordinary_model"], "sol")
-        self.assertEqual(prepared.record["context_profile"], "sol")
+        self.assertEqual(prepared.record["context_profile"], "large")
         self.assertEqual(
             prepared.result.argv[prepared.result.argv.index("--model") + 1],
-            "gpt-multi-sol-high",
+            "gpt-multi-sol-high[1m]",
         )
         self.assertEqual(
-            prepared.result.env_set["CLAUDE_CODE_AUTO_COMPACT_WINDOW"], "258400"
+            prepared.result.env_set["CLAUDE_CODE_AUTO_COMPACT_WINDOW"], "983616"
         )
         self.assertEqual(
             prepared.result.env_set["CLAUDE_AUTOCOMPACT_PCT_OVERRIDE"], "90"
@@ -6129,7 +6131,7 @@ class SessionEventAndDirectModeTests(CLITestCase):
             launcher_version=self.runtime.launcher_version,
             identity_state=sessions.IDENTITY_REPAIR_NEEDED,
         )
-        record["observed_model"] = "gpt-multi-sol-high"
+        record["observed_model"] = "gpt-multi-sol-high[1m]"
         record["pending_forks"] = [
             {
                 "session_id": OTHER_ID,
@@ -6162,7 +6164,7 @@ class SessionEventAndDirectModeTests(CLITestCase):
     def test_managed_model_only_repair_prepares_pinned_relaunch(self) -> None:
         record = self.save_session(mode="durable", scope_generation=1)
         record["identity_state"] = sessions.IDENTITY_REPAIR_NEEDED
-        record["observed_model"] = "gpt-multi-sol-high"
+        record["observed_model"] = "gpt-multi-sol-high[1m]"
         self.runtime.session_store.save(record)
         document = self.runtime.compositions.load(record["composition_name"])
         prepared = self.runtime.prepare(
@@ -7149,7 +7151,7 @@ class SubagentModelRadarTests(CLITestCase):
         home = Path(self.runtime.environ["HOME"])
         settings = home / ".claude" / "settings.json"
         settings.parent.mkdir(parents=True, exist_ok=True)
-        settings.write_text('{"env": {"CLAUDE_CODE_SUBAGENT_MODEL": "gpt-multi-sol-high"}}')
+        settings.write_text('{"env": {"CLAUDE_CODE_SUBAGENT_MODEL": "gpt-multi-sol-high[1m]"}}')
         code, output = self.run_cli(["doctor"])
         self.assertEqual(code, 0, output)
         self.assertIn("CLAUDE_CODE_SUBAGENT_MODEL", output)
@@ -7450,7 +7452,7 @@ class ResumeGateReviewFixTests(CLITestCase):
     def test_ordinary_combined_repair_prepares_with_recorded_model(self) -> None:
         record = self._ordinary(
             identity_state=sessions.IDENTITY_REPAIR_NEEDED,
-            observed_model="gpt-multi-sol-high",
+            observed_model="gpt-multi-sol-high[1m]",
         )
         # The gate's repair-resume cleared observed_cwd (none here); the
         # picker passes the recorded model explicitly for the leftover
@@ -7741,7 +7743,7 @@ class SubagentModelBleedTests(CLITestCase):
         self.save_session(mode="durable", scope_generation=1)
         record = self.runtime.session_store.load(FIXED_ID)
         record["identity_state"] = sessions.IDENTITY_REPAIR_NEEDED
-        record["observed_model"] = "gpt-multi-sol-high"
+        record["observed_model"] = "gpt-multi-sol-high[1m]"
         self.runtime.session_store.save(record)
         code, _output = self.run_cli(
             ["session-event", "start", "--managed-id", FIXED_ID],
@@ -7749,7 +7751,7 @@ class SubagentModelBleedTests(CLITestCase):
         )
         self.assertEqual(code, 0)
         record = self.runtime.session_store.load(FIXED_ID)
-        self.assertEqual(record["observed_model"], "gpt-multi-sol-high")
+        self.assertEqual(record["observed_model"], "gpt-multi-sol-high[1m]")
 
     def test_agent_context_markers_suppress_model_and_cwd(self) -> None:
         # Defense-in-depth on SYNTHETIC shapes (the 2.1.220 compact payload
@@ -7787,11 +7789,11 @@ class SubagentModelBleedTests(CLITestCase):
         self.save_session(mode="durable", scope_generation=1)
         code, _output = self.run_cli(
             ["session-event", "start", "--managed-id", FIXED_ID],
-            self._event(source="resume", model="gpt-multi-sol-high"),
+            self._event(source="resume", model="gpt-multi-sol-high[1m]"),
         )
         self.assertEqual(code, 0)
         record = self.runtime.session_store.load(FIXED_ID)
-        self.assertEqual(record["observed_model"], "gpt-multi-sol-high")
+        self.assertEqual(record["observed_model"], "gpt-multi-sol-high[1m]")
         self.assertEqual(record["identity_state"], sessions.IDENTITY_REPAIR_NEEDED)
 
 
@@ -8873,3 +8875,47 @@ class FetchMarkSlashWireTests(CLITestCase):
         self.assertEqual(registry["models"]["llama-4"]["provider"], "openrouter")
         self.assertEqual(registry["models"]["llama-4"]["context_tokens"], 131072)
         self.assertIn("marked 1 model", screen.message or "")
+
+
+class RetiredProfileDoctorHintTests(CLITestCase):
+    """023 review: a retired ordinary profile ('sol' pre-D57) must get the
+    re-pin resume remedy, never a --repair hint that would just error."""
+
+    def _stale_sol_record(self):
+        record = sessions.make_ordinary_record(
+            managed_id=FIXED_ID,
+            runtime_session_id=FIXED_ID,
+            cwd=self.runtime.cwd,
+            model="sol",
+            context_profile="sol",  # retired by D57 (sol joined large)
+            catalog_version=self.runtime.catalog_version,
+            catalog_hash=self.runtime.catalog.bundle_sha256,
+            launcher_version=self.runtime.launcher_version,
+        )
+        self.runtime.session_store.save(record)
+        return record
+
+    def test_retired_profile_names_the_repin_resume(self) -> None:
+        record = self._stale_sol_record()
+        line, is_problem = cli._check_scope_integrity(self.runtime, record)
+        self.assertTrue(is_problem)
+        self.assertIn("retired", line)
+        self.assertIn(f"claude-gateway -r {FIXED_ID} --model sol", line)
+        self.assertNotIn("doctor --repair", line)
+
+    def test_healthy_record_keeps_the_repair_hint_shape(self) -> None:
+        record = sessions.make_ordinary_record(
+            managed_id=FIXED_ID,
+            runtime_session_id=FIXED_ID,
+            cwd=self.runtime.cwd,
+            model="sol",
+            context_profile="large",
+            catalog_version=self.runtime.catalog_version,
+            catalog_hash=self.runtime.catalog.bundle_sha256,
+            launcher_version=self.runtime.launcher_version,
+        )
+        self.runtime.session_store.save(record)
+        # No scope on disk: the plain repair hint applies.
+        line, is_problem = cli._check_scope_integrity(self.runtime, record)
+        self.assertTrue(is_problem)
+        self.assertIn("doctor --repair", line)

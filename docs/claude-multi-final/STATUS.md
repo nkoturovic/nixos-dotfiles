@@ -1,5 +1,29 @@
 # STATUS — live tracker
 
+## 2026-08-12 — v2.18.0: sol joins the 1M class (D57, working tree)
+
+- **Official 1M enablement for the codex subscription route** (OpenAI,
+  2026-08-12): sol moves to client/provider 1,000,000 (declared 1,050,000),
+  `[1m]` selectors, `large` profile (the sol-only profile retires), scalar
+  null; validated stays at the last proven bound (372,000) until the
+  bounded acceptance probe. gpt55 keeps the D56 fence. Triggers:
+  882,000 for a sol-led composition; 867,254 for ordinary sol sessions
+  (large-profile min 983,616).
+- **Consequences**: the all-1M default rig exports no process scalar
+  (inherited caps actively unset); mixed rigs fence at the remaining
+  sub-1M members (qwen38: 983,616); ordinary sol sessions join the
+  large-pool /model fence.
+- **Verification**: full discovery 1,662 OK after the pin sweep;
+  goldens re-blessed (exactly the [1m] selectors + scalar-unset diffs).
+- **Review sweep** (glm52 + qwen38 with adversarial verify, all confirmed
+  fixed): the sol qualification now names both trigger paths (882,000
+  composition lead / 867,254 ordinary large-profile); a broken HANDOFF
+  sentence repaired; doctor's repair hint is retired-profile-aware
+  (pre-upgrade ordinary 'sol' records get the re-pin resume command, not
+  a --repair that would error); trailing-newline nit fixed.
+- Pending: acceptance probe (>258.4K through the codex pool) + activation
+  green light.
+
 ## 2026-08-12 — v2.17.0: DeepSeek & OpenRouter providers (D54–D56, blueprint 022, activated gen 124)
 
 - **Activated**: HM gen 124, `doctor --repair-all` converged 33 durable

@@ -169,9 +169,11 @@ untouched; `claude-gateway` is the ordinary non-composition entrypoint.
 Qwen3.8 Max lead (production since 2026-08-03 GA; ultracode, thinking always on, `reasoning_effort: xhigh`
 — the provider maximum), Sol preferred analyst/implementer/reviewer
 variants, Qwen-max alternates. Cross-family review: Sol (openai) reviews
-Qwen (alibaba) work and vice versa. Sol variants retain the process-wide 258K (D56)
-scalar, while the `[1m]` Qwen lead uses a provider-safe 983,616 compaction
-capacity plus the explicit 90% override. Pinned 2.1.220 reserves 20K output,
+Qwen (alibaba) work and vice versa. Sol is 1M-class (D57: official
+subscription-route 1M enablement) and contributes no process scalar, so
+the qwen-sol rig's shared cap is qwen38's 983,616 — a `[1m]` Qwen lead
+uses that provider-safe compaction capacity plus the explicit 90%
+override. Pinned 2.1.220 reserves 20K output,
 so the deterministic reactive trigger is 867,254; proactive preparation is
 runtime-controlled and may occur earlier. Wire:
 Token Plan `apps/anthropic`, bearer auth, key in

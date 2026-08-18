@@ -117,7 +117,7 @@ class SeedLoadTests(unittest.TestCase):
         self.assertEqual(kimi["validated_tokens"], 208034)
         self.assertEqual(kimi["provider_stated_limit_tokens"], 262144)
         self.assertEqual(kimi["user_reported_tokens"], 1000000)
-        self.assertEqual(bundle.models["sol"]["context"]["scalar_tokens"], 258400)
+        self.assertIsNone(bundle.models["sol"]["context"]["scalar_tokens"])
         self.assertEqual(bundle.models["gpt55"]["context"]["scalar_tokens"], 258400)
 
     def test_settings_carry_no_worktree_keys(self) -> None:
@@ -130,8 +130,8 @@ class SeedLoadTests(unittest.TestCase):
 
     def test_version_json_matches_v2_2_schema_and_catalog_change(self) -> None:
         bundle = catalog.load_catalog(CATALOG_ROOT)
-        self.assertEqual(bundle.docs["version"]["launcher_version"], "2.17.0")
-        self.assertEqual(bundle.docs["version"]["catalog_version"], 17)
+        self.assertEqual(bundle.docs["version"]["launcher_version"], "2.18.0")
+        self.assertEqual(bundle.docs["version"]["catalog_version"], 18)
 
     def test_qwen38_production_no_preview_residue(self) -> None:
         # D50: qwen3.8-max shipped production 2026-08-03; the D21 revision
@@ -194,7 +194,7 @@ class ReferenceViolationTests(unittest.TestCase):
         def mutate(raw):
             raw["docs"]["models"]["models"]["gpt55"]["lanes"]["high"][
                 "client_selector"
-            ] = "gpt-multi-sol-high"
+            ] = "gpt-multi-sol-high[1m]"
 
         errors = _mutate(mutate)
         self.assertTrue(any("duplicates" in error for error in errors))
@@ -362,21 +362,21 @@ class CatalogMutationMatrixTests(unittest.TestCase):
         case(
             "provider context exceeds client",
             lambda raw: raw["docs"]["models"]["models"]["sol"]["context"].__setitem__(
-                "provider_tokens", 400000
+                "provider_tokens", 2000000
             ),
             "exceeds client_tokens",
         )
         case(
             "scalar context exceeds provider",
             lambda raw: raw["docs"]["models"]["models"]["sol"]["context"].__setitem__(
-                "scalar_tokens", 400000
+                "scalar_tokens", 2000000
             ),
             "exceeds provider_tokens",
         )
         case(
             "validated context exceeds declaration",
             lambda raw: raw["docs"]["models"]["models"]["sol"]["context"].__setitem__(
-                "validated_tokens", 400000
+                "validated_tokens", 2000000
             ),
             "exceeds declared_tokens",
         )
@@ -390,7 +390,7 @@ class CatalogMutationMatrixTests(unittest.TestCase):
         case(
             "selector and client context disagree",
             lambda raw: raw["docs"]["models"]["models"]["sol"]["context"].__setitem__(
-                "client_tokens", 1000000
+                "client_tokens", 500000
             ),
             "selector classification",
         )
@@ -1047,13 +1047,19 @@ class WireSlashPatternTests(unittest.TestCase):
         errors = _mutate(same_wire_other_provider)
         self.assertFalse(any("duplicate route wire" in e for e in errors))
 
-    def test_codex_route_fences_at_the_effective_budget(self) -> None:
-        # D56: the codex OAuth route's server budget is 272000 at 95%
-        # effective — sol/gpt55 fence at 258400, never the advertised number.
+    def test_codex_route_context_bounds(self) -> None:
+        # D57: sol is 1M-class on the codex route (official 1M enablement
+        # 2026-08-12); validated holds the last historically-proven bound
+        # until the acceptance probe. gpt55 (no 1M support) keeps the D56
+        # effective fence.
         bundle = catalog.load_catalog(CATALOG_ROOT)
-        for model_id in ("sol", "gpt55"):
-            context = bundle.models[model_id]["context"]
-            self.assertEqual(context["provider_stated_limit_tokens"], 272000)
-            self.assertEqual(context["provider_tokens"], 258400)
-            self.assertEqual(context["validated_tokens"], 258400)
-            self.assertIn("95%", context["qualification"])
+        sol = bundle.models["sol"]["context"]
+        self.assertEqual(sol["client_tokens"], 1000000)
+        self.assertEqual(sol["provider_tokens"], 1000000)
+        self.assertEqual(sol["provider_stated_limit_tokens"], 1050000)
+        self.assertEqual(sol["validated_tokens"], 372000)
+        self.assertEqual(sol["ordinary_profile"], "large")
+        self.assertIsNone(sol["scalar_tokens"])
+        gpt55 = bundle.models["gpt55"]["context"]
+        self.assertEqual(gpt55["provider_tokens"], 258400)
+        self.assertEqual(gpt55["provider_stated_limit_tokens"], 272000)

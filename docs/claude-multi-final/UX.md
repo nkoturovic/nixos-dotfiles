@@ -58,11 +58,12 @@ large · 1M context · /model switches freely within this group
   opus — Opus 4.8 · 1M selector · anthropic
   opus5 — Opus 5 · 1M selector · anthropic
   qwen38 — Qwen3.8 Max · alibaba  (no secret)
+  sol — GPT-5.6 Sol · 1M selector · openai
 
-sol · 258K context · lanes high/xhigh via /model
-> sol — GPT-5.6 Sol · openai
+grok · 500K context · /model switches freely within this group
+  grok45 — Grok 4.5 · x-ai  (no secret)
 
-in-session: /model gpt-multi-sol-high · /model gpt-multi-sol-xhigh
+in-session: /model gpt-multi-sol-high[1m] · /model gpt-multi-sol-xhigh[1m]
 Enter launch · P providers · ? help · Esc back
 ```
 

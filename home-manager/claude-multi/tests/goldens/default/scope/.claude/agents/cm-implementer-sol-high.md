@@ -1,7 +1,7 @@
 ---
 name: cm-implementer-sol-high
 description: "Bounded implementation, normally worktree-isolated; reports changed files and validation. Model: GPT-5.6 Sol (lane high). Use for bounded implementation in an isolated worktree. Preferred cm-implementer variant. Managed cm session: if a selected cm-* type is unavailable, stop; never substitute a generic agent."
-model: gpt-multi-sol-high
+model: gpt-multi-sol-high[1m]
 effort: high
 isolation: worktree
 ---

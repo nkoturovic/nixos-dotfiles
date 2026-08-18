@@ -113,9 +113,9 @@ class SolReviewerTests(unittest.TestCase):
         bundle, document = self._sol_reviewer_doc()
         resolved = composition.resolve(bundle.docs, document)
         by_id = {variant.id: variant for variant in resolved.variants}
-        self.assertEqual(by_id["cm-reviewer-sol-high"].client_selector, "gpt-multi-sol-high")
+        self.assertEqual(by_id["cm-reviewer-sol-high"].client_selector, "gpt-multi-sol-high[1m]")
         self.assertEqual(by_id["cm-reviewer-sol-high"].agent_effort, "high")
-        self.assertEqual(by_id["cm-reviewer-sol-xhigh"].client_selector, "gpt-multi-sol-xhigh")
+        self.assertEqual(by_id["cm-reviewer-sol-xhigh"].client_selector, "gpt-multi-sol-xhigh[1m]")
         self.assertEqual(by_id["cm-reviewer-sol-xhigh"].agent_effort, "xhigh")
         self.assertEqual(by_id["cm-reviewer-sol-xhigh"].role, "cm-reviewer")
         self.assertEqual(
@@ -131,7 +131,7 @@ class SolReviewerTests(unittest.TestCase):
         reviewers = [v for v in resolved.variants if v.role == "cm-reviewer"]
         self.assertEqual(len(reviewers), 1)
         self.assertEqual(reviewers[0].id, "cm-reviewer-sol-xhigh")
-        self.assertEqual(reviewers[0].client_selector, "gpt-multi-sol-xhigh")
+        self.assertEqual(reviewers[0].client_selector, "gpt-multi-sol-xhigh[1m]")
         self.assertEqual(reviewers[0].agent_effort, "xhigh")
         self.assertTrue(reviewers[0].preferred)
 
@@ -139,7 +139,7 @@ class SolReviewerTests(unittest.TestCase):
         bundle, document = self._sol_reviewer_doc(lanes=("xhigh",))
         resolved = composition.resolve(bundle.docs, document)
         self.assertNotIn("gpt55", {v.model for v in resolved.variants})
-        self.assertEqual(resolved.scalar_context_tokens, 258400)
+        self.assertIsNone(resolved.scalar_context_tokens)  # sol is 1M-class (D57)
 
 
 class KimiReviewerTests(unittest.TestCase):
@@ -180,8 +180,8 @@ class KimiReviewerTests(unittest.TestCase):
     def test_scalar_bound_remains_372k(self) -> None:
         bundle, document = self._kimi_reviewer_doc()
         resolved = composition.resolve(bundle.docs, document)
-        # Fable and Kimi have no process scalar; only Sol counts.
-        self.assertEqual(resolved.scalar_context_tokens, 258400)
+        # Fable, Kimi, and (since D57) Sol have no process scalar.
+        self.assertIsNone(resolved.scalar_context_tokens)
 
     def test_independence_rules_cover_both_reviewer_families(self) -> None:
         from claude_multi import compiler
@@ -314,7 +314,7 @@ class SnapshotTests(unittest.TestCase):
         snap = composition.snapshot(resolved)
         self.assertEqual(snap["lead"]["model"], "opus5")
         self.assertEqual(len(snap["variants"]), 6)
-        self.assertEqual(snap["scalar_context_tokens"], 258400)
+        self.assertIsNone(snap["scalar_context_tokens"])
         self.assertEqual(snap["auto_compact_window_tokens"], 1000000)
         self.assertEqual(
             snap["native_agents"],

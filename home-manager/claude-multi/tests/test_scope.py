@@ -76,7 +76,7 @@ class CompileScopeAgentFileTests(unittest.TestCase):
         _, _, plan = _plan()
         fields = _frontmatter(plan.agent_files[".claude/agents/cm-analyst-sol-high.md"])
         self.assertEqual(fields["name"], "cm-analyst-sol-high")
-        self.assertEqual(fields["model"], "gpt-multi-sol-high")
+        self.assertEqual(fields["model"], "gpt-multi-sol-high[1m]")
         self.assertEqual(fields["effort"], "high")
         self.assertNotIn("isolation", fields)
         for forbidden in (
@@ -723,7 +723,7 @@ class ManagedCompactionPinTests(unittest.TestCase):
         plan = scope.compile_ordinary_scope(
             managed_id=FIXED_SESSION,
             hook_command="/hook/shim",
-            available_models=("gpt-multi-sol-high",),
+            available_models=("gpt-multi-sol-high[1m]",),
         )
         self.assertNotIn("autoCompactEnabled", plan.settings)
 
@@ -842,7 +842,7 @@ class GatewayRoutingDurabilityTests(unittest.TestCase):
         plan = scope.compile_ordinary_scope(
             managed_id=FIXED_SESSION,
             hook_command="/hook/shim",
-            available_models=("gpt-multi-sol-high",),
+            available_models=("gpt-multi-sol-high[1m]",),
             gateway_base_url="http://127.0.0.1:8317",
             token_helper_command="/state/bin/claude-multi-gateway-token",
         )
@@ -853,7 +853,7 @@ class GatewayRoutingDurabilityTests(unittest.TestCase):
         plan = scope.compile_ordinary_scope(
             managed_id=FIXED_SESSION,
             hook_command="/hook/shim",
-            available_models=("gpt-multi-sol-high",),
+            available_models=("gpt-multi-sol-high[1m]",),
             gateway_base_url="http://127.0.0.1:8317",
         )
         self.assertNotIn("CLAUDE_CODE_RETRY_WATCHDOG", plan.settings["env"])

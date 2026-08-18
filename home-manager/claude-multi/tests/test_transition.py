@@ -157,7 +157,7 @@ class BuildDiffTests(TransitionTestCase):
             diff,
             [
                 "variant added: cm-analyst-sol-xhigh (role cm-analyst, "
-                "model sol, lane xhigh, selector gpt-multi-sol-xhigh)"
+                "model sol, lane xhigh, selector gpt-multi-sol-xhigh[1m])"
             ],
         )
 
@@ -187,7 +187,7 @@ class BuildDiffTests(TransitionTestCase):
             diff,
             [
                 "variant changed: cm-analyst-sol-high: client_selector "
-                "'gpt-multi-sol-high-v2' -> 'gpt-multi-sol-high'; "
+                "'gpt-multi-sol-high-v2' -> 'gpt-multi-sol-high[1m]'; "
                 "preferred False -> True"
             ],
         )
@@ -827,7 +827,7 @@ class ExecuteRelaunchTests(TransitionTestCase):
         self._make_session()
         current = self.store.load(FIXED_ID)
         current["identity_state"] = sessions.IDENTITY_REPAIR_NEEDED
-        current["observed_model"] = "gpt-multi-sol-high"
+        current["observed_model"] = "gpt-multi-sol-high[1m]"
         current["pending_forks"] = [
             {"session_id": OTHER_ID, "observed_at": "2026-07-22T00:00:00Z"}
         ]

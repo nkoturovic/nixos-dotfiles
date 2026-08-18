@@ -1,7 +1,7 @@
 ---
 name: cm-analyst-sol-high
 description: "Produce evidence-backed findings, reasoning, and broad analysis. Model: GPT-5.6 Sol (lane high). Use for routine reconnaissance and bounded reasoning. Preferred cm-analyst variant. Managed cm session: if a selected cm-* type is unavailable, stop; never substitute a generic agent."
-model: gpt-multi-sol-high
+model: gpt-multi-sol-high[1m]
 effort: high
 ---
 

@@ -227,7 +227,7 @@ class AgentDefinitionTests(unittest.TestCase):
         sol = agents["cm-analyst-sol-high"]
         kimi = agents["cm-analyst-kimi-k3-max"]
         self.assertNotEqual(sol["description"], kimi["description"])
-        self.assertEqual(sol["model"], "gpt-multi-sol-high")
+        self.assertEqual(sol["model"], "gpt-multi-sol-high[1m]")
         self.assertEqual(kimi["model"], "claude-multi-kimi-k3[1m]")
         self.assertEqual(sol["effort"], "high")
         self.assertEqual(kimi["effort"], "max")
@@ -354,15 +354,19 @@ class AgentDefinitionTests(unittest.TestCase):
 
         bundle = catalog.load_catalog(CATALOG_ROOT)
         document = copy.deepcopy(bundle.default_composition)
-        document["slots"][0] = {"role": "cm-lead", "model": "sol"}
+        # grok45 (500K) leading a 1M-class pool is the lower-context case
+        # (sol joined the 1M class in D57).
+        document["availability"]["providers"]["openrouter"] = "lead+agents"
+        document["availability"]["models"]["grok45"] = "lead+agents"
+        document["slots"][0] = {"role": "cm-lead", "model": "grok45"}
         resolved = composition.resolve(bundle.docs, document)
         appendix = compiler.generate_lead_appendix(
             resolved,
             bundle.docs["providers"]["providers"],
             session_id=FIXED_SESSION,
-            composition_name="sol-native",
+            composition_name="grok-native",
         )
-        self.assertIn("Lead context: 258400 client tokens", appendix)
+        self.assertIn("Lead context: 500000 client tokens", appendix)
         self.assertIn("Native agents inherit this lower-context lead", appendix)
         self.assertIn("loaded skills bounded", appendix)
         self.assertIn("does not raise this process capacity", appendix)
@@ -460,8 +464,31 @@ class EnvironmentTests(unittest.TestCase):
         self.assertNotIn("CLAUDE_CODE_MAX_CONTEXT_TOKENS", result.env_set)
 
     def test_scalar_present_sets_exact_value(self) -> None:
-        _, _, result = _compile()
-        self.assertEqual(result.env_set["CLAUDE_CODE_MAX_CONTEXT_TOKENS"], "258400")
+        # A rig with a sub-1M scalar member (qwen38: 983616) exports the exact
+        # process scalar; the all-1M default leaves it unset (test above).
+        import copy
+
+        bundle = catalog.load_catalog(CATALOG_ROOT)
+        document = copy.deepcopy(bundle.default_composition)
+        document["availability"]["providers"]["qwen"] = "agents"
+        document["availability"]["models"]["qwen38"] = "agents"
+        document["slots"].append(
+            {"role": "cm-analyst", "model": "qwen38", "preferred": False}
+        )
+        resolved = composition.resolve(bundle.docs, document)
+        snap = composition.snapshot(resolved)
+        result = compiler.compile_launch(
+            docs=bundle.docs,
+            prompt_bodies=bundle.prompt_bodies,
+            resolved=resolved,
+            session_action=compiler.build_fresh(FIXED_SESSION),
+            passthrough=[],
+            settings_path=SETTINGS_PATH,
+            lead_prompt_path=compiler.lead_prompt_path(
+                Path("/state"), strict_json.bundle_digest(snap), FIXED_SESSION
+            ),
+        )
+        self.assertEqual(result.env_set["CLAUDE_CODE_MAX_CONTEXT_TOKENS"], "983616")
         self.assertNotIn("CLAUDE_CODE_MAX_CONTEXT_TOKENS", result.env_unset)
 
     def test_env_set_and_unset(self) -> None:
@@ -479,6 +506,9 @@ class EnvironmentTests(unittest.TestCase):
                 "CLAUDE_CODE_MAX_CONCURRENT_SUBAGENTS",
                 "CLAUDE_CODE_DISABLE_EXPLORE_PLAN_AGENTS",
                 "CLAUDE_CODE_DISABLE_WORKFLOWS",
+                # All-1M rig: no process scalar — the cap is actively unset
+                # so an inherited value can never leak in.
+                "CLAUDE_CODE_MAX_CONTEXT_TOKENS",
             ),
         )
         self.assertEqual(
@@ -493,7 +523,10 @@ class EnvironmentTests(unittest.TestCase):
         self.assertEqual(result.env_set["CLAUDE_MULTI_GATEWAY"], "1")
         self.assertEqual(result.env_set["CLAUDE_MULTI_SESSION_ID"], FIXED_SESSION)
         self.assertEqual(result.env_set["DISABLE_AUTOUPDATER"], "1")
-        self.assertEqual(result.env_set["CLAUDE_CODE_MAX_CONTEXT_TOKENS"], "258400")
+        # All-1M rig: no process scalar (unset kills any inherited cap);
+        # the window stays the lead's full bound.
+        self.assertNotIn("CLAUDE_CODE_MAX_CONTEXT_TOKENS", result.env_set)
+        self.assertIn("CLAUDE_CODE_MAX_CONTEXT_TOKENS", result.env_unset)
         self.assertEqual(result.env_set["CLAUDE_CODE_AUTO_COMPACT_WINDOW"], "1000000")
         self.assertEqual(result.env_set["CLAUDE_AUTOCOMPACT_PCT_OVERRIDE"], "90")
         self.assertNotIn("ANTHROPIC_AUTH_TOKEN", result.env_set)
@@ -554,7 +587,7 @@ class EnvironmentTests(unittest.TestCase):
         )
         self.assertIn("CLAUDE_CODE_AUTO_COMPACT_WINDOW", result.env_unset)
         self.assertIn("CLAUDE_AUTOCOMPACT_PCT_OVERRIDE", result.env_unset)
-        # Kimi remains a 1M main-loop lead even with 372K Sol variants. Claude
+        # Kimi remains a 1M main-loop lead. Claude
         # Code caps each model, reserves 20K output, then applies the common
         # preparation and reactive percentage policy to the prompt budget.
         self.assertEqual(
@@ -693,8 +726,8 @@ class RuntimeIdentityAndDirectCompileTests(unittest.TestCase):
             ("fable", "large"),
         )
         self.assertEqual(
-            compiler.direct_model_for_selector(bundle.docs, "gpt-multi-sol-xhigh"),
-            ("sol", "sol"),
+            compiler.direct_model_for_selector(bundle.docs, "gpt-multi-sol-xhigh[1m]"),
+            ("sol", "large"),
         )
         self.assertEqual(
             compiler.direct_model_for_selector(bundle.docs, "claude-opus-4-8[1m]"),
@@ -722,7 +755,10 @@ class RuntimeIdentityAndDirectCompileTests(unittest.TestCase):
             result.scope_plan.settings["model"], "claude-multi-qwen38-max[1m]"
         )
 
-    def test_direct_sol_profile_excludes_large_context_models(self) -> None:
+    def test_direct_sol_joins_the_large_profile(self) -> None:
+        # D57: sol is 1M-class on the codex route (official 1M enablement),
+        # so the sol-only profile is gone — sol ordinary sessions join the
+        # large fence (in-session /model across the 1M-class pool).
         bundle = catalog.load_catalog(CATALOG_ROOT)
         result = compiler.compile_direct_launch(
             docs=bundle.docs,
@@ -735,23 +771,22 @@ class RuntimeIdentityAndDirectCompileTests(unittest.TestCase):
         )
         self.assertEqual(
             result.scope_plan.settings["availableModels"],
-            ["gpt-multi-sol-high", "gpt-multi-sol-xhigh"],
+            list(compiler.direct_profile_selectors(bundle.docs, "large")),
         )
-        self.assertEqual(result.env_set["CLAUDE_CODE_MAX_CONTEXT_TOKENS"], "258400")
-        self.assertEqual(result.env_set["CLAUDE_CODE_AUTO_COMPACT_WINDOW"], "258400")
+        # The large fence derives min(member bounds): qwen38's 983616.
+        self.assertNotIn("CLAUDE_CODE_MAX_CONTEXT_TOKENS", result.env_set)
+        self.assertEqual(result.env_set["CLAUDE_CODE_AUTO_COMPACT_WINDOW"], "983616")
         self.assertEqual(result.env_set["CLAUDE_AUTOCOMPACT_PCT_OVERRIDE"], "90")
-        self.assertEqual(
-            compiler.direct_profile_context(bundle.docs, "sol"),
-            (258400, 258400, 214560),
-        )
+        with self.assertRaises(compiler.CompilerError):
+            compiler.direct_profile_context(bundle.docs, "sol")
 
     def test_direct_profile_context_is_derived_from_catalog(self) -> None:
         import copy
 
         bundle = catalog.load_catalog(CATALOG_ROOT)
         docs = copy.deepcopy(bundle.docs)
-        sol = docs["models"]["models"]["sol"]["context"]
-        sol.update(
+        grok = docs["models"]["models"]["grok45"]["context"]
+        grok.update(
             client_tokens=400000,
             provider_tokens=400000,
             scalar_tokens=400000,
@@ -759,7 +794,7 @@ class RuntimeIdentityAndDirectCompileTests(unittest.TestCase):
             validated_tokens=400000,
         )
         self.assertEqual(
-            compiler.direct_profile_context(docs, "sol"),
+            compiler.direct_profile_context(docs, "grok"),
             (400000, 400000, 342000),
         )
         qwen = docs["models"]["models"]["qwen38"]["context"]
@@ -870,6 +905,8 @@ class GrokProfileFenceTests(unittest.TestCase):
                 "claude-multi-opus-4-8[1m]",
                 "claude-multi-opus-5[1m]",
                 "claude-multi-qwen38-max[1m]",
+                "gpt-multi-sol-high[1m]",
+                "gpt-multi-sol-xhigh[1m]",
             ),
         )
 
