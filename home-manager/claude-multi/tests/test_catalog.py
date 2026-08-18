@@ -1049,15 +1049,15 @@ class WireSlashPatternTests(unittest.TestCase):
 
     def test_codex_route_context_bounds(self) -> None:
         # D57: sol is 1M-class on the codex route (official 1M enablement
-        # 2026-08-12); validated holds the last historically-proven bound
-        # until the acceptance probe. gpt55 (no 1M support) keeps the D56
+        # 2026-08-12); validated carries the probe-verified bound (343,541
+        # accepted 2026-08-18). gpt55 (no 1M support) keeps the D56
         # effective fence.
         bundle = catalog.load_catalog(CATALOG_ROOT)
         sol = bundle.models["sol"]["context"]
         self.assertEqual(sol["client_tokens"], 1000000)
         self.assertEqual(sol["provider_tokens"], 1000000)
         self.assertEqual(sol["provider_stated_limit_tokens"], 1050000)
-        self.assertEqual(sol["validated_tokens"], 372000)
+        self.assertEqual(sol["validated_tokens"], 343541)
         self.assertEqual(sol["ordinary_profile"], "large")
         self.assertIsNone(sol["scalar_tokens"])
         gpt55 = bundle.models["gpt55"]["context"]

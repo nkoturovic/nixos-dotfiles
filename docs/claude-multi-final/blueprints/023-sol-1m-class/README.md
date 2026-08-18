@@ -36,3 +36,5 @@ documented fallback if the enablement is pulled).
   >258.4K-token request through the codex pool — proves the server honors
   the 1M budget for our client path (not just Codex CLI). On failure:
   revert to the D56 fence (the qualification text carries the how).
+  **RESULT 2026-08-18: green** — 343,541 input tokens accepted (HTTP 200);
+  `validated_tokens` = 343541 (near-limit 1M stays unverified).

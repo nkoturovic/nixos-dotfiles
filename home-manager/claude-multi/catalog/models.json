@@ -435,9 +435,9 @@
         "ordinary_profile": "large",
         "provider_stated_limit_tokens": 1050000,
         "provider_tokens": 1000000,
-        "qualification": "1M on the ChatGPT/Codex subscription route, documented 2026-08-12 by OpenAI (model_context_window=1000000, auto-compact ~900K): GPT-5.6 Sol's documented window is 1,050,000; we fence at 1M with the [1m] selector classifying extended context. Composition leads get the full 1M (reactive trigger 882,000); the ordinary large-profile fence derives the current min, 983,616 (trigger 867,254). History: 372K worked pre-July-2026; the metadata cuts forced D56's 258,400; the 1M enablement supersedes it. validated_tokens 372000 is the last historically-proven bound — 1M is provider-documented, NOT benchmark-verified until the bounded approval-gated acceptance call.",
+        "qualification": "1M on the ChatGPT/Codex subscription route, documented 2026-08-12 by OpenAI (model_context_window=1000000, auto-compact ~900K): GPT-5.6 Sol's documented window is 1,050,000; we fence at 1M with the [1m] selector classifying extended context. Composition leads get the full 1M (reactive trigger 882,000); the ordinary large-profile fence derives the current min, 983,616 (trigger 867,254). History: 372K worked pre-July-2026; the metadata cuts forced D56's 258,400; the 1M enablement supersedes it. Acceptance verified 2026-08-18: 343,541 input tokens accepted through the codex pool (approval-gated bounded probe); near-limit (1M) behavior remains unverified.",
         "scalar_tokens": null,
-        "validated_tokens": 372000
+        "validated_tokens": 343541
       },
       "default_lane": "high",
       "display": "GPT-5.6 Sol",

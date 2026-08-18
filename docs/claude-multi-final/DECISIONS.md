@@ -1151,7 +1151,9 @@ NO process scalar (an inherited cap is actively unset); a mixed rig's
 scalar derives from the remaining sub-1M members (qwen38: 983,616). The
 trigger at the 1M lead window is 882,000 (ordinary sol sessions fence at
 the large-profile min: 983,616 window, 867,254 trigger) — marginally more
-conservative than the documented ~900K compaction point.
+conservative than the documented ~900K compaction point. Acceptance
+verified 2026-08-18: 343,541 input tokens accepted through the codex
+pool (bounded approval-gated probe); validated_tokens carries it.
 
 ## User decision summary (what you're approving by accepting this design)
 

@@ -1,6 +1,15 @@
 # STATUS — live tracker
 
-## 2026-08-12 — v2.18.0: sol joins the 1M class (D57, working tree)
+## 2026-08-18 — v2.18.0: sol joins the 1M class (D57, blueprint 023, activated gen 125)
+
+- **Activated**: HM gen 125, `doctor --repair-all` converged 33 durable
+  sessions onto catalog 18 (one ordinary sol record flagged for its
+  retired 'sol' profile — the re-pin resume is the documented remedy,
+  operator's call).
+- **Acceptance probe green** (approval-gated, 2026-08-18): 343,541 input
+  tokens accepted through the codex pool (HTTP 200) — decisively past the
+  old 258,400 ceiling; the 1M budget is live for our client path.
+  `validated_tokens` = 343541 (near-limit 1M stays unverified).
 
 - **Official 1M enablement for the codex subscription route** (OpenAI,
   2026-08-12): sol moves to client/provider 1,000,000 (declared 1,050,000),
@@ -21,8 +30,7 @@
   sentence repaired; doctor's repair hint is retired-profile-aware
   (pre-upgrade ordinary 'sol' records get the re-pin resume command, not
   a --repair that would error); trailing-newline nit fixed.
-- Pending: acceptance probe (>258.4K through the codex pool) + activation
-  green light.
+- Pending: activation green light.
 
 ## 2026-08-12 — v2.17.0: DeepSeek & OpenRouter providers (D54–D56, blueprint 022, activated gen 124)
 
