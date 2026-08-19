@@ -36,7 +36,7 @@
         "output-config-max"
       ],
       "support": "locally-validated-experimental",
-      "support_note": "DeepSeek's Anthropic-compatible endpoint (docs + probes verified 2026-08-11/12): x-api-key auth (Bearer also answers), 1M context, thinking default-on. Text-only (no images/documents); cache_control ignored (provider-side implicit prefix cache); MCP server-side tool content unsupported. Listing is OpenAI-shape GET /models (Bearer) — the Anthropic path 404s. China-based provider, no region pinning.",
+      "support_note": "DeepSeek's Anthropic-compatible endpoint (docs + probes verified 2026-08-11/12; Pro GA alias/docs refreshed 2026-08-19): x-api-key auth (Bearer also answers), 1M context, thinking default-on. Text-only (no images/documents); cache_control ignored (provider-side implicit prefix cache); MCP server-side tool content unsupported. Listing is OpenAI-shape GET /models (Bearer) — the Anthropic path 404s. China-based provider, no region pinning.",
       "transport": {
         "auth": {
           "header": "x-api-key",

@@ -16,6 +16,7 @@ shared across both so every work item has a unique id.
 | 021 | [Deep analysis hardening](021-deep-analysis-hardening/) | 2.16.0 | landed (activated, gen 123) |
 | 022 | [DeepSeek & OpenRouter providers](022-deepseek-openrouter/) | 2.17.0 | landed (activated, gen 124) |
 | 023 | [Sol joins the 1M class](023-sol-1m-class/) | 2.18.0 | landed (activated, gen 125; acceptance probe green) |
+| 024 | [DeepSeek V4 Pro GA](024-deepseek-v4-pro/) | 2.18.0 / catalog 19 | implemented, awaiting activation + live call |
 
 Batch approval flow: blueprints → implementation → per-item review → full suite
 → commits on `feature/term-only` → **operator green light** → HM activation

@@ -214,7 +214,17 @@ full): run with a disk-backed temp dir, e.g.
   Only `models.json` / `providers.json` / compositions are ever edited.
   A preview→production flip follows DECISIONS D21 (wire_model → context
   re-verify → effort tiers → one live call → display) — executed for
-  qwen3.8-max in 2.13.0 (D50/016).
+  qwen3.8-max in 2.13.0 (D50/016). DeepSeek aliases follow a distinct
+  first-party convention (D58/024): API wires stay `deepseek-v4-flash` /
+  `deepseek-v4-pro`; the dated Flash-0731 / Pro-0813 strings are resolved
+  version labels, not first-party callable ids. A docs-only GA adds the
+  catalog entry with a conservative `validated_tokens` floor; move that
+  evidence field only after the separately approved live call. If user
+  compositions need a not-yet-installed catalog model, stage BOTH planned
+  catalog-next files and catalog-current rollback copies under
+  `tests/fixtures/compositions/<batch>/`; sandbox-load/resolve the exact
+  files, keep live XDG presets compatible until activation, then save them
+  through `CompositionStore` (0600).
 - **Add a model the gateway doesn't know (like Opus 5):** CLIProxyAPI's
   embedded registry may predate the model — aliases then drop from
   `/v1/models` (routing still works). Add a local registry patch under

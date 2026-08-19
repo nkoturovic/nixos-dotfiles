@@ -246,7 +246,9 @@ acceptance call" (true of every 1M-class entry until its acceptance run).
 
 ## Explicitly not in scope
 
-- `deepseek-v4-pro` (preview — add at GA via the D21/D50 flip sequence).
+- `deepseek-v4-pro` (preview at this checkpoint). **Completed at GA by
+  blueprint 024 / D58** using the stable `deepseek-v4-pro` alias (currently
+  resolves V4-Pro-0813); this historical probe/design narrative stays frozen.
 - grok-code-fast-1 / grok-build-0.1 (noted, not requested).
 - OpenAI-compatible upstream adapter (020 deferral stands — the Anthropic
   skins cover both providers).

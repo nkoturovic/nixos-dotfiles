@@ -1,5 +1,38 @@
 # STATUS — live tracker
 
+## 2026-08-19 — catalog 19: DeepSeek V4 Pro GA (D58, blueprint 024, working tree)
+
+- **Production alias/version**: new catalog model `deepseek-pro`, wire
+  `deepseek-v4-pro` (stable first-party alias, currently resolves the
+  official DeepSeek-V4-Pro-0813 release; no dated wire). Existing
+  `deepseek-v4-flash` remains the stable alias for Flash-0731.
+- **Model contract**: 1M `large` profile, high+max lanes using the existing
+  DeepSeek Anthropic-path `output_config.effort` contracts; default high,
+  compositions pin max for implementation/finalization. validated=200K
+  until the separately approved live call. Qwen3.8 Max/Sol remain stronger
+  general choices; Pro is the careful architecture/implementation lane.
+- **Compositions** (operator-level, store-validated, 0600): `deepseek`
+  becomes Pro lead + Flash scan + Pro implementation + Flash review;
+  new `deepseek-flash` preserves the old all-Flash rig; `grok-deepseek`
+  becomes Grok lead → Flash scan → Pro implementation → Grok preferred
+  cross-family review; `sol-qwen-glm-deepseek-flash` gains Pro max
+  alternatives while retaining its compatibility name.
+- **No provider/adapter/schema change**: the existing direct Anthropic
+  DeepSeek route and output-config high/max contracts already cover Pro;
+  listing advertises both stable aliases and marks Pro cataloged.
+- **Version**: launcher stays 2.18.0; catalog 18→19.
+- **Verification**: full discovery **1,674 tests OK** (skipped=2); package
+  build green (`/nix/store/f9xd…-claude-multi-2.18.0`); sandbox suite
+  green; render golden delta reviewed (exactly two Pro mappings + one Pro
+  alias per high/max override group); exact planned AND rollback composition
+  fixtures are sandbox-tested; live catalog18 presets remain usable.
+- **Cross-family review** (sol-xhigh/qwen38/glm52 + adversarial verify):
+  composition design approved; confirmed findings fixed — HANDOFF installed
+  state now distinguishes live catalog18 vs staged catalog19, exact staged
+  files have regression coverage (including the 17-slot compatibility rig),
+  and the activation runbook has a complete catalog+XDG composition rollback.
+- Pending: separately approved bounded Pro max call, activation green light.
+
 ## 2026-08-18 — v2.18.0: sol joins the 1M class (D57, blueprint 023, activated gen 125)
 
 - **Activated**: HM gen 125, `doctor --repair-all` converged 33 durable

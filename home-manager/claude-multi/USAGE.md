@@ -36,7 +36,7 @@ A card shows the composition (lead, team, policy, context). Then:
   presets, most-recently-used first (this directory's
   recent compositions lead, then globally recent, then the rest). Cycling
   away from unsaved composition edits asks first (2.16.0). Current
-  set: `default` (Opus 5 + Sol + Kimi), `opus-sol` (Opus 5 + Sol), `opus-kimi` (Opus 5 + Kimi), `fable`, `fable-sol-qwen-glm`, `kimi-sol`, `kimi-sol-qwen`, `kimi-sol-qwen-glm`, `kimi-sol-qwen-glm-fable`, `qwen-sol`, `glm-sol`, `sol-direct`, `deepseek`, `grok-deepseek`
+  set: `default` (Opus 5 + Sol + Kimi), `opus-sol` (Opus 5 + Sol), `opus-kimi` (Opus 5 + Kimi), `fable`, `fable-sol-qwen-glm`, `kimi-sol`, `kimi-sol-qwen`, `kimi-sol-qwen-glm`, `kimi-sol-qwen-glm-fable`, `qwen-sol`, `glm-sol`, `sol-direct`, `deepseek`, `deepseek-flash`, `grok-deepseek`
 - **W** — toggle workflows on/off
 - **G** — gateway models: pick a model, launch with no composition (see "Ordinary gateway sessions"); the picker's selected row shows the exact typed `/model` selectors, **M** browses the full catalog+custom list (Enter = details; **E** jumps to that model's Availability row in the composition editor), and **P** opens the providers pane (per-provider local status, connect instructions, masked key entry)
 - **E** — edit the composition (form editor; `?` explains each field)
@@ -74,7 +74,10 @@ are onboarded through `claude-multi-dev` (`--help` maps the two tracks;
 
 `default` is the only built-in trusted seed; the rest are the named profiles
 on this machine (all creatable in seconds with `compose new` /
-`use-as-template` — see "Managing compositions"):
+`use-as-template` — see "Managing compositions"). **Catalog19 staging
+note:** the DeepSeek rows below describe blueprint 024's tested
+post-activation files; live catalog18 keeps the old Flash-only shapes until
+the approved activation, and creates `deepseek-flash` at that boundary:
 
 | Preset | Lead | Subagents | Use it for |
 | --- | --- | --- | --- |
@@ -90,8 +93,16 @@ on this machine (all creatable in seconds with `compose new` /
 | `qwen-sol` | Qwen3.8 Max | Sol preferred · Qwen alternates | Qwen lead work |
 | `glm-sol` | GLM-5.2 | Sol preferred · GLM alternates | GLM 1M lead work (max reasoning) |
 | `sol-direct` | GPT 5.6 Sol (1M since 2.18.0, D57) | — | single-model direct sessions |
-| `deepseek` | DeepSeek V4 Flash | Flash high everywhere · Flash max reviewer | the fast, cheap side-task rig |
-| `grok-deepseek` | Grok 4.5 (OpenRouter) | Flash high preferred · Grok alternates | x-ai lead + deepseek side lanes, cross-family review |
+| `deepseek` | DeepSeek V4 Pro (high lead) | Flash scan · Pro max implement/finalize · Flash review | measured Flash→Pro pipeline; same-family review (reduced independence) |
+| `deepseek-flash` | DeepSeek V4 Flash | Flash high everywhere · Flash max reviewer | preserved fast/cheap all-Flash side-task rig |
+| `grok-deepseek` | Grok 4.5 (OpenRouter) | Flash scan · Pro max implementation · Grok preferred review | Grok lead + measured DeepSeek pipeline + cross-family review |
+
+DeepSeek API aliases are deliberately stable: `deepseek-pro` routes wire
+`deepseek-v4-pro` (currently the official V4-Pro-0813 release) and
+`deepseek-flash` routes `deepseek-v4-flash` (currently Flash-0731); the dated
+version labels are not first-party callable ids. Ordinary typed selectors:
+`/model claude-multi-deepseek-pro-high[1m]` or `-max[1m]` (Flash uses the
+matching `deepseek-flash-*` selectors).
 
 Every profile keeps workflows native, worktree isolation on implementers,
 cross-provider subagent preference, the model fence, and the compaction pin.

@@ -88,19 +88,22 @@ untouched; `claude-gateway` is the ordinary non-composition entrypoint.
 - **Opus 5 is the default lead** (default = opus5+sol+kimi; profiles
   `opus-sol`, `opus-kimi`, `fable`, `fable-sol-qwen-glm`, `kimi-sol`,
   `kimi-sol-qwen`, `kimi-sol-qwen-glm`, `kimi-sol-qwen-glm-fable`,
-  `qwen-sol`, `glm-sol`, `sol-direct`, `deepseek`, `grok-deepseek`
-  all live); gateway serves `claude-opus-5` and `claude-multi-opus-5`
+  `qwen-sol`, `glm-sol`, `sol-direct`, `deepseek`, `grok-deepseek` all
+  live); gateway serves `claude-opus-5` and `claude-multi-opus-5`
   (CLIProxy registry patched); binary pinned at 2.1.220 and symlink-matched.
-- **DeepSeek + OpenRouter providers** (2.17.0, D54): `deepseek-flash`
-  (wire `deepseek-v4-flash`, the latest-alias; 1M, `large` profile, lanes
-  high/max with `output_config.effort` pinned per lane — budget_tokens is
-  ignored upstream) and `grok45` (wire `x-ai/grok-4.5` via the Anthropic
-  skin; 500K in its own `grok` profile — window from the scope env, no
-  `[1m]`). Compositions: `deepseek` (all-flash side-task rig),
-  `grok-deepseek` (grok lead + flash agents, cross-family review).
-  Listing: deepseek lists via the documented OpenAI-shape `GET /models`
-  (Bearer — verified 2026-08-12; the Anthropic path 404s); openrouter
-  lists via the PUBLIC OpenAI-shape `GET /api/v1/models` (no key).
+- **DeepSeek + OpenRouter active state** (2.17.0, D54):
+  `deepseek-flash` (stable alias → Flash-0731) is the only DeepSeek catalog
+  model; live `deepseek` is the all-Flash rig and live `grok-deepseek` uses
+  Flash agents. `grok45` remains 500K in the `grok` profile.
+- **Catalog 19 working tree (D58/024; activation pending):** adds
+  `deepseek-pro` (stable alias → official Pro-0813 GA), high/max 1M lanes.
+  Planned composition files (tested, not live yet): `deepseek` = Pro lead →
+  Flash scan → Pro implementation → Flash review; new `deepseek-flash`
+  preserves the all-Flash rig; `grok-deepseek` = Grok lead → Flash scan →
+  Pro implementation → Grok cross-family review; compatibility preset
+  `sol-qwen-glm-deepseek-flash` gains Pro max alternatives. Qwen3.8
+  Max/Sol remain stronger general options. Listing advertises both stable
+  DeepSeek aliases via OpenAI-shape `GET /models` (Bearer).
 - **GLM-5.2 live on the qwen provider** (2.9.0, D45): wire `glm-5.2` at the
   Token Plan endpoint, selector `claude-multi-glm52-max[1m]`, lead+agents,
   lane max with `reasoning_effort: "max"` — 1M context, alibaba family

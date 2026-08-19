@@ -1155,6 +1155,48 @@ conservative than the documented ~900K compaction point. Acceptance
 verified 2026-08-18: 343,541 input tokens accepted through the codex
 pool (bounded approval-gated probe); validated_tokens carries it.
 
+**D58 — DeepSeek V4 Pro GA (0813) under the stable alias; Flash→Pro
+pipeline.** DeepSeek-V4-Pro-0813 is the official release superseding
+Preview; first-party API calls use the normal `deepseek-v4-pro` alias
+(the pricing/model table pairs that id with version Pro-0813). The dated
+`deepseek-v4-pro-0813` string is not a documented first-party callable
+id. Flash remains `deepseek-v4-flash` and still resolves Flash-0731 — no
+wire migration for either alias. New catalog entry `deepseek-pro`:
+lead+agents/all roles, 1M `large` profile, scalar null, high+max lanes
+using the existing DeepSeek Anthropic-path `output_config.effort`
+contracts (no new provider/adapter/schema; no xhigh lane — it collapses
+to high). Default lane high (the cheaper lane; compositions pin max for
+implementation/finalization); validated_tokens 200000 until the separate
+approval-gated live Pro call (docs do not move the evidence ledger).
+Qwen3.8 Max and GPT-5.6 Sol stay stronger general options — Pro is a
+specialized broad/low-error architecture, production-fix, and
+finalization lane.
+
+Routing evidence is tiered: official docs own GA/alias/context/effort/
+features; the two-part single-codebase community benchmark informs use
+cases only. Measured policy: Flash preferred for bug hunting, edge/error
+paths, and cheap/consistent exploration; Pro preferred for architecture,
+refactoring plans, production implementation, propagation, regression
+coverage, and fact-check/finalization. Composition placement: `deepseek`
+becomes Pro lead + Flash-preferred analysis + Pro-preferred max
+implementation + Flash-preferred max review (same-family review honestly
+reduced); `deepseek-flash` preserves the previous all-Flash cheap rig;
+`grok-deepseek` becomes Grok lead → Flash scan → Pro max implement/finalize
+→ Grok preferred cross-family review (Pro alternate); the existing
+`sol-qwen-glm-deepseek-flash` keeps its compatibility name but gains Pro
+max alternatives in every agent role. Trusted default unchanged.
+
+Cost/variance stays out of the catalog contract: current Pro miss/output
+prices are 3x Flash (cache hit ~3.14x), concurrency 500 vs 2500, peak
+rates double 01:00–04:00 and 06:00–10:00 UTC. Community-observed Pro
+run variance is medium-confidence guidance, not permanent routing fact.
+Catalog 18→19; launcher remains 2.18.0 (catalog-only change). Activation
+requires re-render/restart; one separately approved bounded Pro-max call
+validates the wire, auth, thinking/tool blocks, and max contract. A failed
+call rolls back catalog generation 19 AND restores the staged catalog18 XDG
+composition files (blueprint 024 carries the exact runbook; HM rollback alone
+cannot restore user compositions).
+
 ## User decision summary (what you're approving by accepting this design)
 
 1. Selected agents become **real files** in a per-session scope; the failure

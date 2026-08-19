@@ -93,6 +93,18 @@ claude-api-key:
         owned-by: "deepseek"
         context-length: 1000000
         force-mapping: true
+      - name: "deepseek-v4-pro"
+        alias: "claude-multi-deepseek-pro-high"
+        display-name: "DeepSeek V4 Pro"
+        owned-by: "deepseek"
+        context-length: 1000000
+        force-mapping: true
+      - name: "deepseek-v4-pro"
+        alias: "claude-multi-deepseek-pro-max"
+        display-name: "DeepSeek V4 Pro"
+        owned-by: "deepseek"
+        context-length: 1000000
+        force-mapping: true
   - api-key: "dummy-kimi-key"
     base-url: "https://api.kimi.com/coding"
     auth-header: "x-api-key"
@@ -139,10 +151,14 @@ payload:
     - models:
         - name: "claude-multi-deepseek-flash-high"
           protocol: "claude"
+        - name: "claude-multi-deepseek-pro-high"
+          protocol: "claude"
       params:
         "output_config.effort": "high"
     - models:
         - name: "claude-multi-deepseek-flash-max"
+          protocol: "claude"
+        - name: "claude-multi-deepseek-pro-max"
           protocol: "claude"
       params:
         "output_config.effort": "max"

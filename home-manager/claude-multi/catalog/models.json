@@ -52,6 +52,58 @@
       "routing_note": "DeepSeek flash (latest alias, currently V4-Flash-0731); thinking always on (effort pinned per lane; budget_tokens ignored upstream). Extremely fast and cheap side-task workhorse; text-only upstream.",
       "wire_model": "deepseek-v4-flash"
     },
+    "deepseek-pro": {
+      "capabilities": [
+        "lead",
+        "agents"
+      ],
+      "client_selector": "claude-multi-deepseek-pro-high[1m]",
+      "compatible_roles": [
+        "cm-lead",
+        "cm-analyst",
+        "cm-implementer",
+        "cm-reviewer"
+      ],
+      "context": {
+        "client_tokens": 1000000,
+        "declared_tokens": 1000000,
+        "ordinary_profile": "large",
+        "provider_tokens": 1000000,
+        "qualification": "Provider-documented GA: the stable API alias deepseek-v4-pro currently resolves DeepSeek-V4-Pro-0813 (official release, superseding Preview); DeepSeek documents 1M context and 384K max output (verified 2026-08-19). The [1m] selector gives Claude Code extended-context classification; composition leads get the full 1M while the ordinary large-profile fence derives the current min, 983616. No live Pro call yet; validated_tokens=200000 is the conservative unverified catalog floor, not a measured Pro bound. Near-limit behavior is unverified.",
+        "scalar_tokens": null,
+        "validated_tokens": 200000
+      },
+      "default_lane": "high",
+      "display": "DeepSeek V4 Pro",
+      "lanes": {
+        "high": {
+          "agent_effort": "high",
+          "client_selector": "claude-multi-deepseek-pro-high[1m]",
+          "proxy_effort_contract": "output-config-high"
+        },
+        "max": {
+          "agent_effort": "max",
+          "client_selector": "claude-multi-deepseek-pro-max[1m]",
+          "proxy_effort_contract": "output-config-max"
+        }
+      },
+      "lead": {
+        "effort": "ultracode",
+        "env": {}
+      },
+      "minimum_tested": {
+        "claude_code": "2.1.216",
+        "cliproxyapi": "7.2.80"
+      },
+      "provider": "deepseek",
+      "role_hints": {
+        "cm-analyst": "Use for broad structural analysis, architecture, refactoring plans, and documentation after a Flash bug scan; Qwen/Sol remain stronger general escalations.",
+        "cm-implementer": "Use for careful production fixes, multi-file implementation, and finalization; prefer Pro over Flash when code changes must propagate completely.",
+        "cm-reviewer": "Use to fact-check Flash findings and verify implementation detail; same-family review does not satisfy independence for DeepSeek-authored work."
+      },
+      "routing_note": "DeepSeek production flagship (currently V4-Pro-0813); thinking default-on. Broad architecture and careful production implementation; pair Flash scan → Pro implementation/fact-check. Qwen3.8 Max and Sol remain stronger general options.",
+      "wire_model": "deepseek-v4-pro"
+    },
     "fable": {
       "capabilities": [
         "lead",

@@ -900,6 +900,8 @@ class GrokProfileFenceTests(unittest.TestCase):
                 "claude-fable-5[1m]",
                 "claude-multi-deepseek-flash-high[1m]",
                 "claude-multi-deepseek-flash-max[1m]",
+                "claude-multi-deepseek-pro-high[1m]",
+                "claude-multi-deepseek-pro-max[1m]",
                 "claude-multi-glm52-max[1m]",
                 "claude-multi-kimi-k3[1m]",
                 "claude-multi-opus-4-8[1m]",
@@ -925,6 +927,23 @@ class GrokProfileFenceTests(unittest.TestCase):
         self.assertEqual(
             compiler.direct_model_for_selector(bundle.docs, "deepseek-v4-flash[1m]"),
             ("deepseek-flash", "large"),
+        )
+        self.assertEqual(
+            compiler.direct_context_profile(bundle.docs, "deepseek-pro"), "large"
+        )
+        self.assertEqual(
+            compiler.direct_model_for_selector(bundle.docs, "deepseek-v4-pro"),
+            ("deepseek-pro", "large"),
+        )
+        self.assertEqual(
+            compiler.direct_model_for_selector(
+                bundle.docs, "claude-multi-deepseek-pro-max[1m]"
+            ),
+            ("deepseek-pro", "large"),
+        )
+        self.assertEqual(
+            compiler.direct_model_for_selector(bundle.docs, "deepseek-v4-pro[1m]"),
+            ("deepseek-pro", "large"),
         )
         self.assertEqual(
             compiler.direct_model_for_selector(bundle.docs, "x-ai/grok-4.5"),

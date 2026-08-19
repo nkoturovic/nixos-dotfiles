@@ -209,6 +209,7 @@ class SecretBoundaryTests(unittest.TestCase):
         self.assertNotIn("claude-multi-kimi-k3", result.yaml)
         self.assertNotIn("claude-multi-qwen38-max", result.yaml)
         self.assertNotIn("claude-multi-deepseek-flash", result.yaml)
+        self.assertNotIn("claude-multi-deepseek-pro", result.yaml)
         self.assertNotIn("claude-multi-grok45", result.yaml)
         self.assertNotIn("output_config.effort", result.yaml)
         self.assertNotIn("reasoning_effort", result.yaml)
@@ -321,3 +322,37 @@ class BearerAuthAndReasoningContractTests(unittest.TestCase):
         yaml = _render(models=models, providers=providers).yaml
         self.assertIn("reasoning_effort", yaml)
         self.assertIn("xhigh", yaml)
+
+
+class DeepSeekProRenderTests(unittest.TestCase):
+    """024: Pro uses the stable wire alias and both existing effort contracts."""
+
+    def test_pro_aliases_and_overrides_render(self) -> None:
+        yaml = _render().yaml
+        block = yaml.split('base-url: "https://api.deepseek.com/anthropic"', 1)[1]
+        self.assertEqual(block.count('name: "deepseek-v4-pro"'), 2)
+        self.assertIn('alias: "claude-multi-deepseek-pro-high"', block)
+        self.assertIn('alias: "claude-multi-deepseek-pro-max"', block)
+        self.assertNotIn('deepseek-v4-pro-0813', block)
+        self.assertIn('owned-by: "deepseek"', block)
+        self.assertIn('context-length: 1000000', block)
+        high = (
+            '- models:\n'
+            '        - name: "claude-multi-deepseek-flash-high"\n'
+            '          protocol: "claude"\n'
+            '        - name: "claude-multi-deepseek-pro-high"\n'
+            '          protocol: "claude"\n'
+            '      params:\n'
+            '        "output_config.effort": "high"'
+        )
+        max_ = (
+            '- models:\n'
+            '        - name: "claude-multi-deepseek-flash-max"\n'
+            '          protocol: "claude"\n'
+            '        - name: "claude-multi-deepseek-pro-max"\n'
+            '          protocol: "claude"\n'
+            '      params:\n'
+            '        "output_config.effort": "max"'
+        )
+        self.assertIn(high, yaml)
+        self.assertIn(max_, yaml)

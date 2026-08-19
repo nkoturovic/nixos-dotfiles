@@ -30,6 +30,8 @@ RETAINED_SELECTOR_BASES = {
     "claude-multi-glm52-max",
     "claude-multi-deepseek-flash-high",
     "claude-multi-deepseek-flash-max",
+    "claude-multi-deepseek-pro-high",
+    "claude-multi-deepseek-pro-max",
     "claude-multi-grok45",
 }
 REMOVED_PATTERNS = (
@@ -69,7 +71,7 @@ class SeedLoadTests(unittest.TestCase):
             set(bundle.providers), {"anthropic", "deepseek", "kimi", "openai", "openrouter", "qwen"}
         )
         self.assertEqual(
-            set(bundle.models), {"fable", "opus", "opus5", "kimi-k3", "sol", "gpt55", "qwen38", "glm52", "deepseek-flash", "grok45"}
+            set(bundle.models), {"fable", "opus", "opus5", "kimi-k3", "sol", "gpt55", "qwen38", "glm52", "deepseek-flash", "deepseek-pro", "grok45"}
         )
         self.assertEqual(
             set(bundle.roles), {"cm-lead", "cm-analyst", "cm-reviewer", "cm-implementer"}
@@ -131,7 +133,7 @@ class SeedLoadTests(unittest.TestCase):
     def test_version_json_matches_v2_2_schema_and_catalog_change(self) -> None:
         bundle = catalog.load_catalog(CATALOG_ROOT)
         self.assertEqual(bundle.docs["version"]["launcher_version"], "2.18.0")
-        self.assertEqual(bundle.docs["version"]["catalog_version"], 18)
+        self.assertEqual(bundle.docs["version"]["catalog_version"], 19)
 
     def test_qwen38_production_no_preview_residue(self) -> None:
         # D50: qwen3.8-max shipped production 2026-08-03; the D21 revision
@@ -1063,3 +1065,56 @@ class WireSlashPatternTests(unittest.TestCase):
         gpt55 = bundle.models["gpt55"]["context"]
         self.assertEqual(gpt55["provider_tokens"], 258400)
         self.assertEqual(gpt55["provider_stated_limit_tokens"], 272000)
+
+
+class DeepSeekProductionModelsTests(unittest.TestCase):
+    """024: stable aliases resolve the current production versions."""
+
+    def test_flash_alias_stays_on_0731(self) -> None:
+        bundle = catalog.load_catalog(CATALOG_ROOT)
+        flash = bundle.models["deepseek-flash"]
+        self.assertEqual(flash["wire_model"], "deepseek-v4-flash")
+        self.assertIn("V4-Flash-0731", flash["routing_note"])
+        self.assertNotIn("deepseek-v4-flash-0731", json.dumps(flash))
+
+    def test_pro_ga_shape_uses_stable_alias_not_dated_wire(self) -> None:
+        bundle = catalog.load_catalog(CATALOG_ROOT)
+        pro = bundle.models["deepseek-pro"]
+        self.assertEqual(pro["display"], "DeepSeek V4 Pro")
+        self.assertEqual(pro["wire_model"], "deepseek-v4-pro")
+        self.assertNotIn("deepseek-v4-pro-0813", json.dumps(pro))
+        self.assertIn("V4-Pro-0813", pro["routing_note"])
+        self.assertEqual(pro["default_lane"], "high")
+        self.assertEqual(set(pro["lanes"]), {"high", "max"})
+        self.assertEqual(
+            pro["lanes"]["high"]["proxy_effort_contract"],
+            "output-config-high",
+        )
+        self.assertEqual(
+            pro["lanes"]["max"]["proxy_effort_contract"],
+            "output-config-max",
+        )
+        self.assertEqual(pro["context"]["client_tokens"], 1000000)
+        self.assertEqual(pro["context"]["provider_tokens"], 1000000)
+        self.assertEqual(pro["context"]["ordinary_profile"], "large")
+        self.assertEqual(pro["context"]["validated_tokens"], 200000)
+        self.assertIn("No live Pro call yet", pro["context"]["qualification"])
+
+    def test_deepseek_wires_and_selectors_are_unique(self) -> None:
+        bundle = catalog.load_catalog(CATALOG_ROOT)
+        deepseek = {
+            model_id: model
+            for model_id, model in bundle.models.items()
+            if model["provider"] == "deepseek"
+        }
+        self.assertEqual(
+            {model["wire_model"] for model in deepseek.values()},
+            {"deepseek-v4-flash", "deepseek-v4-pro"},
+        )
+        selectors = [
+            lane["client_selector"]
+            for model in deepseek.values()
+            for lane in model["lanes"].values()
+        ]
+        self.assertEqual(len(selectors), 4)
+        self.assertEqual(len(set(selectors)), 4)

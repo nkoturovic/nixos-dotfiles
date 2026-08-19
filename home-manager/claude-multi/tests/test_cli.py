@@ -3430,7 +3430,7 @@ class OrdinaryLaunchModelsTests(CLITestCase):
             groups,
             {
                 "grok": ("grok45",),
-                "large": ("deepseek-flash", "fable", "glm52", "kimi-k3", "opus", "opus5", "qwen38", "sol"),
+                "large": ("deepseek-flash", "deepseek-pro", "fable", "glm52", "kimi-k3", "opus", "opus5", "qwen38", "sol"),
             },
         )
 
@@ -3505,14 +3505,13 @@ class OrdinaryScreenTuiTests(CLITestCase):
         self.assertIn("gateway session — no composition", text)
         self.assertIn("large · 1M context", text)
         self.assertIn("grok · 500K context", text)
-        for model_id in ("deepseek-flash", "fable", "glm52", "grok45", "kimi-k3", "opus", "opus5", "qwen38", "sol"):
+        for model_id in ("deepseek-flash", "deepseek-pro", "fable", "glm52", "grok45", "kimi-k3", "opus", "opus5", "qwen38", "sol"):
             self.assertIn(model_id, text)
         self.assertIn("GLM-5.2 · alibaba", text)
-        # The fixture secret file holds only the Kimi key: the four model
-        # rows on keyless providers (glm52 + qwen38 on qwen, deepseek-flash
-        # on deepseek, grok45 on openrouter) carry the compact marker (the
-        # full reason lives on the detail line for the selected row).
-        self.assertEqual(text.count("(no secret)"), 4)
+        # The fixture secret file holds only the Kimi key: the five model
+        # rows on keyless providers (glm52 + qwen38 on qwen, Flash + Pro on
+        # deepseek, grok45 on openrouter) carry the compact marker.
+        self.assertEqual(text.count("(no secret)"), 5)
         self.assertIn("Enter launch", text)
 
     def test_default_selection_is_sol_like_the_cli(self) -> None:
@@ -4584,6 +4583,12 @@ class ImprovementBatchTests(CLITestCase):
         self.assertIn("wire=qwen3.8-max", out)
         self.assertIn("in-session: /model claude-multi-qwen38-max[1m]", out)
         self.assertIn("wire=gpt-5.6-sol", out)
+        self.assertIn("wire=deepseek-v4-pro", out)
+        self.assertIn(
+            "in-session: /model claude-multi-deepseek-pro-high[1m] · "
+            "/model claude-multi-deepseek-pro-max[1m]",
+            out,
+        )
 
     # -- discover command ---------------------------------------------------
     def test_discover_marks_cataloged_and_candidates(self) -> None:
@@ -4600,6 +4605,19 @@ class ImprovementBatchTests(CLITestCase):
         self.assertIn("k3\tcataloged as kimi-k3", out)
         self.assertIn("k4\tnot registered", out)
         self.assertIn("ctx=1048576", out)
+
+    def test_discover_deepseek_marks_flash_and_pro_cataloged(self) -> None:
+        entries = [
+            {"id": "deepseek-v4-flash", "display_name": "", "context_length": None},
+            {"id": "deepseek-v4-pro", "display_name": "", "context_length": None},
+        ]
+        with unittest.mock.patch.object(
+            cli.proxy_mod, "list_provider_models", return_value=entries
+        ):
+            code, out = self.run_cli(["discover", "deepseek"], interactive=False)
+        self.assertEqual(code, 0)
+        self.assertIn("deepseek-v4-flash\tcataloged as deepseek-flash", out)
+        self.assertIn("deepseek-v4-pro\tcataloged as deepseek-pro", out)
 
     def test_discover_unknown_provider_is_exit_2(self) -> None:
         code, out = self.run_cli(["discover", "nope"], interactive=False)
@@ -4696,7 +4714,7 @@ class ModelsBrowserTests(CLITestCase):
     def test_lists_every_catalog_model_including_agents_only(self) -> None:
         _result, win, _screen = self._open(["\x1b"])
         text = win.text()
-        for model_id in ("fable", "glm52", "kimi-k3", "opus", "opus5", "qwen38", "sol"):
+        for model_id in ("deepseek-flash", "deepseek-pro", "fable", "glm52", "kimi-k3", "opus", "opus5", "qwen38", "sol"):
             self.assertIn(model_id, text)
         # gpt55 never appears in the G picker (no ordinary profile) but is
         # a full catalog member and must be visible here.
@@ -4704,8 +4722,8 @@ class ModelsBrowserTests(CLITestCase):
         self.assertIn("not in default", text)
 
     def test_details_modal_shows_wire_context_and_routing(self) -> None:
-        # fable is the second row (deepseek-flash sorts first).
-        _result, win, _screen = self._open(["j", "\n", "\x1b", "\x1b"])
+        # fable is the third row (DeepSeek Flash + Pro sort first).
+        _result, win, _screen = self._open(["j", "j", "\n", "\x1b", "\x1b"])
         self.assertTrue(
             any("wire: claude-fable-5" in frame for frame in win.frames)
         )
@@ -4731,10 +4749,8 @@ class ModelsBrowserTests(CLITestCase):
             self.runtime, plan, passthrough=[], palette=tui.MONO_PALETTE,
             gateway_check=lambda: None,
         )
-        # g (picker) → m (browser) → j (deepseek-flash sorts before fable)
-        # → e (jump on fable) → editor opens
-        # focused with the guidance message → Esc leaves → Esc leaves card.
-        win = FakeWindow(["g", "m", "j", "e", "\x1b", "\x1b"])
+        # g → m → j j (Flash + Pro sort before fable) → e on fable.
+        win = FakeWindow(["g", "m", "j", "j", "e", "\x1b", "\x1b"])
         screen.run(win)
         self.assertTrue(
             any("set the fable scope" in frame for frame in win.frames),
@@ -5650,12 +5666,12 @@ class OrdinaryModelSwitchTests(CLITestCase):
         # From kimi-k3 (large) to grok45 (grok profile): the confirm modal
         # must state the profile change and the fence/compaction rebuild.
         # The fixture gains the OpenRouter key so the target row is
-        # launchable; grok45 heads the grok group (four steps up from
-        # kimi-k3 in the flattened rows).
+        # launchable; grok45 heads the grok group (five steps up from
+        # kimi-k3 after DeepSeek Pro joins the large group).
         with open(self.secret_file, "a") as handle:
             handle.write("OPENROUTER_CLAUDE_API_KEY=fixture-or-key\n")
         result, win, _screen = self._run(
-            ["t", "k", "k", "k", "k", "\n", "\x1b", "\x1b"]
+            ["t", "k", "k", "k", "k", "k", "\n", "\x1b", "\x1b"]
         )
         self.assertIsNone(result)  # confirm modal cancelled via Esc
         self.assertTrue(
@@ -8707,76 +8723,106 @@ class SessionsScreenForgetGuardTests(CLITestCase):
 
 
 class NewProviderCompositionTests(CLITestCase):
-    """022: the deepseek / grok-deepseek rig shapes resolve and fence
-    correctly (mirrors the operator-level compositions)."""
+    """022/024: DeepSeek Flash-only + Pro/Flash/Grok pipeline shapes."""
 
-    def _doc(self, name, lead, agent_model, agent_lane, reviewer_lane):
+    def _availability(self, *, deepseek_scope, flash_scope, pro_scope, grok_scope):
         return {
-            "version": 1,
-            "name": name,
-            "description": "test rig",
-            "availability": {
-                "providers": {
-                    "anthropic": "off",
-                    "deepseek": "lead+agents" if lead == "deepseek-flash" else "agents",
-                    "kimi": "off",
-                    "openai": "off",
-                    "openrouter": "off" if lead == "deepseek-flash" else "lead+agents",
-                    "qwen": "off",
-                },
-                "models": {
-                    "deepseek-flash": "lead+agents" if lead == "deepseek-flash" else "agents",
-                    "fable": "off",
-                    "glm52": "off",
-                    "gpt55": "off",
-                    "grok45": "off" if lead == "deepseek-flash" else "lead+agents",
-                    "kimi-k3": "off",
-                    "opus": "off",
-                    "opus5": "off",
-                    "qwen38": "off",
-                    "sol": "off",
-                },
+            "providers": {
+                "anthropic": "off",
+                "deepseek": deepseek_scope,
+                "kimi": "off",
+                "openai": "off",
+                "openrouter": "lead+agents" if grok_scope != "off" else "off",
+                "qwen": "off",
             },
-            "slots": [
-                {"role": "cm-lead", "model": lead},
-                {"role": "cm-analyst", "model": agent_model, "lane": agent_lane, "preferred": True},
-                {"role": "cm-implementer", "model": agent_model, "lane": agent_lane, "preferred": True},
-                {"role": "cm-reviewer", "model": agent_model, "lane": reviewer_lane, "preferred": True},
-            ],
-            "native_agents": {"explore": "replace", "plan": "native", "general_purpose": "off"},
+            "models": {
+                "deepseek-flash": flash_scope,
+                "deepseek-pro": pro_scope,
+                "fable": "off", "glm52": "off", "gpt55": "off",
+                "grok45": grok_scope, "kimi-k3": "off", "opus": "off",
+                "opus5": "off", "qwen38": "off", "sol": "off",
+            },
         }
 
     def test_all_flash_rig_resolves_with_1m_window(self) -> None:
-        doc = self._doc("deepseek", "deepseek-flash", "deepseek-flash", "high", "max")
+        doc = {
+            "version": 1, "name": "deepseek-flash", "description": "test",
+            "availability": self._availability(
+                deepseek_scope="lead+agents", flash_scope="lead+agents", pro_scope="off", grok_scope="off"
+            ),
+            "slots": [
+                {"role":"cm-lead","model":"deepseek-flash"},
+                {"role":"cm-analyst","model":"deepseek-flash","lane":"high","preferred":True},
+                {"role":"cm-implementer","model":"deepseek-flash","lane":"high","preferred":True},
+                {"role":"cm-reviewer","model":"deepseek-flash","lane":"max","preferred":True},
+            ],
+            "native_agents":{"explore":"replace","plan":"native","general_purpose":"off"},
+        }
         resolved = self.runtime.resolve_document(doc)
-        self.assertEqual(resolved.lead.model, "deepseek-flash")
         snap = composition.snapshot(resolved)
-        self.assertEqual(snap["lead"]["client_selector"], "claude-multi-deepseek-flash-high[1m]")
+        self.assertEqual(resolved.lead.model, "deepseek-flash")
         self.assertEqual(snap["auto_compact_window_tokens"], 1000000)
         self.assertEqual(snap["lead"]["auto_compact_tokens"], 882000)
-        ids = {v.id for v in resolved.variants}
-        self.assertIn("cm-reviewer-deepseek-flash-max", ids)
 
-    def test_grok_lead_rig_resolves_with_500k_window(self) -> None:
-        doc = self._doc("grok-deepseek", "grok45", "deepseek-flash", "high", "max")
-        resolved = self.runtime.resolve_document(doc)
-        self.assertEqual(resolved.lead.model, "grok45")
-        snap = composition.snapshot(resolved)
-        self.assertEqual(snap["lead"]["client_selector"], "claude-multi-grok45")
-        self.assertEqual(snap["auto_compact_window_tokens"], 500000)
-        self.assertEqual(snap["lead"]["auto_compact_tokens"], 432000)
+    def test_deepseek_hybrid_routes_flash_scan_pro_implementation(self) -> None:
+        doc = {
+            "version":1,"name":"deepseek","description":"test",
+            "availability": self._availability(
+                deepseek_scope="lead+agents", flash_scope="agents", pro_scope="lead+agents", grok_scope="off"
+            ),
+            "slots":[
+                {"role":"cm-lead","model":"deepseek-pro"},
+                {"role":"cm-analyst","model":"deepseek-flash","lane":"high","preferred":True},
+                {"role":"cm-analyst","model":"deepseek-pro","lane":"max","preferred":False},
+                {"role":"cm-implementer","model":"deepseek-pro","lane":"max","preferred":True},
+                {"role":"cm-implementer","model":"deepseek-flash","lane":"high","preferred":False},
+                {"role":"cm-reviewer","model":"deepseek-flash","lane":"max","preferred":True},
+                {"role":"cm-reviewer","model":"deepseek-pro","lane":"max","preferred":False},
+            ],
+            "native_agents":{"explore":"replace","plan":"native","general_purpose":"off"},
+        }
+        resolved=self.runtime.resolve_document(doc)
+        snap=composition.snapshot(resolved)
+        self.assertEqual(resolved.lead.model,"deepseek-pro")
+        self.assertEqual(snap["lead"]["client_selector"],"claude-multi-deepseek-pro-high[1m]")
+        self.assertEqual(snap["auto_compact_window_tokens"],1000000)
+        by_role={v.role:v for v in resolved.variants if v.preferred}
+        self.assertEqual(by_role["cm-analyst"].model,"deepseek-flash")
+        self.assertEqual(by_role["cm-implementer"].model,"deepseek-pro")
+        self.assertEqual(by_role["cm-reviewer"].model,"deepseek-flash")
+        self.assertIn("cm-implementer-deepseek-pro-max",{v.id for v in resolved.variants})
 
-    def test_grok_lead_never_enters_through_a_1m_selector(self) -> None:
-        doc = self._doc("grok-deepseek", "grok45", "deepseek-flash", "high", "max")
-        resolved = self.runtime.resolve_document(doc)
-        snap = composition.snapshot(resolved)
-        # The 500K grok lead never self-classifies as 1M; flash agent
-        # variants keep their own [1m] selectors (their processes are 1M).
-        self.assertNotIn("[1m]", snap["lead"]["client_selector"])
-        flash_variants = [v for v in snap["variants"] if v["model"] == "deepseek-flash"]
-        self.assertTrue(flash_variants)
-        for variant in flash_variants:
-            self.assertIn("[1m]", variant["client_selector"])
+    def test_grok_pipeline_has_cross_family_preferred_review(self) -> None:
+        doc={
+            "version":1,"name":"grok-deepseek","description":"test",
+            "availability":self._availability(
+                deepseek_scope="agents",flash_scope="agents",pro_scope="agents",grok_scope="lead+agents"
+            ),
+            "slots":[
+                {"role":"cm-lead","model":"grok45"},
+                {"role":"cm-analyst","model":"deepseek-flash","lane":"high","preferred":True},
+                {"role":"cm-analyst","model":"grok45","lane":"high","preferred":False},
+                {"role":"cm-implementer","model":"deepseek-pro","lane":"max","preferred":True},
+                {"role":"cm-implementer","model":"grok45","lane":"high","preferred":False},
+                {"role":"cm-reviewer","model":"grok45","lane":"high","preferred":True},
+                {"role":"cm-reviewer","model":"deepseek-pro","lane":"max","preferred":False},
+            ],
+            "native_agents":{"explore":"replace","plan":"native","general_purpose":"off"},
+        }
+        resolved=self.runtime.resolve_document(doc)
+        snap=composition.snapshot(resolved)
+        self.assertEqual(resolved.lead.model,"grok45")
+        self.assertEqual(snap["auto_compact_window_tokens"],500000)
+        self.assertEqual(snap["lead"]["auto_compact_tokens"],432000)
+        preferred={v.role:v for v in resolved.variants if v.preferred}
+        self.assertEqual(preferred["cm-analyst"].model,"deepseek-flash")
+        self.assertEqual(preferred["cm-implementer"].model,"deepseek-pro")
+        self.assertEqual(preferred["cm-reviewer"].model,"grok45")
+        families=self.runtime.catalog.providers
+        reviewer_family=families[self.runtime.catalog.models[preferred["cm-reviewer"].model]["provider"]]["independence_family"]
+        implementer_family=families[self.runtime.catalog.models[preferred["cm-implementer"].model]["provider"]]["independence_family"]
+        self.assertNotEqual(reviewer_family,implementer_family)
+        self.assertNotIn("[1m]",snap["lead"]["client_selector"])
 
 
 class NewProviderDirectLaunchTests(CLITestCase):
@@ -8788,8 +8834,20 @@ class NewProviderDirectLaunchTests(CLITestCase):
         )
         self.assertEqual(prepared.record["ordinary_model"], "deepseek-flash")
         self.assertEqual(prepared.record["context_profile"], "large")
-        env_set = prepared.result.env_set
-        self.assertEqual(env_set["CLAUDE_CODE_AUTO_COMPACT_WINDOW"], "983616")
+        self.assertEqual(
+            prepared.result.env_set["CLAUDE_CODE_AUTO_COMPACT_WINDOW"], "983616"
+        )
+
+    def test_deepseek_pro_direct_launch_defaults_high_in_large_profile(self) -> None:
+        prepared = self.runtime.prepare_direct(
+            action="fresh", model_id="deepseek-pro", passthrough=[]
+        )
+        self.assertEqual(prepared.record["ordinary_model"], "deepseek-pro")
+        self.assertEqual(prepared.record["context_profile"], "large")
+        self.assertIn("claude-multi-deepseek-pro-high[1m]", prepared.result.argv)
+        self.assertEqual(
+            prepared.result.env_set["CLAUDE_CODE_AUTO_COMPACT_WINDOW"], "983616"
+        )
 
     def test_grok45_direct_launch_gets_the_500k_window(self) -> None:
         prepared = self.runtime.prepare_direct(
@@ -8807,7 +8865,11 @@ class NewProviderDirectLaunchTests(CLITestCase):
     def test_new_models_record_saves_with_their_profiles(self) -> None:
         # The session schema accepts the new catalog profile (022 P0 class:
         # the 020 custom-profile enum miss dead-ended every custom launch).
-        for model_id, profile in (("deepseek-flash", "large"), ("grok45", "grok")):
+        for model_id, profile in (
+            ("deepseek-flash", "large"),
+            ("deepseek-pro", "large"),
+            ("grok45", "grok"),
+        ):
             prepared = self.runtime.prepare_direct(
                 action="fresh", model_id=model_id, passthrough=[]
             )
@@ -8919,3 +8981,108 @@ class RetiredProfileDoctorHintTests(CLITestCase):
         line, is_problem = cli._check_scope_integrity(self.runtime, record)
         self.assertTrue(is_problem)
         self.assertIn("doctor --repair", line)
+
+
+class DeepSeekProPaneListingTests(CLITestCase):
+    """024: Flash + Pro are filtered as cataloged; future wires stay markable."""
+
+    def test_cataloged_deepseek_wires_filtered_future_wire_markable(self) -> None:
+        from test_tui import FakeWindow
+
+        entries = [
+            {"id":"deepseek-v4-flash","display_name":"","context_length":None},
+            {"id":"deepseek-v4-pro","display_name":"","context_length":None},
+            {"id":"deepseek-v5-future","display_name":"Future","context_length":262144},
+        ]
+        with mock.patch.object(
+            cli.proxy_mod, "list_provider_models", return_value=entries
+        ):
+            screen=cli._ProvidersScreen(self.runtime,palette=tui.MONO_PALETTE)
+            # deepseek row (j), A, confirm query, toggle sole fresh row, Enter.
+            win=FakeWindow(["j","a","\n"," ","\n","\x1b"])
+            screen.run(win)
+        registry=cli.custom.load_registry(self.runtime.environ)
+        self.assertEqual(set(registry["models"]),{"deepseek-v5-future"})
+        spec=registry["models"]["deepseek-v5-future"]
+        self.assertEqual(spec["provider"],"deepseek")
+        self.assertEqual(spec["context_tokens"],262144)
+        self.assertIn("marked 1 model",screen.message or "")
+
+
+class DeepSeekProPlannedCompositionFilesTests(CLITestCase):
+    """024: test the exact staged/rollback files used at activation."""
+
+    @property
+    def fixture_root(self) -> Path:
+        return CATALOG_ROOT / "tests" / "fixtures" / "compositions"
+
+    def _load_resolve(self, path: Path):
+        document = composition.load_composition_file(
+            path, self.runtime.compositions.schema
+        )
+        return document, self.runtime.resolve_document(document)
+
+    def test_all_planned_files_load_and_resolve(self) -> None:
+        root = self.fixture_root / "024-planned"
+        names = set()
+        for path in sorted(root.glob("*.json")):
+            document, resolved = self._load_resolve(path)
+            names.add(document["name"])
+            self.assertIsNotNone(resolved.lead)
+        self.assertEqual(
+            names,
+            {"deepseek", "deepseek-flash", "grok-deepseek", "sol-qwen-glm-deepseek-flash"},
+        )
+
+    def test_planned_pipeline_roles_are_exact(self) -> None:
+        root = self.fixture_root / "024-planned"
+        deepseek, _ = self._load_resolve(root / "deepseek.json")
+        preferred = {
+            slot["role"]: slot["model"]
+            for slot in deepseek["slots"]
+            if slot.get("preferred")
+        }
+        self.assertEqual(
+            preferred,
+            {
+                "cm-analyst": "deepseek-flash",
+                "cm-implementer": "deepseek-pro",
+                "cm-reviewer": "deepseek-flash",
+            },
+        )
+        self.assertEqual(deepseek["slots"][0]["model"], "deepseek-pro")
+
+        grok, _ = self._load_resolve(root / "grok-deepseek.json")
+        preferred = {
+            slot["role"]: slot["model"]
+            for slot in grok["slots"]
+            if slot.get("preferred")
+        }
+        self.assertEqual(
+            preferred,
+            {
+                "cm-analyst": "deepseek-flash",
+                "cm-implementer": "deepseek-pro",
+                "cm-reviewer": "grok45",
+            },
+        )
+
+        pool, _ = self._load_resolve(
+            root / "sol-qwen-glm-deepseek-flash.json"
+        )
+        pro_slots = [s for s in pool["slots"] if s["model"] == "deepseek-pro"]
+        self.assertEqual(
+            {(s["role"], s.get("lane"), s.get("preferred")) for s in pro_slots},
+            {
+                ("cm-analyst", "max", False),
+                ("cm-implementer", "max", False),
+                ("cm-reviewer", "max", False),
+            },
+        )
+
+    def test_catalog18_rollback_files_stay_pro_free(self) -> None:
+        root = self.fixture_root / "024-rollback-catalog18"
+        for path in sorted(root.glob("*.json")):
+            document, resolved = self._load_resolve(path)
+            self.assertNotIn("deepseek-pro", document["availability"]["models"])
+            self.assertNotIn("deepseek-pro", {v.model for v in resolved.variants})
