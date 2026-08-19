@@ -32,7 +32,8 @@ RETAINED_SELECTOR_BASES = {
     "claude-multi-deepseek-flash-max",
     "claude-multi-deepseek-pro-high",
     "claude-multi-deepseek-pro-max",
-    "claude-multi-grok45",
+    "claude-multi-grok46-high",
+    "claude-multi-grok46-xhigh",
 }
 REMOVED_PATTERNS = (
     "claude-multi-fable-5",
@@ -71,7 +72,7 @@ class SeedLoadTests(unittest.TestCase):
             set(bundle.providers), {"anthropic", "deepseek", "kimi", "openai", "openrouter", "qwen"}
         )
         self.assertEqual(
-            set(bundle.models), {"fable", "opus", "opus5", "kimi-k3", "sol", "gpt55", "qwen38", "glm52", "deepseek-flash", "deepseek-pro", "grok45"}
+            set(bundle.models), {"fable", "opus", "opus5", "kimi-k3", "sol", "gpt55", "qwen38", "glm52", "deepseek-flash", "deepseek-pro", "grok46"}
         )
         self.assertEqual(
             set(bundle.roles), {"cm-lead", "cm-analyst", "cm-reviewer", "cm-implementer"}
@@ -132,7 +133,7 @@ class SeedLoadTests(unittest.TestCase):
 
     def test_version_json_matches_v2_2_schema_and_catalog_change(self) -> None:
         bundle = catalog.load_catalog(CATALOG_ROOT)
-        self.assertEqual(bundle.docs["version"]["launcher_version"], "2.18.0")
+        self.assertEqual(bundle.docs["version"]["launcher_version"], "2.19.0")
         self.assertEqual(bundle.docs["version"]["catalog_version"], 19)
 
     def test_qwen38_production_no_preview_residue(self) -> None:
@@ -1007,14 +1008,14 @@ class WireSlashPatternTests(unittest.TestCase):
         return validate.validate(document, schema, "$")
 
     def test_single_slash_segment_accepted(self) -> None:
-        self.assertEqual(self._wire_problems("x-ai/grok-4.5"), [])
+        self.assertEqual(self._wire_problems("x-ai/grok-4.6"), [])
 
     def test_double_slash_rejected(self) -> None:
         problems = self._wire_problems("a/b/c")
         self.assertTrue(any("wire_model" in p for p in problems))
 
     def test_leading_slash_rejected(self) -> None:
-        problems = self._wire_problems("/grok-4.5")
+        problems = self._wire_problems("/grok-4.6")
         self.assertTrue(any("wire_model" in p for p in problems))
 
     def test_duplicate_route_wire_rejected_same_provider_allowed_cross(self) -> None:
@@ -1024,10 +1025,11 @@ class WireSlashPatternTests(unittest.TestCase):
             models = raw["docs"]["models"]["models"]
             import copy as _copy
 
-            clone = _copy.deepcopy(models["grok45"])
-            clone["client_selector"] = "claude-multi-grok45-alt"
-            clone["lanes"]["high"]["client_selector"] = "claude-multi-grok45-alt"
-            models["grok45-alt"] = clone
+            clone = _copy.deepcopy(models["grok46"])
+            clone["client_selector"] = "claude-multi-grok46-xhigh-alt"
+            clone["lanes"]["high"]["client_selector"] = "claude-multi-grok46-high-alt"
+            clone["lanes"]["xhigh"]["client_selector"] = "claude-multi-grok46-xhigh-alt"
+            models["grok46-alt"] = clone
 
         errors = _mutate(dup_same)
         self.assertTrue(any("duplicate route wire" in e for e in errors))
@@ -1037,14 +1039,16 @@ class WireSlashPatternTests(unittest.TestCase):
             providers = raw["docs"]["providers"]["providers"]
             import copy as _copy
 
-            clone = _copy.deepcopy(models["grok45"])
+            clone = _copy.deepcopy(models["grok46"])
             clone["provider"] = "deepseek"
-            clone["wire_model"] = "x-ai/grok-4.5"  # same wire, different provider
-            clone["client_selector"] = "claude-multi-grok45-ds"
-            clone["lanes"]["high"]["client_selector"] = "claude-multi-grok45-ds"
+            clone["wire_model"] = "x-ai/grok-4.6"  # same wire, different provider
+            clone["client_selector"] = "claude-multi-grok46-xhigh-ds"
+            clone["lanes"]["high"]["client_selector"] = "claude-multi-grok46-high-ds"
             clone["lanes"]["high"]["proxy_effort_contract"] = None
+            clone["lanes"]["xhigh"]["client_selector"] = "claude-multi-grok46-xhigh-ds"
+            clone["lanes"]["xhigh"]["proxy_effort_contract"] = None
             clone["context"]["ordinary_profile"] = "grok"
-            models["grok45-ds"] = clone
+            models["grok46-ds"] = clone
 
         errors = _mutate(same_wire_other_provider)
         self.assertFalse(any("duplicate route wire" in e for e in errors))
@@ -1118,3 +1122,38 @@ class DeepSeekProductionModelsTests(unittest.TestCase):
         ]
         self.assertEqual(len(selectors), 4)
         self.assertEqual(len(set(selectors)), 4)
+
+
+class Grok46ReplacementTests(unittest.TestCase):
+    """025: Grok 4.6 replaces 4.5; concrete slug preserves D3 authority."""
+
+    def test_grok46_exact_shape_and_no_active_45(self) -> None:
+        bundle = catalog.load_catalog(CATALOG_ROOT)
+        self.assertNotIn("grok45", bundle.models)
+        grok = bundle.models["grok46"]
+        self.assertEqual(grok["display"], "Grok 4.6")
+        self.assertEqual(grok["wire_model"], "x-ai/grok-4.6")
+        self.assertNotEqual(grok["wire_model"], "~x-ai/grok-latest")
+        self.assertEqual(grok["client_selector"], "claude-multi-grok46-xhigh")
+        self.assertEqual(grok["default_lane"], "xhigh")
+        self.assertEqual(set(grok["lanes"]), {"high", "xhigh"})
+        self.assertEqual(
+            grok["lanes"]["high"]["proxy_effort_contract"],
+            "output-config-high",
+        )
+        self.assertEqual(
+            grok["lanes"]["xhigh"]["proxy_effort_contract"],
+            "output-config-xhigh",
+        )
+        self.assertEqual(grok["context"]["client_tokens"], 500000)
+        self.assertEqual(grok["context"]["ordinary_profile"], "grok")
+        self.assertEqual(grok["context"]["validated_tokens"], 200000)
+        self.assertIn("D3", grok["context"]["qualification"])
+        self.assertIn("~x-ai/grok-latest", grok["context"]["qualification"])
+
+    def test_openrouter_declares_high_and_xhigh_output_contracts(self) -> None:
+        bundle = catalog.load_catalog(CATALOG_ROOT)
+        self.assertEqual(
+            set(bundle.providers["openrouter"]["payload_contracts"]),
+            {"output-config-high", "output-config-xhigh"},
+        )

@@ -354,11 +354,11 @@ class AgentDefinitionTests(unittest.TestCase):
 
         bundle = catalog.load_catalog(CATALOG_ROOT)
         document = copy.deepcopy(bundle.default_composition)
-        # grok45 (500K) leading a 1M-class pool is the lower-context case
+        # grok46 (500K) leading a 1M-class pool is the lower-context case
         # (sol joined the 1M class in D57).
         document["availability"]["providers"]["openrouter"] = "lead+agents"
-        document["availability"]["models"]["grok45"] = "lead+agents"
-        document["slots"][0] = {"role": "cm-lead", "model": "grok45"}
+        document["availability"]["models"]["grok46"] = "lead+agents"
+        document["slots"][0] = {"role": "cm-lead", "model": "grok46"}
         resolved = composition.resolve(bundle.docs, document)
         appendix = compiler.generate_lead_appendix(
             resolved,
@@ -785,7 +785,7 @@ class RuntimeIdentityAndDirectCompileTests(unittest.TestCase):
 
         bundle = catalog.load_catalog(CATALOG_ROOT)
         docs = copy.deepcopy(bundle.docs)
-        grok = docs["models"]["models"]["grok45"]["context"]
+        grok = docs["models"]["models"]["grok46"]["context"]
         grok.update(
             client_tokens=400000,
             provider_tokens=400000,
@@ -877,14 +877,14 @@ class GrokProfileFenceTests(unittest.TestCase):
         bundle = catalog.load_catalog(CATALOG_ROOT)
         self.assertEqual(
             compiler.direct_profile_selectors(bundle.docs, "grok"),
-            ("claude-multi-grok45",),
+            ("claude-multi-grok46-high", "claude-multi-grok46-xhigh"),
         )
 
     def test_grok_selector_carries_no_1m_suffix(self) -> None:
         # 500K is not 1M-class: the selector must not self-classify as
         # extended-context; the window comes from the profile env.
         bundle = catalog.load_catalog(CATALOG_ROOT)
-        model = bundle.models["grok45"]
+        model = bundle.models["grok46"]
         self.assertNotIn("[1m]", model["client_selector"])
         for lane in model["lanes"].values():
             self.assertNotIn("[1m]", lane["client_selector"])
@@ -946,10 +946,14 @@ class GrokProfileFenceTests(unittest.TestCase):
             ("deepseek-pro", "large"),
         )
         self.assertEqual(
-            compiler.direct_model_for_selector(bundle.docs, "x-ai/grok-4.5"),
-            ("grok45", "grok"),
+            compiler.direct_model_for_selector(bundle.docs, "x-ai/grok-4.6"),
+            ("grok46", "grok"),
         )
         self.assertEqual(
-            compiler.direct_model_for_selector(bundle.docs, "claude-multi-grok45"),
-            ("grok45", "grok"),
+            compiler.direct_model_for_selector(bundle.docs, "claude-multi-grok46-high"),
+            ("grok46", "grok"),
+        )
+        self.assertEqual(
+            compiler.direct_model_for_selector(bundle.docs, "claude-multi-grok46-xhigh"),
+            ("grok46", "grok"),
         )

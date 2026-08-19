@@ -89,9 +89,12 @@
       "display": "OpenRouter",
       "independence_family": "x-ai",
       "passthrough_routes": [],
-      "payload_contracts": [],
+      "payload_contracts": [
+        "output-config-high",
+        "output-config-xhigh"
+      ],
       "support": "locally-validated-experimental",
-      "support_note": "OpenRouter's Anthropic skin (aggregator; no prompt logging by default, no training-provider routing unless opted in). Only guaranteed by OpenRouter for Anthropic first-party models; x-ai/grok-4.5 through the skin is probe-verified 2026-08-12 (tool use, streaming block order, effort params). Listing: the public OpenAI-shape GET /api/v1/models (no key).",
+      "support_note": "OpenRouter's Anthropic skin (aggregator; no prompt logging by default, no training-provider routing unless opted in). Only guaranteed by OpenRouter for Anthropic first-party models; Grok 4.6 exact-slug tool/stream/xhigh behavior requires a fresh acceptance call. Listing: public OpenAI-shape GET /api/v1/models (no key). The moving alias ~x-ai/grok-latest currently resolves 4.6 but is not a trusted wire: D3 forbids hidden moving authority outside record+catalog.",
       "transport": {
         "auth": {
           "header": "x-api-key",

@@ -123,9 +123,15 @@ claude-api-key:
     cloak:
       mode: "never"
     models:
-      - name: "x-ai/grok-4.5"
-        alias: "claude-multi-grok45"
-        display-name: "Grok 4.5"
+      - name: "x-ai/grok-4.6"
+        alias: "claude-multi-grok46-high"
+        display-name: "Grok 4.6"
+        owned-by: "x-ai"
+        context-length: 500000
+        force-mapping: true
+      - name: "x-ai/grok-4.6"
+        alias: "claude-multi-grok46-xhigh"
+        display-name: "Grok 4.6"
         owned-by: "x-ai"
         context-length: 500000
         force-mapping: true
@@ -179,6 +185,16 @@ payload:
           protocol: "codex"
       params:
         "reasoning.effort": "xhigh"
+    - models:
+        - name: "claude-multi-grok46-high"
+          protocol: "claude"
+      params:
+        "output_config.effort": "high"
+    - models:
+        - name: "claude-multi-grok46-xhigh"
+          protocol: "claude"
+      params:
+        "output_config.effort": "xhigh"
     - models:
         - name: "claude-multi-qwen38-max"
           protocol: "claude"

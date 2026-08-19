@@ -1190,12 +1190,46 @@ Cost/variance stays out of the catalog contract: current Pro miss/output
 prices are 3x Flash (cache hit ~3.14x), concurrency 500 vs 2500, peak
 rates double 01:00–04:00 and 06:00–10:00 UTC. Community-observed Pro
 run variance is medium-confidence guidance, not permanent routing fact.
-Catalog 18→19; launcher remains 2.18.0 (catalog-only change). Activation
-requires re-render/restart; one separately approved bounded Pro-max call
+Catalog 18→19; Pro itself is catalog-only (D59 subsequently raises the
+combined batch launcher to 2.19.0 for OpenRouter output-config-xhigh).
+Activation requires re-render/restart; one separately approved bounded Pro-max call
 validates the wire, auth, thinking/tool blocks, and max contract. A failed
 call rolls back catalog generation 19 AND restores the staged catalog18 XDG
 composition files (blueprint 024 carries the exact runbook; HM rollback alone
 cannot restore user compositions).
+
+**D59 — Grok 4.6 replaces 4.5; exact OpenRouter slug, xhigh requested.**
+Catalog19 removes `grok45`/`x-ai/grok-4.5` and adds `grok46`, wire
+`x-ai/grok-4.6`, display `Grok 4.6`; no active 4.5 route/selector or
+post-activation composition remains. Context/profile stay 500K/`grok`
+(trigger 432K). Grok 4.6 is on par with GPT-5.6 Sol/Qwen3.8 Max and is
+positioned for long-running agents, coding, knowledge work, and ambitious
+interactive work. xAI documents low/medium/high/xhigh (default high), so
+the catalog exposes high fallback + xhigh default. OpenRouter's Anthropic
+Messages route is pinned explicitly with
+`output_config.effort=high|xhigh`; the xhigh adapter contract is new.
+Anthropic-skin 4.6 xhigh/tool/stream behavior remains live-call-gated.
+
+OpenRouter's moving alias `~x-ai/grok-latest` exists and currently resolves
+4.6, but is deliberately NOT the trusted wire. This is D3, not syntax
+preference: record=intent + catalog=trusted source + scope=pure function of
+(record,catalog), no hidden state. A moving alias introduces a third mutable
+upstream authority that can silently retarget to 4.7 while the record,
+catalog hash, 500K profile, qualification, and compiled scope stay stale.
+The upstream response model echo cannot repair this: local `served_models`
+checks configured selectors only, SessionStart reconciles recorded client
+selectors, and the response echo arrives after scope compilation. Exact
+`x-ai/grok-4.6` is therefore the reproducible route; the tilde alias is
+recorded as considered/current-target evidence only.
+
+This is an in-place amendment to pending catalog19 (no catalog20).
+`output-config-xhigh` changes renderer behavior, so launcher becomes
+2.19.0; catalog remains 19. Planned catalog19 compositions replace
+`grok45` with `grok46` and request xhigh for every Grok variant; catalog18
+rollback fixtures retain 4.5 by design. Census before activation: zero
+session/scope references to 4.5; recheck at activation. If any ordinary 4.5
+record appears, explicit `--model grok46` is a same-profile re-pin; managed
+4.5 snapshots need a composition transition, not repair-time refresh.
 
 ## User decision summary (what you're approving by accepting this design)
 

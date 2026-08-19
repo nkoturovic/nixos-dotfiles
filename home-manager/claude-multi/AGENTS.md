@@ -219,8 +219,14 @@ full): run with a disk-backed temp dir, e.g.
   `deepseek-v4-pro`; the dated Flash-0731 / Pro-0813 strings are resolved
   version labels, not first-party callable ids. A docs-only GA adds the
   catalog entry with a conservative `validated_tokens` floor; move that
-  evidence field only after the separately approved live call. If user
-  compositions need a not-yet-installed catalog model, stage BOTH planned
+  evidence field only after the separately approved live call. OpenRouter
+  moving aliases (e.g. `~x-ai/grok-latest`) are NOT trusted catalog wires
+  even when they currently resolve the target release: D3 requires
+  record+catalog to be the complete authority; an upstream alias retarget
+  would be hidden state and cannot be repaired by the per-response model
+  echo (scope is already compiled). Pin `x-ai/grok-<version>` instead and
+  record the moving alias only as considered/current-target evidence.
+  If user compositions need a not-yet-installed catalog model, stage BOTH planned
   catalog-next files and catalog-current rollback copies under
   `tests/fixtures/compositions/<batch>/`; sandbox-load/resolve the exact
   files, keep live XDG presets compatible until activation, then save them

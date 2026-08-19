@@ -946,9 +946,9 @@ class ListingDescriptorTests(unittest.TestCase):
     def test_openrouter_listing_needs_no_secret_and_parses_openai_shape(self) -> None:
         payload = (
             b'{"data": ['
-            b'{"id": "x-ai/grok-4.5", "name": "Grok 4.5", "context_length": 500000,'
+            b'{"id": "x-ai/grok-4.6", "name": "Grok 4.6", "context_length": 500000,'
             b' "top_provider": {"max_completion_tokens": 64000},'
-            b' "reasoning": {"supported_efforts": ["high", "max"]}},'
+            b' "reasoning": {"supported_efforts": ["high", "xhigh"]}},'
             b' "junk", {"no_id": true},'
             b' {"id": "deepseek/deepseek-v4-flash", "name": "DeepSeek V4 Flash", "context_length": 1000000}'
             b']}'
@@ -975,11 +975,11 @@ class ListingDescriptorTests(unittest.TestCase):
             entries,
             [
                 {
-                    "id": "x-ai/grok-4.5",
-                    "display_name": "Grok 4.5",
+                    "id": "x-ai/grok-4.6",
+                    "display_name": "Grok 4.6",
                     "context_length": 500000,
                     "max_completion_tokens": 64000,
-                    "think_efforts": ["high", "max"],
+                    "think_efforts": ["high", "xhigh"],
                 },
                 {
                     "id": "deepseek/deepseek-v4-flash",

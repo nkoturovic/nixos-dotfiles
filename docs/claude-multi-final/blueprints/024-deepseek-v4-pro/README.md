@@ -52,7 +52,9 @@ Provider transport/contracts and schemas are already sufficient; no
 CLIProxyAPI embedded-registry or Nix patch is needed (direct catalog-driven
 `claude-api-key` route). DeepSeek listing already advertises both stable
 aliases; provider-scoped discover marks Pro cataloged automatically.
-Catalog version 18 → 19; launcher remains 2.18.0 (catalog-only behavior).
+Pro itself is catalog-only (18→19); blueprint 025 adds the
+`output-config-xhigh` renderer contract for Grok 4.6, so the combined
+activation launcher is 2.19.0 (catalog remains 19).
 
 ## Composition policy
 
@@ -61,10 +63,10 @@ Catalog version 18 → 19; launcher remains 2.18.0 (catalog-only behavior).
   max reviewer; each has the other DeepSeek model as alternate. Same-family
   review is honestly reduced independence.
 - `deepseek-flash` (new): preserves the previous cheap all-Flash rig.
-- `grok-deepseek` (updated): Grok lead; Flash preferred analyst; Pro max
-  preferred implementer/finalizer; **Grok preferred reviewer** + Pro
-  alternate — the preferred review path is cross-family for DeepSeek-authored
-  changes.
+- `grok-deepseek` (updated with blueprint 025): Grok 4.6 exact-slug/xhigh
+  lead; Flash preferred analyst; Pro max preferred implementer/finalizer;
+  **Grok 4.6 xhigh preferred reviewer** + Pro alternate — the preferred
+  review path is cross-family for DeepSeek-authored changes.
 - `sol-qwen-glm-deepseek-flash` (updated in place, legacy name retained):
   Pro max alternatives added to analyst/implementer/reviewer; Sol/Qwen
   remain stronger preferred/general options. The explicitly named Flash

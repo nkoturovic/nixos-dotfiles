@@ -3738,6 +3738,12 @@ ORDINARY_PROFILE_NOTES = {
     "grok": "500K context · /model switches freely within this group",
 }
 ORDINARY_PROFILE_NOTE_DEFAULT = "/model switches freely within this group"
+# Explicit catalog-id replacements for ordinary record re-pinning. This is
+# record migration metadata, not an alias/routing fallback: the old id is
+# removed from the trusted catalog and doctor names the new explicit model.
+_ORDINARY_MODEL_REPLACEMENTS = {
+    "grok45": "grok46",
+}
 ORDINARY_KEYBAR = (
     ("Enter", "launch"),
     ("M", "all models"),
@@ -3844,6 +3850,19 @@ def _ordinary_unavailable(runtime: Runtime) -> dict[str, str]:
             if providers[provider_id]["transport"]["kind"] == "direct"
         }
     return {entry["provider"]: entry["reason"] for entry in entries}
+
+
+def _ordinary_replacement_model(runtime: Runtime, model_id: str) -> str | None:
+    """Supported explicit replacement for a removed ordinary catalog id."""
+
+    replacement = _ORDINARY_MODEL_REPLACEMENTS.get(model_id)
+    if replacement is None:
+        return None
+    try:
+        compiler.direct_context_profile(runtime.ordinary_docs, replacement)
+    except compiler.CompilerError:
+        return None
+    return replacement
 
 
 def _model_client_selectors(model: dict[str, Any]) -> list[str]:
@@ -7487,16 +7506,27 @@ def _check_scope_integrity(runtime: Runtime, record: dict[str, Any]) -> tuple[st
                 runtime.ordinary_docs, record["context_profile"]
             )
         except compiler.CompilerError as exc:
-            reason = (
-                f"its recorded model {record['ordinary_model']!r} is no longer "
-                "an ordinary lead"
-                if "lead" in str(exc)
-                else f"its recorded profile {record['context_profile']!r} is retired"
+            replacement = _ordinary_replacement_model(
+                runtime, record["ordinary_model"]
             )
+            if replacement is not None:
+                reason = (
+                    f"its recorded model {record['ordinary_model']!r} was "
+                    f"replaced by {replacement!r}"
+                )
+                re_pin_model = replacement
+            else:
+                reason = (
+                    f"its recorded model {record['ordinary_model']!r} is no longer "
+                    "an ordinary lead"
+                    if "lead" in str(exc)
+                    else f"its recorded profile {record['context_profile']!r} is retired"
+                )
+                re_pin_model = record["ordinary_model"]
             repair = (
                 f"{reason} — resume with an explicit supported --model to "
                 f"re-pin the record: claude-gateway -r {session_id} "
-                f"--model {record['ordinary_model']}"
+                f"--model {re_pin_model}"
             )
     try:
         if record["session_type"] == sessions.SESSION_TYPE_ORDINARY:
@@ -7590,11 +7620,28 @@ def _doctor_scope_report(runtime: Runtime) -> tuple[list[str], list[str], list[s
                 _scalar, window, trigger = compiler.direct_profile_context(
                     runtime.ordinary_docs, record["context_profile"]
                 )
-                target = (
-                    f"ordinary model {record['ordinary_model']} · profile "
-                    f"{record['context_profile']} · compact capacity {window} / "
-                    f"reactive trigger {trigger}"
+                replacement = _ordinary_replacement_model(
+                    runtime, record["ordinary_model"]
                 )
+                if replacement is not None:
+                    problems.append(
+                        f"session {sessions.managed_id(record)} records ordinary "
+                        f"model {record['ordinary_model']!r}, replaced by "
+                        f"{replacement!r}; resume with `claude-gateway -r "
+                        f"{sessions.managed_id(record)} --model {replacement}` "
+                        "to re-pin the record"
+                    )
+                    target = (
+                        f"ordinary model {record['ordinary_model']} (replaced by "
+                        f"{replacement}) · profile {record['context_profile']} · "
+                        f"compact capacity {window} / reactive trigger {trigger}"
+                    )
+                else:
+                    target = (
+                        f"ordinary model {record['ordinary_model']} · profile "
+                        f"{record['context_profile']} · compact capacity {window} / "
+                        f"reactive trigger {trigger}"
+                    )
             except compiler.CompilerError:
                 # A catalog update that renamed/removed the profile is exactly
                 # the drift doctor exists to report — never abort the run.

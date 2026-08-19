@@ -3429,7 +3429,7 @@ class OrdinaryLaunchModelsTests(CLITestCase):
         self.assertEqual(
             groups,
             {
-                "grok": ("grok45",),
+                "grok": ("grok46",),
                 "large": ("deepseek-flash", "deepseek-pro", "fable", "glm52", "kimi-k3", "opus", "opus5", "qwen38", "sol"),
             },
         )
@@ -3505,12 +3505,12 @@ class OrdinaryScreenTuiTests(CLITestCase):
         self.assertIn("gateway session — no composition", text)
         self.assertIn("large · 1M context", text)
         self.assertIn("grok · 500K context", text)
-        for model_id in ("deepseek-flash", "deepseek-pro", "fable", "glm52", "grok45", "kimi-k3", "opus", "opus5", "qwen38", "sol"):
+        for model_id in ("deepseek-flash", "deepseek-pro", "fable", "glm52", "grok46", "kimi-k3", "opus", "opus5", "qwen38", "sol"):
             self.assertIn(model_id, text)
         self.assertIn("GLM-5.2 · alibaba", text)
         # The fixture secret file holds only the Kimi key: the five model
         # rows on keyless providers (glm52 + qwen38 on qwen, Flash + Pro on
-        # deepseek, grok45 on openrouter) carry the compact marker.
+        # deepseek, grok46 on openrouter) carry the compact marker.
         self.assertEqual(text.count("(no secret)"), 5)
         self.assertIn("Enter launch", text)
 
@@ -5663,17 +5663,32 @@ class OrdinaryModelSwitchTests(CLITestCase):
 
     def test_cross_profile_confirm_names_the_rebuild(self) -> None:
         self._ordinary()
-        # From kimi-k3 (large) to grok45 (grok profile): the confirm modal
+        # From kimi-k3 (large) to grok46 (grok profile): the confirm modal
         # must state the profile change and the fence/compaction rebuild.
         # The fixture gains the OpenRouter key so the target row is
-        # launchable; grok45 heads the grok group (five steps up from
+        # launchable; grok46 heads the grok group (five steps up from
         # kimi-k3 after DeepSeek Pro joins the large group).
         with open(self.secret_file, "a") as handle:
             handle.write("OPENROUTER_CLAUDE_API_KEY=fixture-or-key\n")
-        result, win, _screen = self._run(
-            ["t", "k", "k", "k", "k", "k", "\n", "\x1b", "\x1b"]
+        # Source catalog19 intentionally differs from the still-running
+        # catalog18 gateway: grok46 is known absent. Exercise BOTH the real
+        # not-served confirmation and the profile-change modal.
+        with mock.patch.object(
+            cli.launch, "read_gateway_token", return_value="t" * 64
+        ), mock.patch.object(
+            cli.launch, "served_models", return_value=(set(), 200)
+        ):
+            result, win, _screen = self._run(
+                [
+                    "t", "k", "k", "k", "k", "k", "\n",
+                    curses.KEY_RIGHT, "\n",  # Switch anyway on not-served modal
+                    "\x1b", "\x1b", "\x1b",  # cancel profile; back; quit
+                ]
+            )
+        self.assertIsNone(result)
+        self.assertTrue(
+            any("Not served by the running gateway" in frame for frame in win.frames)
         )
-        self.assertIsNone(result)  # confirm modal cancelled via Esc
         self.assertTrue(
             any(
                 "context profile large → grok" in frame
@@ -5973,7 +5988,7 @@ class SessionEventAndDirectModeTests(CLITestCase):
                 "session_id": FIXED_ID,
                 "source": "resume",
                 "cwd": self.runtime.cwd,
-                "model": "claude-multi-grok45",
+                "model": "claude-multi-grok46-xhigh",
             }
         ).decode("utf-8")
         code, output = self.run_cli(
@@ -5983,7 +5998,7 @@ class SessionEventAndDirectModeTests(CLITestCase):
         updated = self.runtime.session_store.load(FIXED_ID)
         self.assertEqual(updated["ordinary_model"], "qwen38")
         self.assertEqual(updated["context_profile"], "large")
-        self.assertEqual(updated["observed_model"], "claude-multi-grok45")
+        self.assertEqual(updated["observed_model"], "claude-multi-grok46-xhigh")
         self.assertEqual(updated["identity_state"], sessions.IDENTITY_REPAIR_NEEDED)
         context = strict_json.loads(output)["hookSpecificOutput"]["additionalContext"]
         self.assertIn("context/compaction profile", context)
@@ -8739,7 +8754,7 @@ class NewProviderCompositionTests(CLITestCase):
                 "deepseek-flash": flash_scope,
                 "deepseek-pro": pro_scope,
                 "fable": "off", "glm52": "off", "gpt55": "off",
-                "grok45": grok_scope, "kimi-k3": "off", "opus": "off",
+                "grok46": grok_scope, "kimi-k3": "off", "opus": "off",
                 "opus5": "off", "qwen38": "off", "sol": "off",
             },
         }
@@ -8799,25 +8814,25 @@ class NewProviderCompositionTests(CLITestCase):
                 deepseek_scope="agents",flash_scope="agents",pro_scope="agents",grok_scope="lead+agents"
             ),
             "slots":[
-                {"role":"cm-lead","model":"grok45"},
+                {"role":"cm-lead","model":"grok46"},
                 {"role":"cm-analyst","model":"deepseek-flash","lane":"high","preferred":True},
-                {"role":"cm-analyst","model":"grok45","lane":"high","preferred":False},
+                {"role":"cm-analyst","model":"grok46","lane":"xhigh","preferred":False},
                 {"role":"cm-implementer","model":"deepseek-pro","lane":"max","preferred":True},
-                {"role":"cm-implementer","model":"grok45","lane":"high","preferred":False},
-                {"role":"cm-reviewer","model":"grok45","lane":"high","preferred":True},
+                {"role":"cm-implementer","model":"grok46","lane":"xhigh","preferred":False},
+                {"role":"cm-reviewer","model":"grok46","lane":"xhigh","preferred":True},
                 {"role":"cm-reviewer","model":"deepseek-pro","lane":"max","preferred":False},
             ],
             "native_agents":{"explore":"replace","plan":"native","general_purpose":"off"},
         }
         resolved=self.runtime.resolve_document(doc)
         snap=composition.snapshot(resolved)
-        self.assertEqual(resolved.lead.model,"grok45")
+        self.assertEqual(resolved.lead.model,"grok46")
         self.assertEqual(snap["auto_compact_window_tokens"],500000)
         self.assertEqual(snap["lead"]["auto_compact_tokens"],432000)
         preferred={v.role:v for v in resolved.variants if v.preferred}
         self.assertEqual(preferred["cm-analyst"].model,"deepseek-flash")
         self.assertEqual(preferred["cm-implementer"].model,"deepseek-pro")
-        self.assertEqual(preferred["cm-reviewer"].model,"grok45")
+        self.assertEqual(preferred["cm-reviewer"].model,"grok46")
         families=self.runtime.catalog.providers
         reviewer_family=families[self.runtime.catalog.models[preferred["cm-reviewer"].model]["provider"]]["independence_family"]
         implementer_family=families[self.runtime.catalog.models[preferred["cm-implementer"].model]["provider"]]["independence_family"]
@@ -8849,18 +8864,18 @@ class NewProviderDirectLaunchTests(CLITestCase):
             prepared.result.env_set["CLAUDE_CODE_AUTO_COMPACT_WINDOW"], "983616"
         )
 
-    def test_grok45_direct_launch_gets_the_500k_window(self) -> None:
+    def test_grok46_direct_launch_uses_xhigh_500k_window(self) -> None:
         prepared = self.runtime.prepare_direct(
-            action="fresh", model_id="grok45", passthrough=[]
+            action="fresh", model_id="grok46", passthrough=[]
         )
-        self.assertEqual(prepared.record["ordinary_model"], "grok45")
+        self.assertEqual(prepared.record["ordinary_model"], "grok46")
         self.assertEqual(prepared.record["context_profile"], "grok")
         env_set = prepared.result.env_set
         self.assertEqual(env_set["CLAUDE_CODE_AUTO_COMPACT_WINDOW"], "500000")
         # The 500K window must never come from a [1m] selector.
         argv = prepared.result.argv
-        self.assertIn("claude-multi-grok45", argv)
-        self.assertNotIn("claude-multi-grok45[1m]", argv)
+        self.assertIn("claude-multi-grok46-xhigh", argv)
+        self.assertNotIn("claude-multi-grok46-xhigh[1m]", argv)
 
     def test_new_models_record_saves_with_their_profiles(self) -> None:
         # The session schema accepts the new catalog profile (022 P0 class:
@@ -8868,7 +8883,7 @@ class NewProviderDirectLaunchTests(CLITestCase):
         for model_id, profile in (
             ("deepseek-flash", "large"),
             ("deepseek-pro", "large"),
-            ("grok45", "grok"),
+            ("grok46", "grok"),
         ):
             prepared = self.runtime.prepare_direct(
                 action="fresh", model_id=model_id, passthrough=[]
@@ -8884,18 +8899,18 @@ class RegistryIdForWireTests(unittest.TestCase):
 
     def test_basename_is_the_natural_key(self) -> None:
         self.assertEqual(
-            cli._registry_id_for_wire("x-ai/grok-4.5", set()), "grok-4.5"
+            cli._registry_id_for_wire("x-ai/grok-4.6", set()), "grok-4.6"
         )
 
     def test_collision_falls_back_to_dash_joined(self) -> None:
         self.assertEqual(
-            cli._registry_id_for_wire("x-ai/grok-4.5", {"grok-4.5"}),
-            "x-ai-grok-4.5",
+            cli._registry_id_for_wire("x-ai/grok-4.6", {"grok-4.6"}),
+            "x-ai-grok-4.6",
         )
 
     def test_both_taken_returns_none(self) -> None:
         self.assertIsNone(
-            cli._registry_id_for_wire("x-ai/grok-4.5", {"grok-4.5", "x-ai-grok-4.5"})
+            cli._registry_id_for_wire("x-ai/grok-4.6", {"grok-4.6", "x-ai-grok-4.6"})
         )
 
     def test_unusable_basename_falls_through(self) -> None:
@@ -8914,7 +8929,7 @@ class FetchMarkSlashWireTests(CLITestCase):
         from test_tui import FakeWindow
 
         entries = [
-            {"id": "x-ai/grok-4.5", "display_name": "Grok 4.5", "context_length": 500000},
+            {"id": "x-ai/grok-4.6", "display_name": "Grok 4.6", "context_length": 500000},
             {"id": "meta/llama-4", "display_name": "Llama 4", "context_length": 131072},
         ]
         with mock.patch.object(
@@ -8930,7 +8945,7 @@ class FetchMarkSlashWireTests(CLITestCase):
             win = FakeWindow(keys)
             screen.run(win)
         registry = cli.custom.load_registry(self.runtime.environ)
-        # grok-4.5 is already cataloged (its wire is the grok45 entry's) —
+        # grok-4.6 is already cataloged (its wire is the grok46 entry's) —
         # only the llama entry is fresh, keyed by its slash-free basename.
         self.assertIn("llama-4", registry["models"])
         self.assertEqual(registry["models"]["llama-4"]["wire_model"], "meta/llama-4")
@@ -9063,9 +9078,15 @@ class DeepSeekProPlannedCompositionFilesTests(CLITestCase):
             {
                 "cm-analyst": "deepseek-flash",
                 "cm-implementer": "deepseek-pro",
-                "cm-reviewer": "grok45",
+                "cm-reviewer": "grok46",
             },
         )
+        grok_slots=[s for s in grok["slots"] if s["model"]=="grok46"]
+        self.assertTrue(grok_slots)
+        for slot in grok_slots:
+            if slot["role"] != "cm-lead":
+                self.assertEqual(slot.get("lane"),"xhigh")
+        self.assertNotIn("grok45",grok["availability"]["models"])
 
         pool, _ = self._load_resolve(
             root / "sol-qwen-glm-deepseek-flash.json"
@@ -9080,9 +9101,69 @@ class DeepSeekProPlannedCompositionFilesTests(CLITestCase):
             },
         )
 
-    def test_catalog18_rollback_files_stay_pro_free(self) -> None:
+    def test_catalog18_rollback_files_stay_historical(self) -> None:
+        # Rollback files belong to catalog18 and MUST retain grok45. They are
+        # schema-validated here, not resolved against catalog19 (where grok45
+        # is intentionally absent).
         root = self.fixture_root / "024-rollback-catalog18"
         for path in sorted(root.glob("*.json")):
-            document, resolved = self._load_resolve(path)
+            document = composition.load_composition_file(
+                path, self.runtime.compositions.schema
+            )
             self.assertNotIn("deepseek-pro", document["availability"]["models"])
-            self.assertNotIn("deepseek-pro", {v.model for v in resolved.variants})
+            if path.name in ("deepseek.json", "grok-deepseek.json"):
+                self.assertIn("grok45", document["availability"]["models"])
+            self.assertNotIn("grok46", document["availability"]["models"])
+
+
+class Grok46DiscoveryAndMigrationTests(CLITestCase):
+    """025: no active Grok 4.5 route; 4.6 is cataloged and migratable."""
+
+    def test_openrouter_discovery_catalogs_46_not_45(self) -> None:
+        entries = [
+            {"id":"x-ai/grok-4.6","display_name":"Grok 4.6","context_length":500000},
+            {"id":"x-ai/grok-4.5","display_name":"Grok 4.5","context_length":500000},
+        ]
+        with mock.patch.object(
+            cli.proxy_mod,"list_provider_models",return_value=entries
+        ):
+            code,out=self.run_cli(["discover","openrouter"],interactive=False)
+        self.assertEqual(code,0)
+        self.assertIn("x-ai/grok-4.6\tcataloged as grok46",out)
+        self.assertIn("x-ai/grok-4.5\tnot registered",out)
+
+    def _stale_45_record(self):
+        record=sessions.make_ordinary_record(
+            managed_id=FIXED_ID,runtime_session_id=FIXED_ID,cwd=self.runtime.cwd,
+            model="grok46",context_profile="grok",
+            catalog_version=self.runtime.catalog_version,
+            catalog_hash=self.runtime.catalog.bundle_sha256,
+            launcher_version=self.runtime.launcher_version,
+        )
+        record["ordinary_model"]="grok45"
+        self.runtime.session_store.save(record)
+        return record
+
+    def test_doctor_names_grok46_for_stale_45_record(self) -> None:
+        record=self._stale_45_record()
+        line,is_problem=cli._check_scope_integrity(self.runtime,record)
+        self.assertTrue(is_problem)
+        self.assertIn("replaced by 'grok46'",line)
+        self.assertIn(f"--model grok46",line)
+        self.assertNotIn("--model grok45",line)
+        _info,problems,_attention=cli._doctor_scope_report(self.runtime)
+        text="\n".join(problems)
+        self.assertIn("replaced by 'grok46'",text)
+        self.assertIn("--model grok46",text)
+
+    def test_explicit_resume_migrates_stale_45_record_same_profile(self) -> None:
+        self._stale_45_record()
+        prepared=self.runtime.prepare_direct(
+            action="resume",model_id="grok46",passthrough=[],session_id=FIXED_ID
+        )
+        self.assertEqual(prepared.record["ordinary_model"],"grok46")
+        self.assertEqual(prepared.record["context_profile"],"grok")
+        self.assertIn("claude-multi-grok46-xhigh",prepared.result.argv)
+        self.assertEqual(
+            prepared.result.env_set["CLAUDE_CODE_AUTO_COMPACT_WINDOW"],"500000"
+        )

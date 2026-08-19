@@ -210,7 +210,7 @@ class SecretBoundaryTests(unittest.TestCase):
         self.assertNotIn("claude-multi-qwen38-max", result.yaml)
         self.assertNotIn("claude-multi-deepseek-flash", result.yaml)
         self.assertNotIn("claude-multi-deepseek-pro", result.yaml)
-        self.assertNotIn("claude-multi-grok45", result.yaml)
+        self.assertNotIn("claude-multi-grok46-xhigh", result.yaml)
         self.assertNotIn("output_config.effort", result.yaml)
         self.assertNotIn("reasoning_effort", result.yaml)
         self.assertNotIn('"thinking"', result.yaml)
@@ -356,3 +356,31 @@ class DeepSeekProRenderTests(unittest.TestCase):
         )
         self.assertIn(high, yaml)
         self.assertIn(max_, yaml)
+
+
+class Grok46RenderTests(unittest.TestCase):
+    """025: rendered active route is exact Grok 4.6 with xhigh override."""
+
+    def test_exact_46_route_and_no_active_45(self) -> None:
+        yaml=_render().yaml
+        self.assertIn('name: "x-ai/grok-4.6"',yaml)
+        self.assertIn('alias: "claude-multi-grok46-xhigh"',yaml)
+        self.assertNotIn('x-ai/grok-4.5',yaml)
+        self.assertNotIn('claude-multi-grok45',yaml)
+        high=(
+            '- models:\n'
+            '        - name: "claude-multi-grok46-high"\n'
+            '          protocol: "claude"\n'
+            '      params:\n'
+            '        "output_config.effort": "high"'
+        )
+        xhigh=(
+            '- models:\n'
+            '        - name: "claude-multi-grok46-xhigh"\n'
+            '          protocol: "claude"\n'
+            '      params:\n'
+            '        "output_config.effort": "xhigh"'
+        )
+        self.assertIn(high,yaml)
+        self.assertIn(xhigh,yaml)
+        self.assertNotIn('reasoning_effort: "xhigh"', yaml.split('payload:',1)[1].split('claude-multi-qwen38-max',1)[0])

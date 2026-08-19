@@ -75,9 +75,10 @@ are onboarded through `claude-multi-dev` (`--help` maps the two tracks;
 `default` is the only built-in trusted seed; the rest are the named profiles
 on this machine (all creatable in seconds with `compose new` /
 `use-as-template` — see "Managing compositions"). **Catalog19 staging
-note:** the DeepSeek rows below describe blueprint 024's tested
-post-activation files; live catalog18 keeps the old Flash-only shapes until
-the approved activation, and creates `deepseek-flash` at that boundary:
+note:** the DeepSeek/Grok rows below describe blueprints 024/025's tested
+post-activation files; live catalog18 keeps the old Flash-only DeepSeek
+shapes and Grok 4.5 until the approved activation, and creates
+`deepseek-flash` at that boundary:
 
 | Preset | Lead | Subagents | Use it for |
 | --- | --- | --- | --- |
@@ -95,7 +96,7 @@ the approved activation, and creates `deepseek-flash` at that boundary:
 | `sol-direct` | GPT 5.6 Sol (1M since 2.18.0, D57) | — | single-model direct sessions |
 | `deepseek` | DeepSeek V4 Pro (high lead) | Flash scan · Pro max implement/finalize · Flash review | measured Flash→Pro pipeline; same-family review (reduced independence) |
 | `deepseek-flash` | DeepSeek V4 Flash | Flash high everywhere · Flash max reviewer | preserved fast/cheap all-Flash side-task rig |
-| `grok-deepseek` | Grok 4.5 (OpenRouter) | Flash scan · Pro max implementation · Grok preferred review | Grok lead + measured DeepSeek pipeline + cross-family review |
+| `grok-deepseek` | Grok 4.6 xhigh (OpenRouter) | Flash scan · Pro max implementation · Grok xhigh preferred review | Grok lead + measured DeepSeek pipeline + cross-family review |
 
 DeepSeek API aliases are deliberately stable: `deepseek-pro` routes wire
 `deepseek-v4-pro` (currently the official V4-Pro-0813 release) and
@@ -103,6 +104,13 @@ DeepSeek API aliases are deliberately stable: `deepseek-pro` routes wire
 version labels are not first-party callable ids. Ordinary typed selectors:
 `/model claude-multi-deepseek-pro-high[1m]` or `-max[1m]` (Flash uses the
 matching `deepseek-flash-*` selectors).
+
+Grok is pinned to exact OpenRouter wire `x-ai/grok-4.6`: the moving alias
+`~x-ai/grok-latest` currently resolves 4.6 but is deliberately not the
+trusted wire (D3: no hidden moving authority). Typed selectors are
+`/model claude-multi-grok46-high` and the default/max available reasoning
+`/model claude-multi-grok46-xhigh`; xhigh translation through OpenRouter's
+Anthropic skin remains acceptance-call-gated.
 
 Every profile keeps workflows native, worktree isolation on implementers,
 cross-provider subagent preference, the model fence, and the compaction pin.

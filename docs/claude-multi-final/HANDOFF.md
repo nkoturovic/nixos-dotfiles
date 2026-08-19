@@ -95,15 +95,18 @@ untouched; `claude-gateway` is the ordinary non-composition entrypoint.
   `deepseek-flash` (stable alias → Flash-0731) is the only DeepSeek catalog
   model; live `deepseek` is the all-Flash rig and live `grok-deepseek` uses
   Flash agents. `grok45` remains 500K in the `grok` profile.
-- **Catalog 19 working tree (D58/024; activation pending):** adds
-  `deepseek-pro` (stable alias → official Pro-0813 GA), high/max 1M lanes.
-  Planned composition files (tested, not live yet): `deepseek` = Pro lead →
-  Flash scan → Pro implementation → Flash review; new `deepseek-flash`
-  preserves the all-Flash rig; `grok-deepseek` = Grok lead → Flash scan →
-  Pro implementation → Grok cross-family review; compatibility preset
-  `sol-qwen-glm-deepseek-flash` gains Pro max alternatives. Qwen3.8
-  Max/Sol remain stronger general options. Listing advertises both stable
-  DeepSeek aliases via OpenAI-shape `GET /models` (Bearer).
+- **Catalog 19 working tree (D58/D59, blueprints 024/025; activation
+  pending):** adds `deepseek-pro` (stable alias → official Pro-0813 GA),
+  high/max 1M lanes, and replaces active Grok 4.5 with `grok46` (exact
+  OpenRouter wire `x-ai/grok-4.6`, 500K, high fallback + xhigh default).
+  The moving alias `~x-ai/grok-latest` currently resolves 4.6 but is not a
+  trusted wire (D3 no-hidden-state rule). Planned files (tested, not live):
+  `deepseek` = Pro lead → Flash scan → Pro implementation → Flash review;
+  new `deepseek-flash` preserves the all-Flash rig; `grok-deepseek` = Grok
+  4.6 xhigh lead → Flash scan → Pro implementation → Grok xhigh
+  cross-family review; compatibility preset gains Pro max alternatives.
+  Qwen3.8 Max/Sol remain stronger general options. DeepSeek listing
+  advertises both stable aliases via OpenAI-shape `/models` (Bearer).
 - **GLM-5.2 live on the qwen provider** (2.9.0, D45): wire `glm-5.2` at the
   Token Plan endpoint, selector `claude-multi-glm52-max[1m]`, lead+agents,
   lane max with `reasoning_effort: "max"` — 1M context, alibaba family

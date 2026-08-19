@@ -61,7 +61,10 @@ large · 1M context · /model switches freely within this group
   sol — GPT-5.6 Sol · 1M selector · openai
 
 grok · 500K context · /model switches freely within this group
-  grok45 — Grok 4.5 · x-ai  (no secret)
+  grok46 — Grok 4.6 · x-ai  (no secret)
+
+in-session: /model claude-multi-grok46-high · /model claude-multi-grok46-xhigh
+(the catalog19 screen shown here is staged until activation; catalog18 still shows grok45)
 
 in-session: /model gpt-multi-sol-high[1m] · /model gpt-multi-sol-xhigh[1m]
 Enter launch · P providers · ? help · Esc back

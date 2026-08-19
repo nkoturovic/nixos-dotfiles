@@ -237,12 +237,12 @@
       "routing_note": "Routine bounded independent review and tie-breaking.",
       "wire_model": "gpt-5.5"
     },
-    "grok45": {
+    "grok46": {
       "capabilities": [
         "lead",
         "agents"
       ],
-      "client_selector": "claude-multi-grok45",
+      "client_selector": "claude-multi-grok46-xhigh",
       "compatible_roles": [
         "cm-lead",
         "cm-analyst",
@@ -254,17 +254,22 @@
         "declared_tokens": 500000,
         "ordinary_profile": "grok",
         "provider_tokens": 500000,
-        "qualification": "Provider-advertised bound: OpenRouter lists x-ai/grok-4.5 at 500K context (listing verified 2026-08-12; max completion unpublished). Not 1M-class: no [1m] selector; the 500K window comes from the profile-derived scope env. Anthropic-skin behavior verified by approval-gated probes 2026-08-12: well-formed tool_use (stop_reason tool_use), canonical streaming block order, effort params accepted; reasoning is mandatory (efforts high/medium/low — high is the top). Near-limit behavior unverified until a live acceptance call.",
+        "qualification": "OpenRouter lists exact slug x-ai/grok-4.6 at 500K context and $2/$6 per 1M; prompts >=200K bill $4/$12 for ALL tokens (docs verified 2026-08-19). xAI documents reasoning efforts low/medium/high/xhigh (default high). The catalog pins the concrete slug: moving alias ~x-ai/grok-latest currently resolves 4.6 but conflicts with D3 (no hidden authority) because future retargets could change context/effort without a catalog change. The OpenRouter Anthropic endpoint uses output_config.effort; high/xhigh overrides are wired but xhigh translation remains unverified until the approval-gated live call. validated_tokens=200000 is a conservative unverified floor; near-limit/max completion are unverified.",
         "scalar_tokens": null,
-        "validated_tokens": 500000
+        "validated_tokens": 200000
       },
-      "default_lane": "high",
-      "display": "Grok 4.5",
+      "default_lane": "xhigh",
+      "display": "Grok 4.6",
       "lanes": {
         "high": {
           "agent_effort": "high",
-          "client_selector": "claude-multi-grok45",
-          "proxy_effort_contract": null
+          "client_selector": "claude-multi-grok46-high",
+          "proxy_effort_contract": "output-config-high"
+        },
+        "xhigh": {
+          "agent_effort": "xhigh",
+          "client_selector": "claude-multi-grok46-xhigh",
+          "proxy_effort_contract": "output-config-xhigh"
         }
       },
       "lead": {
@@ -277,12 +282,12 @@
       },
       "provider": "openrouter",
       "role_hints": {
-        "cm-analyst": "Use for a strong second perspective from the x-ai family.",
-        "cm-implementer": "Use for frontier coding implementation when a non-OpenAI/non-Moonshot family is wanted.",
-        "cm-reviewer": "Use for independent x-ai-family review of alibaba/moonshot/openai work."
+        "cm-analyst": "Use for frontier long-running analysis and knowledge work from the x-ai family; on par with Qwen3.8 Max and GPT-5.6 Sol.",
+        "cm-implementer": "Use for long-running agentic coding and ambitious multi-step implementation when an x-ai-family route is wanted.",
+        "cm-reviewer": "Use for independent x-ai-family review of DeepSeek/alibaba/openai work; request xhigh pending route acceptance."
       },
-      "routing_note": "Grok 4.5 via OpenRouter's Anthropic skin (no xAI subscription needed); tool use, streaming order, and effort acceptance probe-verified. Reasoning mandatory (top effort high). Tiered pricing: >=200K prompts bill $4/$12 for ALL tokens.",
-      "wire_model": "x-ai/grok-4.5"
+      "routing_note": "Grok 4.6 via OpenRouter exact slug; long-running agents/coding/knowledge work, on par with Qwen3.8 Max and Sol. output_config xhigh requested (probe-pending). ~x-ai/grok-latest currently points here but is not wired (D3 moving authority).",
+      "wire_model": "x-ai/grok-4.6"
     },
     "kimi-k3": {
       "capabilities": [

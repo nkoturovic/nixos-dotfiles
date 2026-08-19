@@ -1,6 +1,6 @@
 # STATUS — live tracker
 
-## 2026-08-19 — catalog 19: DeepSeek V4 Pro GA (D58, blueprint 024, working tree)
+## 2026-08-19 — catalog 19: DeepSeek V4 Pro GA + Grok 4.6 (D58/D59, blueprints 024/025, working tree)
 
 - **Production alias/version**: new catalog model `deepseek-pro`, wire
   `deepseek-v4-pro` (stable first-party alias, currently resolves the
@@ -20,18 +20,38 @@
 - **No provider/adapter/schema change**: the existing direct Anthropic
   DeepSeek route and output-config high/max contracts already cover Pro;
   listing advertises both stable aliases and marks Pro cataloged.
-- **Version**: launcher stays 2.18.0; catalog 18→19.
-- **Verification**: full discovery **1,674 tests OK** (skipped=2); package
-  build green (`/nix/store/f9xd…-claude-multi-2.18.0`); sandbox suite
-  green; render golden delta reviewed (exactly two Pro mappings + one Pro
-  alias per high/max override group); exact planned AND rollback composition
+- **Grok replacement**: active catalog route `grok45`/`x-ai/grok-4.5`
+  is removed (not retained); `grok46` pins exact wire `x-ai/grok-4.6`,
+  500K `grok` profile, high fallback + xhigh default. OpenRouter's
+  Anthropic endpoint is wired explicitly with `output_config.effort`
+  high/xhigh (new xhigh adapter contract; launcher 2.19.0). xAI/OpenRouter
+  position 4.6 on par with
+  Sol/Qwen and for long-running agents/coding/knowledge work. The moving
+  alias `~x-ai/grok-latest` currently resolves 4.6 but is not wired: it
+  violates D3 by introducing hidden mutable authority outside record+catalog.
+  Prior 4.5 skin probes do not transfer; 4.6 tool/stream/xhigh is live-call
+  gated. Catalog18 rollback fixtures retain 4.5 by design; active catalog19
+  and planned post-activation files contain 4.6 only.
+- **Version**: launcher 2.18.0→2.19.0 (new output-config-xhigh adapter
+  contract); catalog 18→19 (Grok folded into the pending catalog19 batch,
+  not catalog20).
+- **Verification**: full discovery **1,680 tests OK** (skipped=2); package
+  build green (`/nix/store/8ammbja1r6msvfxymd0gk0vrjvzg942x-claude-multi-2.19.0`); sandbox suite
+  green. Render golden delta: two Pro mappings + Pro high/max overrides;
+  Grok 4.5 mapping removed, Grok 4.6 high+xhigh mappings + explicit
+  output_config high/xhigh overrides. Exact planned AND rollback composition
   fixtures are sandbox-tested; live catalog18 presets remain usable.
-- **Cross-family review** (sol-xhigh/qwen38/glm52 + adversarial verify):
-  composition design approved; confirmed findings fixed — HANDOFF installed
-  state now distinguishes live catalog18 vs staged catalog19, exact staged
-  files have regression coverage (including the 17-slot compatibility rig),
-  and the activation runbook has a complete catalog+XDG composition rollback.
-- Pending: separately approved bounded Pro max call, activation green light.
+- **Cross-family reviews** (sol-xhigh/qwen38/glm52 + adversarial verify):
+  composition design approved; all confirmed findings fixed — installed vs
+  staged docs, exact fixture coverage, complete catalog+XDG rollback,
+  Grok long-context tier pricing, package evidence, stale-record doctor
+  migration hint, expected rollback degradation, effort-vocabulary fixture,
+  and pre-activation not-served UX coverage. A proposed protocol must-fix was
+  refuted by a disposable CLIProxy wire capture (old config normalized to
+  output_config), but the catalog now uses documented output_config directly.
+- Pending: separately approved bounded DeepSeek Pro
+  max + OpenRouter Grok 4.6 exact-slug high/xhigh calls; activation green
+  light.
 
 ## 2026-08-18 — v2.18.0: sol joins the 1M class (D57, blueprint 023, activated gen 125)
 

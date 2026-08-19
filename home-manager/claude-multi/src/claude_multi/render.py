@@ -47,6 +47,11 @@ ADAPTER_PAYLOAD_CONTRACTS: dict[str, dict[str, dict[str, Any]]] = {
             "protocol": "claude",
             "params": {"output_config.effort": "high"},
         },
+        "output-config-xhigh": {
+            "kind": "override",
+            "protocol": "claude",
+            "params": {"output_config.effort": "xhigh"},
+        },
         "output-config-max": {
             "kind": "override",
             "protocol": "claude",
