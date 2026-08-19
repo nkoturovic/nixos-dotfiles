@@ -69,7 +69,7 @@
         "declared_tokens": 1000000,
         "ordinary_profile": "large",
         "provider_tokens": 1000000,
-        "qualification": "Provider-documented GA: the stable API alias deepseek-v4-pro currently resolves DeepSeek-V4-Pro-0813 (official release, superseding Preview); DeepSeek documents 1M context and 384K max output (verified 2026-08-19). The [1m] selector gives Claude Code extended-context classification; composition leads get the full 1M while the ordinary large-profile fence derives the current min, 983616. A 2026-08-19 max-path call reached the provider, but thinking mode rejected the probe's named forced tool_choice; the complete catalog19 activation was rolled back and no successful Pro acceptance exists yet. validated_tokens=200000 remains the conservative unverified catalog floor, not a measured Pro bound. Near-limit behavior is unverified.",
+        "qualification": "Provider-documented GA: stable alias deepseek-v4-pro currently resolves DeepSeek-V4-Pro-0813; DeepSeek documents 1M context and 384K max output (2026-08-19). The [1m] selector gives extended-context classification; composition leads use 1M while the ordinary large profile derives the current min, 983616. Live 2026-08-19: a named forced tool_choice was rejected in thinking mode; the corrected max call omitted tool_choice and returned HTTP 200 with thinking plus one valid model-selected tool_use. Route/auth/max-field/tool shape are verified, not 1M. validated_tokens=200000 remains a conservative docs floor, not a measured bound; near-limit behavior is unverified.",
         "scalar_tokens": null,
         "validated_tokens": 200000
       },
@@ -254,7 +254,7 @@
         "declared_tokens": 500000,
         "ordinary_profile": "grok",
         "provider_tokens": 500000,
-        "qualification": "OpenRouter lists exact slug x-ai/grok-4.6 at 500K context and $2/$6 per 1M; prompts >=200K bill $4/$12 for ALL tokens (docs verified 2026-08-19). xAI documents reasoning efforts low/medium/high/xhigh (default high). The catalog pins the concrete slug: moving alias ~x-ai/grok-latest currently resolves 4.6 but conflicts with D3 (no hidden authority) because future retargets could change context/effort without a catalog change. The OpenRouter Anthropic endpoint uses output_config.effort; high/xhigh overrides are wired but xhigh translation remains unverified until the approval-gated live call. validated_tokens=200000 is a conservative unverified floor; near-limit/max completion are unverified.",
+        "qualification": "OpenRouter lists exact slug x-ai/grok-4.6 at 500K context and $2/$6 per 1M; prompts >=200K bill $4/$12 for ALL tokens (docs 2026-08-19). xAI documents low/medium/high/xhigh effort. The catalog pins the concrete slug; moving alias ~x-ai/grok-latest conflicts with D3 because a retarget could change context/effort without a catalog change. Live 2026-08-19: exact-slug high and xhigh output_config routes returned valid thinking/tool_use; xhigh streaming preserved ordered thinking, redacted_thinking, tool_use, and tool-use stop. validated_tokens=200000 remains a conservative docs floor; 500K near-limit/max completion are unverified.",
         "scalar_tokens": null,
         "validated_tokens": 200000
       },

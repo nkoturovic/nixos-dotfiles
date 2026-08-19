@@ -136,9 +136,11 @@ validates wire/auth, acceptance of the configured max-thinking path, and one
 model-selected tool block. The request MUST offer the tool but omit
 `tool_choice` entirely (not even explicit `auto`): DeepSeek thinking rejected
 the first probe's named forced choice. Success proves default tool selection,
-not forced-choice compatibility or 1M context. Until success the qualification
-remains docs-verified, not live-verified. Create a new catalog19 checkpoint
-after activation; do not rewrite the v2.18.0/catalog18 historical checkpoint.
+not forced-choice compatibility or 1M context. Attempt 2 met this exact gate;
+qualification now records route/auth/max-field/thinking/tool-shape acceptance
+while leaving the 200K docs floor and near-limit caveat unchanged. Create a new
+catalog19 checkpoint after activation; do not rewrite the v2.18.0/catalog18
+historical checkpoint.
 
 **Attempt 1 (2026-08-19):** activation/local verification passed, including
 all six new served aliases and exact mode-0600 compositions. The approved
@@ -154,6 +156,14 @@ runtime handling only if an unmodified Claude Code turn reproduces the error.
 References: [Anthropic compatibility](https://api-docs.deepseek.com/guides/anthropic_api),
 [thinking mode](https://api-docs.deepseek.com/guides/thinking_mode/), and the
 official [Oh My Pi integration](https://api-docs.deepseek.com/quick_start/agent_integrations/oh_my_pi/).
+
+**Attempt 2 (2026-08-19) — accepted:** after a fresh reviewed package and
+catalog19 reactivation, exactly one corrected max request omitted
+`tool_choice`, offered `catalog19_check`, and returned HTTP 200 with ordered
+`thinking` + one `tool_use`, `stop_reason=tool_use`, the expected marker/sum,
+and usage 447 input / 108 output tokens. The response echoed the configured
+selector. This verifies the end-to-end Pro max route and accepted payload/tool
+shape; it does not prove forced choice, near-limit 1M, or max compute spent.
 
 **Failed-call rollback (explicit):** restore HM generation 125 (the
 catalog18 generation shown by `home-manager generations`; invoke its store

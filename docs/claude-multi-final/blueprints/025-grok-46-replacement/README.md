@@ -96,7 +96,17 @@ verify served selectors. Then separately approved bounded calls:
    resolves 4.6—but never promote the moving alias into the trusted catalog).
 
 Attempt 1 stopped at the DeepSeek Pro check and rolled back before either Grok
-call, so no Grok 4.6 live evidence was produced or approval consumed.
+call. Attempt 2 (2026-08-19) consumed exactly the two re-approved requests:
+
+- high: HTTP 200, ordered `thinking`/`redacted_thinking`/`tool_use`, expected
+  tool payload, `stop_reason=tool_use`, 258 input / 137 output tokens;
+- xhigh streaming: HTTP 200 SSE, 63 events with ordered
+  `thinking`/`redacted_thinking`/`tool_use`, expected assembled tool payload,
+  `stop_reason=tool_use`, 271 input / 152 output tokens (110 thinking).
+
+Both responses echoed the configured exact-slug selectors. This verifies the
+high/xhigh OpenRouter Anthropic-skin route, tool shape, and xhigh stream
+ordering—not 500K near-limit behavior or the moving latest alias.
 
 Failure rollback is blueprint 024's complete catalog+XDG path: activate HM
 gen125/catalog18, restore `024-rollback-catalog18` 0600, delete the new

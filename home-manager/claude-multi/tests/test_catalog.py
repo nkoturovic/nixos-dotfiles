@@ -1102,11 +1102,12 @@ class DeepSeekProductionModelsTests(unittest.TestCase):
         self.assertEqual(pro["context"]["provider_tokens"], 1000000)
         self.assertEqual(pro["context"]["ordinary_profile"], "large")
         self.assertEqual(pro["context"]["validated_tokens"], 200000)
-        self.assertIn("no successful Pro acceptance", pro["context"]["qualification"])
-        self.assertIn("forced tool_choice", pro["context"]["qualification"])
+        self.assertIn("corrected max call", pro["context"]["qualification"])
+        self.assertIn("model-selected tool_use", pro["context"]["qualification"])
+        self.assertIn("not 1M", pro["context"]["qualification"])
         self.assertIn(
-            "omit tool_choice",
-            bundle.providers["deepseek"]["support_note"].lower(),
+            "named forced tool_choice returns 400",
+            bundle.providers["deepseek"]["support_note"],
         )
 
     def test_deepseek_wires_and_selectors_are_unique(self) -> None:
@@ -1155,6 +1156,8 @@ class Grok46ReplacementTests(unittest.TestCase):
         self.assertEqual(grok["context"]["validated_tokens"], 200000)
         self.assertIn("D3", grok["context"]["qualification"])
         self.assertIn("~x-ai/grok-latest", grok["context"]["qualification"])
+        self.assertIn("Live 2026-08-19", grok["context"]["qualification"])
+        self.assertIn("xhigh streaming", grok["context"]["qualification"])
 
     def test_openrouter_declares_high_and_xhigh_output_contracts(self) -> None:
         bundle = catalog.load_catalog(CATALOG_ROOT)
