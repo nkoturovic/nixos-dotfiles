@@ -53,9 +53,9 @@ context. Both models retain the conservative 200K catalog floor.
 - **Installed package:**
   `/nix/store/kv3359dlxvsc7zywp7756kkrwbfmgz29-claude-multi-2.19.0`.
 - **Health:** gateway active, `/healthz` 200, six new aliases served, zero
-  active Grok 4.5 references. `doctor --repair-all` converges 35/36 durable
-  records; the sole BLOCKED item is the pre-existing ordinary record
-  `d928f2a2…` with retired `sol` profile, intentionally left for the operator.
+  active Grok 4.5 references; `claude-multi doctor` Ready. The operator chose
+  to forget obsolete retired-profile record `d928f2a2…`; only its launcher
+  record and generated scope were removed, while its native transcript remains.
 - **Evidence:** 1,680 host tests OK (2 skips), final package build and sandbox
   green, Qwen3.8 Max independent recovery review APPROVE, prior cross-family
   catalog/composition reviews green.
@@ -73,8 +73,8 @@ systemctl --user is-active cli-proxy-api
 cd /home/kotur/personal/nixos-dotfiles && git log --oneline -6
 ```
 
-Expected doctor status is BLOCKED only for `d928f2a2…`; do not call it Ready
-until the operator explicitly re-pins or forgets that record.
+Expected doctor status is **Ready**. If the forgotten native transcript is
+ever needed, it remains outside claude-multi state and was not deleted.
 
 ## Canonical docs and hard rules
 

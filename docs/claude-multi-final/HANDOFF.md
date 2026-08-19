@@ -155,12 +155,11 @@ untouched; `claude-gateway` is the ordinary non-composition entrypoint.
   discover PROVIDER` (Kimi listing verified; Qwen has none); `claude-multi-dev
   model add --like` scaffold + promote runbook. Activation: HM switch only
   (no catalog-shape changes beyond the kimi qualification note).
-- `claude-multi doctor --repair-all` converges **35/36** durable sessions on
-  catalog19. Doctor remains **BLOCKED only** by ordinary record `d928f2a2…`
-  carrying the retired pre-2.18 `sol` profile; it prints the exact explicit
-  `claude-gateway -r … --model sol` re-pin command. This is operator-owned and
-  deliberately not automated. All other gateway/config/scope/collision checks
-  pass. Historical issue 008 remains resolved: managed compact events and
+- `claude-multi doctor` is **Ready**. The obsolete ordinary record
+  `d928f2a2…` with retired pre-2.18 `sol` profile was explicitly forgotten at
+  the operator's request; the supported command removed only its record and
+  generated scope, never its native transcript. All gateway/config/scope/
+  collision checks pass. Historical issue 008 remains resolved: managed compact events and
   marker-bearing agent-context events do not contribute model/cwd evidence;
   ordinary unmarked-compact bleed is the accepted residual.
 - Claude updates are routine: the card badge or doctor Attention appears →

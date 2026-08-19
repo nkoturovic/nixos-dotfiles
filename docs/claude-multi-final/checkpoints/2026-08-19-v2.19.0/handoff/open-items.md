@@ -4,11 +4,6 @@ Ordered. Standing rules from the checkpoint README remain binding.
 
 ## Now (operator decisions, not code)
 
-- **d928f2a2 (retired `sol` profile, ordinary session, workspace/news):**
-  explicit re-pin command printed by doctor:
-  `claude-gateway -r d928f2a2-ecd9-41f0-b414-b828b74887f8 --model sol`.
-  This preserves the model and moves the record to the current `large` profile.
-  Alternatively forget the record; never automate either choice.
 - **5ee2f942 (historical issue 006):** restore from its backup or forget when
   the operator chooses; unchanged.
 - **Key rotation hygiene:** rotate Kimi/Qwen keys only if the old local
@@ -54,3 +49,6 @@ Ordered. Standing rules from the checkpoint README remain binding.
   acceptance.
 - Final 2.19.0/catalog19 activation at HM generation 129, checkpoint, docs,
   and evidence metadata.
+- Obsolete retired-profile record `d928f2a2…` forgotten by explicit operator
+  choice; only launcher record/generated scope removed, transcript retained;
+  doctor Ready.

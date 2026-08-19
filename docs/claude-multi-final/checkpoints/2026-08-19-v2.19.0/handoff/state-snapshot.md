@@ -35,9 +35,11 @@ Pinned Claude 2.1.220 sha256:
   fixtures and are mode 0600: `deepseek.json`, `deepseek-flash.json`,
   `grok-deepseek.json`, `sol-qwen-glm-deepseek-flash.json`.
 - Custom registry absent.
-- `doctor --repair-all`: 35 converged; one expected failure, ordinary record
-  `d928f2a2-ecd9-41f0-b414-b828b74887f8` with retired `sol` profile. Doctor
-  prints the explicit same-model re-pin command. No automation changed it.
+- `claude-multi doctor`: Ready. After activation, the operator chose to forget
+  obsolete retired-profile record `d928f2a2-ecd9-41f0-b414-b828b74887f8`.
+  The supported command removed its record and generated scope only; its native
+  transcript was never touched. A subsequently created managed record keeps the
+  point-in-time census at 36 durable records.
 
 ## Approval-gated calls (exactly three successful attempt-2 requests)
 

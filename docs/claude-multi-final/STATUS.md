@@ -72,11 +72,12 @@
   was committed and activated as **HM generation 129**; gateway health is 200,
   all six new aliases serve through both local auth forms, all four active
   compositions semantically match the planned fixtures at 0600, and records/scopes/
-  compositions contain zero Grok 4.5 references. `doctor --repair-all`
-  converged 35 repairable sessions; its sole BLOCKED item is the pre-existing
-  operator-owned ordinary `sol` record with retired profile (exact re-pin
-  command printed, deliberately not automated). Full catalog18 rollback remains
-  generation 127; no transcript or record was deleted.
+  compositions contain zero Grok 4.5 references. The operator then chose the
+  simplest cleanup for the obsolete retired-profile session: `sessions forget`
+  removed only record `d928f2a2…` plus its generated scope and left its native
+  transcript untouched. `claude-multi doctor` is now **Ready**. Full catalog18
+  rollback remains generation 127; the activation/rollback sequence itself
+  deleted no transcript or record.
 - **Cross-family reviews** (sol-xhigh/qwen38/glm52 + adversarial verify):
   composition design approved; all confirmed findings fixed — installed vs
   staged docs, exact fixture coverage, complete catalog+XDG rollback,
