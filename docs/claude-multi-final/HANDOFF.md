@@ -74,9 +74,11 @@ untouched; `claude-gateway` is the ordinary non-composition entrypoint.
   one you're inside.
 - `--legacy` = old argv mode (compatibility hatch, not a durability answer).
 
-## Installed state (2026-07-29)
+## Installed state (2026-08-19)
 
-- claude-multi **2.18.0** active (HM generation 125; rollback: gen 124/123),
+- claude-multi **2.19.0 / catalog 19** active (HM generation 129; immediate
+  prior 128 is catalog19 pre-evidence metadata; full catalog18 rollback is
+  generation 127),
   Claude pinned at **2.1.220** (hash-verified, symlink-aligned).
   Resume gate live (D41): repair-needed records get one-keypress Repair &
   resume in the TUI, daemon-owned resumes gate with Stop & resume /
@@ -88,32 +90,25 @@ untouched; `claude-gateway` is the ordinary non-composition entrypoint.
 - **Opus 5 is the default lead** (default = opus5+sol+kimi; profiles
   `opus-sol`, `opus-kimi`, `fable`, `fable-sol-qwen-glm`, `kimi-sol`,
   `kimi-sol-qwen`, `kimi-sol-qwen-glm`, `kimi-sol-qwen-glm-fable`,
-  `qwen-sol`, `glm-sol`, `sol-direct`, `deepseek`, `grok-deepseek` all
+  `qwen-sol`, `glm-sol`, `sol-direct`, `deepseek`, `deepseek-flash`,
+  `grok-deepseek` all
   live); gateway serves `claude-opus-5` and `claude-multi-opus-5`
   (CLIProxy registry patched); binary pinned at 2.1.220 and symlink-matched.
-- **DeepSeek + OpenRouter active state** (2.17.0, D54):
-  `deepseek-flash` (stable alias → Flash-0731) is the only DeepSeek catalog
-  model; live `deepseek` is the all-Flash rig and live `grok-deepseek` uses
-  Flash agents. `grok45` remains 500K in the `grok` profile.
-- **Catalog 19 working tree (D58/D59, blueprints 024/025; activation
-  pending):** adds `deepseek-pro` (stable alias → official Pro-0813 GA),
-  high/max 1M lanes, and replaces active Grok 4.5 with `grok46` (exact
-  OpenRouter wire `x-ai/grok-4.6`, 500K, high fallback + xhigh default).
-  The moving alias `~x-ai/grok-latest` currently resolves 4.6 but is not a
-  trusted wire (D3 no-hidden-state rule). Planned files (tested, not live):
-  `deepseek` = Pro lead → Flash scan → Pro implementation → Flash review;
-  new `deepseek-flash` preserves the all-Flash rig; `grok-deepseek` = Grok
-  4.6 xhigh lead → Flash scan → Pro implementation → Grok xhigh
-  cross-family review; compatibility preset gains Pro max alternatives.
-  Qwen3.8 Max/Sol remain stronger general options. DeepSeek listing
-  advertises both stable aliases via OpenAI-shape `/models` (Bearer).
-  **Attempt 1 was safely rolled back:** local catalog19 activation checks
-  passed, but the approved Pro-max probe forced a named `tool_choice` and
-  DeepSeek thinking returned HTTP 400. Current HM history generation 127 points
-  at the generation-125 catalog18 store; the three catalog18 compositions,
-  gateway, and 35 repairable scopes were restored, with no Grok call made.
-  The corrected retry must offer one tool while omitting `tool_choice`; do not
-  add a gateway filter that silently changes caller intent.
+- **DeepSeek Pro + Grok 4.6 active** (2.19.0, D58/D59):
+  `deepseek-pro` uses stable alias `deepseek-v4-pro` (official Pro-0813 GA),
+  high/max 1M lanes; Flash remains stable `deepseek-v4-flash` (Flash-0731).
+  `grok46` pins exact OpenRouter wire `x-ai/grok-4.6` (500K, high fallback +
+  xhigh default); active state has zero Grok 4.5 references. Moving alias
+  `~x-ai/grok-latest` is deliberately not trusted (D3 no-hidden-state).
+  `deepseek` = Pro lead → Flash scan → Pro max implementation → Flash review;
+  `deepseek-flash` = preserved all-Flash rig; `grok-deepseek` = Grok xhigh
+  lead → Flash scan → Pro max implementation → Grok xhigh cross-family review;
+  compatibility preset has Pro max alternatives. Qwen3.8 Max/Sol remain
+  stronger general options. Acceptance 2026-08-19: corrected Pro max
+  thinking/model-selected-tool call green; Grok exact-slug high tool and xhigh
+  streaming tool calls green. Named forced `tool_choice` remains unsupported
+  by Pro thinking; omit it rather than filtering caller intent. Context
+  near-limits remain unprobed; validated floors stay 200K.
 - **GLM-5.2 live on the qwen provider** (2.9.0, D45): wire `glm-5.2` at the
   Token Plan endpoint, selector `claude-multi-glm52-max[1m]`, lead+agents,
   lane max with `reasoning_effort: "max"` — 1M context, alibaba family
@@ -160,14 +155,14 @@ untouched; `claude-gateway` is the ordinary non-composition entrypoint.
   discover PROVIDER` (Kimi listing verified; Qwen has none); `claude-multi-dev
   model add --like` scaffold + promote runbook. Activation: HM switch only
   (no catalog-shape changes beyond the kimi qualification note).
-- `claude-multi doctor` → **Ready** (all 18 durable scopes on catalog 12 + D44 shim guard;
-  watchdog pin + roster prompts live; D43 radar in the suite).
-  Sessions screen sorts by last used with the created age alongside
-  (2.8.4; width-tiered). Issue 008 resolved in 2.8.3 (D44): MANAGED
-  compact events no longer contribute model/cwd evidence (the
-  production bleed case), and marker-bearing agent-context events are
-  ignored. Ordinary sessions keep compact-model reconciliation — an
-  unmarked compact bleed there is the accepted residual (issues/008).
+- `claude-multi doctor --repair-all` converges **35/36** durable sessions on
+  catalog19. Doctor remains **BLOCKED only** by ordinary record `d928f2a2…`
+  carrying the retired pre-2.18 `sol` profile; it prints the exact explicit
+  `claude-gateway -r … --model sol` re-pin command. This is operator-owned and
+  deliberately not automated. All other gateway/config/scope/collision checks
+  pass. Historical issue 008 remains resolved: managed compact events and
+  marker-bearing agent-context events do not contribute model/cwd evidence;
+  ordinary unmarked-compact bleed is the accepted residual.
 - Claude updates are routine: the card badge or doctor Attention appears →
   press **U** (or `claude-multi update`) → instant effect via the operator
   override (`--activate` for the baseline refresh).
@@ -175,7 +170,7 @@ untouched; `claude-gateway` is the ordinary non-composition entrypoint.
   `systemctl --user restart cli-proxy-api` — the daemon does not hot-reload
   a rename-replaced config on 7.2.80 (HM switch does this for you).
 - Full evidence and census: the current checkpoint's
-  [`handoff/state-snapshot.md`](checkpoints/2026-08-11-v2.15.0/handoff/state-snapshot.md).
+  [`handoff/state-snapshot.md`](checkpoints/2026-08-19-v2.19.0/handoff/state-snapshot.md).
 
 ## Composition: qwen-sol
 
@@ -216,9 +211,9 @@ Token Plan `apps/anthropic`, bearer auth, key in
    meaningful boundaries; one canonical home per topic (see the
    "Documentation map" in this package's README).
 
-## Open items (as of 2026-07-27)
+## Open items (as of 2026-08-19)
 
-Ordered in the current checkpoint: [`checkpoints/2026-08-11-v2.15.0/handoff/open-items.md`](checkpoints/2026-08-11-v2.15.0/handoff/open-items.md).
+Ordered in the current checkpoint: [`checkpoints/2026-08-19-v2.19.0/handoff/open-items.md`](checkpoints/2026-08-19-v2.19.0/handoff/open-items.md).
 
 ## Where things live
 

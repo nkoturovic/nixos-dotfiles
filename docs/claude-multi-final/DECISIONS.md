@@ -1166,8 +1166,10 @@ lead+agents/all roles, 1M `large` profile, scalar null, high+max lanes
 using the existing DeepSeek Anthropic-path `output_config.effort`
 contracts (no new provider/adapter/schema; no xhigh lane — it collapses
 to high). Default lane high (the cheaper lane; compositions pin max for
-implementation/finalization); validated_tokens 200000 until the separate
-approval-gated live Pro call (docs do not move the evidence ledger).
+implementation/finalization); validated_tokens stays 200000 after the
+approval-gated route call because it is the docs floor and 1M was not probed.
+The corrected Pro-max request (2026-08-19) omitted `tool_choice` and returned
+HTTP 200 with thinking + one valid model-selected tool block.
 Qwen3.8 Max and GPT-5.6 Sol stay stronger general options — Pro is a
 specialized broad/low-error architecture, production-fix, and
 finalization lane.
@@ -1192,11 +1194,12 @@ rates double 01:00–04:00 and 06:00–10:00 UTC. Community-observed Pro
 run variance is medium-confidence guidance, not permanent routing fact.
 Catalog 18→19; Pro itself is catalog-only (D59 subsequently raises the
 combined batch launcher to 2.19.0 for OpenRouter output-config-xhigh).
-Activation requires re-render/restart; one separately approved bounded Pro-max call
-validates the wire, auth, thinking/tool blocks, and max contract. A failed
-call rolls back catalog generation 19 AND restores the staged catalog18 XDG
-composition files (blueprint 024 carries the exact runbook; HM rollback alone
-cannot restore user compositions).
+Activation re-renders/restarts the gateway. Attempt 1 proved the rollback:
+a forced named `tool_choice` was rejected by Pro thinking, so catalog19 AND
+the catalog18 XDG composition set were restored (HM rollback alone is
+insufficient). After the reviewed omitted-choice amendment, attempt 2 passed
+the corrected Pro-max call and catalog19 was activated finally at generation
+129. No gateway filter silently rewrites caller intent.
 
 **D59 — Grok 4.6 replaces 4.5; exact OpenRouter slug, xhigh requested.**
 Catalog19 removes `grok45`/`x-ai/grok-4.5` and adds `grok46`, wire
@@ -1208,7 +1211,8 @@ interactive work. xAI documents low/medium/high/xhigh (default high), so
 the catalog exposes high fallback + xhigh default. OpenRouter's Anthropic
 Messages route is pinned explicitly with
 `output_config.effort=high|xhigh`; the xhigh adapter contract is new.
-Anthropic-skin 4.6 xhigh/tool/stream behavior remains live-call-gated.
+Approval-gated exact-slug calls (2026-08-19) live-verified high/xhigh thinking
+and tool blocks plus xhigh SSE ordering; 500K near-limit remains unprobed.
 
 OpenRouter's moving alias `~x-ai/grok-latest` exists and currently resolves
 4.6, but is deliberately NOT the trusted wire. This is D3, not syntax

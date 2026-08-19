@@ -74,13 +74,11 @@ are onboarded through `claude-multi-dev` (`--help` maps the two tracks;
 
 `default` is the only built-in trusted seed; the rest are the named profiles
 on this machine (all creatable in seconds with `compose new` /
-`use-as-template` — see "Managing compositions"). **Catalog19 staging
-note:** the DeepSeek/Grok rows below describe blueprints 024/025's tested
-post-activation files. Attempt 1 passed local activation checks but was fully
-rolled back after DeepSeek thinking rejected the probe's named forced
-`tool_choice`; live catalog18 again keeps the old Flash-only DeepSeek shapes
-and Grok 4.5. The corrected retry offers a tool without `tool_choice` and
-creates `deepseek-flash` only at the approved activation boundary:
+`use-as-template` — see "Managing compositions"). **Catalog19 is active**
+(HM generation 129): the DeepSeek/Grok rows below are the installed
+mode-0600 compositions. Acceptance proved corrected Pro max thinking/tool use
+and exact-slug Grok 4.6 high + xhigh streaming; named forced `tool_choice`
+remains unsupported by Pro thinking and is not silently filtered:
 
 | Preset | Lead | Subagents | Use it for |
 | --- | --- | --- | --- |

@@ -1,6 +1,6 @@
 # STATUS — live tracker
 
-## 2026-08-19 — catalog 19: DeepSeek V4 Pro GA + Grok 4.6 (D58/D59, blueprints 024/025, working tree)
+## 2026-08-19 — v2.19.0/catalog19: DeepSeek V4 Pro GA + Grok 4.6 (D58/D59, blueprints 024/025, activated gen 129)
 
 - **Production alias/version**: new catalog model `deepseek-pro`, wire
   `deepseek-v4-pro` (stable first-party alias, currently resolves the
@@ -8,13 +8,15 @@
   `deepseek-v4-flash` remains the stable alias for Flash-0731.
 - **Model contract**: 1M `large` profile, high+max lanes using the existing
   DeepSeek Anthropic-path `output_config.effort` contracts; default high,
-  compositions pin max for implementation/finalization. validated=200K
-  until the separately approved live call. Qwen3.8 Max/Sol remain stronger
-  general choices; Pro is the careful architecture/implementation lane.
-- **Compositions** (operator-level, store-validated, 0600): `deepseek`
-  becomes Pro lead + Flash scan + Pro implementation + Flash review;
-  new `deepseek-flash` preserves the old all-Flash rig; `grok-deepseek`
-  becomes Grok lead → Flash scan → Pro implementation → Grok preferred
+  compositions pin max for implementation/finalization. The corrected max
+  route/thinking/model-selected-tool shape is live-verified; validated=200K
+  remains the conservative docs floor because 1M was not probed. Qwen3.8
+  Max/Sol remain stronger general choices; Pro is the careful
+  architecture/implementation lane.
+- **Compositions** (operator-level, store-validated, 0600): `deepseek` is
+  Pro lead + Flash scan + Pro implementation + Flash review; new
+  `deepseek-flash` preserves the old all-Flash rig; `grok-deepseek` is Grok
+  lead → Flash scan → Pro implementation → Grok preferred
   cross-family review; `sol-qwen-glm-deepseek-flash` gains Pro max
   alternatives while retaining its compatibility name.
 - **No provider/adapter/schema change**: the existing direct Anthropic
@@ -29,21 +31,23 @@
   Sol/Qwen and for long-running agents/coding/knowledge work. The moving
   alias `~x-ai/grok-latest` currently resolves 4.6 but is not wired: it
   violates D3 by introducing hidden mutable authority outside record+catalog.
-  Prior 4.5 skin probes do not transfer; 4.6 tool/stream/xhigh is live-call
-  gated. Catalog18 rollback fixtures retain 4.5 by design; active catalog19
-  and planned post-activation files contain 4.6 only.
+  Prior 4.5 skin probes did not transfer; exact-slug 4.6 high/xhigh tool use
+  and xhigh stream ordering are now live-verified. Catalog18 rollback fixtures
+  retain 4.5 by design; active catalog19 files contain 4.6 only.
 - **Version**: launcher 2.18.0→2.19.0 (new output-config-xhigh adapter
   contract); catalog 18→19 (Grok folded into the pending catalog19 batch,
   not catalog20).
-- **Verification**: fresh post-rollback amendment discovery **1,680 tests
-  OK** (skipped=2); package build green
-  (`/nix/store/rxk9443bvkjnz5qjpgpappxmlhlcjdpl-claude-multi-2.19.0`);
-  sandbox suite green. The new loopback-only disposable-proxy pin proves the
-  Pro-max alias maps to `deepseek-v4-pro`, preserves the offered tool, applies
-  `output_config.effort=max`, and does not invent `tool_choice`. Render golden
-  delta remains two Pro mappings + high/max overrides and Grok 4.6 high+xhigh
-  mappings/overrides with 4.5 removed. Exact planned AND rollback composition
-  fixtures are sandbox-tested; live catalog18 presets remain usable.
+- **Verification**: final live-evidence discovery **1,680 tests OK**
+  (skipped=2); package build green
+  (`/nix/store/9qhk0r54flss6gn4pl5q2f5wb46k16ab-claude-multi-2.19.0`);
+  sandbox suite green; installed package
+  `/nix/store/kv3359dlxvsc7zywp7756kkrwbfmgz29-claude-multi-2.19.0` contains
+  the final evidence metadata. The loopback-only disposable-proxy pin proves
+  the Pro-max alias maps to `deepseek-v4-pro`, preserves the offered tool,
+  applies `output_config.effort=max`, and does not invent `tool_choice`.
+  Render golden delta remains two Pro mappings + high/max overrides and Grok
+  4.6 high+xhigh mappings/overrides with 4.5 removed. Exact planned and
+  catalog18 rollback composition fixtures are sandbox-tested.
 - **Activation attempt 1 — safely rolled back (2026-08-19):** HM generation
   126 activated 2.19.0/catalog19; all six DeepSeek/Grok selectors were served
   through both local auth headers, all four planned compositions matched at
@@ -52,13 +56,27 @@
   profile). The one approved Pro-max call reached DeepSeek, but HTTP 400
   reported `Thinking mode does not support this tool_choice` because the probe
   forced a named tool while thinking was active. Per blueprint, the system was
-  fully restored to the catalog18 store generation (current HM generation 127
+  fully restored to the catalog18 store generation (history generation 127
   points at the generation-125 store), the three rollback compositions were
   restored 0600, `deepseek-flash.json` removed, gateway re-rendered/restarted,
   and 35 repairable scopes reconverged; catalog18/Grok 4.5 serving is healthy.
-  No Grok call was made. This is a probe-contract finding, not a renderer
-  failure: the replacement request must omit `tool_choice`, offer one tool,
-  and let Pro select it.
+  No Grok call was made. This was a probe-contract finding, not a renderer
+  failure: the corrected request omitted `tool_choice`, offered one tool, and
+  let Pro select it.
+- **Activation attempt 2 — accepted/final:** corrected catalog19 activated at
+  generation 128, then the three freshly approved calls ran exactly once each:
+  Pro max HTTP 200 with `thinking` + one valid `tool_use` (447/108 tokens);
+  Grok 4.6 high HTTP 200 with thinking/redacted-thinking/tool-use (258/137);
+  Grok 4.6 xhigh HTTP 200 SSE with 63 ordered events and the expected assembled
+  tool payload (271/152, 110 thinking). No moving-alias call. The evidence flip
+  was committed and activated as **HM generation 129**; gateway health is 200,
+  all six new aliases serve through both local auth forms, all four active
+  compositions semantically match the planned fixtures at 0600, and records/scopes/
+  compositions contain zero Grok 4.5 references. `doctor --repair-all`
+  converged 35 repairable sessions; its sole BLOCKED item is the pre-existing
+  operator-owned ordinary `sol` record with retired profile (exact re-pin
+  command printed, deliberately not automated). Full catalog18 rollback remains
+  generation 127; no transcript or record was deleted.
 - **Cross-family reviews** (sol-xhigh/qwen38/glm52 + adversarial verify):
   composition design approved; all confirmed findings fixed — installed vs
   staged docs, exact fixture coverage, complete catalog+XDG rollback,
@@ -71,11 +89,13 @@
   provider wording now scopes tool evidence to Flash/docs, official sources
   are linked, and the omitted-choice request shape is pinned. A separate
   forced-choice pass-through pin remains intentionally trigger-gated because
-  no runtime filter or behavior changed.
-- Pending: fresh approval to re-activate catalog19 and make exactly one
-  replacement DeepSeek Pro max call without `tool_choice`; the two previously
-  approved OpenRouter Grok 4.6 exact-slug high/xhigh calls remain unconsumed.
-  A successful retry is required before the catalog19 checkpoint/release flip.
+  no runtime filter or behavior changed. A final GLM-5.2 independent review
+  cross-checked gen/store paths, rollback identity, package hashes, sandbox,
+  census, calls, doctor, aliases, D3, and links against live state: **APPROVE**.
+  Its serialization-wording nit was fixed; the bearer-authenticated local
+  `/v1/models` census independently confirms 37 entries.
+- **Release state:** 2.19.0/catalog19 is active and acceptance-complete.
+  Current checkpoint: `checkpoints/2026-08-19-v2.19.0/`.
 
 ## 2026-08-18 — v2.18.0: sol joins the 1M class (D57, blueprint 023, activated gen 125)
 
