@@ -76,3 +76,31 @@ directly. **No state deletion is ever part of rollback.**
   loss. The activation prompt tells the user to activate when no managed
   session is mid-run.
 - Proxy auth dir and token file are untouched by the package change.
+
+## 7. Catalog19 DeepSeek Pro/Grok 4.6 rollback (verified 2026-08-19)
+
+Catalog19 changes both the installed catalog and three existing XDG
+compositions while adding `deepseek-flash.json`; rolling back Home Manager
+alone is incomplete. The verified sequence is:
+
+1. Invoke the pre-catalog19 generation's `/activate` (generation 125's store
+   path; after the 2026-08-19 drill, current history generation 127 points at
+   that same store).
+2. Save the three documents from
+   `home-manager/claude-multi/tests/fixtures/compositions/024-rollback-catalog18/`
+   through `CompositionStore` so live files are private mode 0600.
+3. Delete only the generated XDG composition `deepseek-flash.json`; do not
+   delete records, scopes, or any transcript-bearing path.
+4. Run `claude-multi-proxy init`, restart `cli-proxy-api`, and run
+   `claude-multi doctor --repair-all`.
+5. Verify 2.18.0/catalog18 serves `claude-multi-grok45`, does not serve the
+   Pro/Grok 4.6 aliases, the three restored documents match the rollback
+   fixtures, and the gateway is healthy.
+
+Attempt 1 exercised this sequence successfully after DeepSeek rejected the
+probe's named forced `tool_choice` in thinking mode. Thirty-five repairable
+records reconverged; the pre-existing ordinary `sol` record with retired
+profile remains operator-owned and is not rewritten by rollback automation.
+If a catalog19 session had been created, its record/transcript would remain
+intact but could be unresolvable under catalog18; use the retained catalog19
+package to transition it, never delete state as part of rollback.

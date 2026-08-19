@@ -69,7 +69,7 @@
         "declared_tokens": 1000000,
         "ordinary_profile": "large",
         "provider_tokens": 1000000,
-        "qualification": "Provider-documented GA: the stable API alias deepseek-v4-pro currently resolves DeepSeek-V4-Pro-0813 (official release, superseding Preview); DeepSeek documents 1M context and 384K max output (verified 2026-08-19). The [1m] selector gives Claude Code extended-context classification; composition leads get the full 1M while the ordinary large-profile fence derives the current min, 983616. No live Pro call yet; validated_tokens=200000 is the conservative unverified catalog floor, not a measured Pro bound. Near-limit behavior is unverified.",
+        "qualification": "Provider-documented GA: the stable API alias deepseek-v4-pro currently resolves DeepSeek-V4-Pro-0813 (official release, superseding Preview); DeepSeek documents 1M context and 384K max output (verified 2026-08-19). The [1m] selector gives Claude Code extended-context classification; composition leads get the full 1M while the ordinary large-profile fence derives the current min, 983616. A 2026-08-19 max-path call reached the provider, but thinking mode rejected the probe's named forced tool_choice; the complete catalog19 activation was rolled back and no successful Pro acceptance exists yet. validated_tokens=200000 remains the conservative unverified catalog floor, not a measured Pro bound. Near-limit behavior is unverified.",
         "scalar_tokens": null,
         "validated_tokens": 200000
       },

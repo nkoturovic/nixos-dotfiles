@@ -131,11 +131,29 @@ of the other's authored code.
 Implementation/docs only until explicit green light. Activation re-renders
 and restarts CLIProxyAPI, saves the four `024-planned` fixtures through the
 composition store (0600), runs doctor/repair-all, and verifies the local
-served selectors. A **single separately approved bounded Pro max call**
-validates wire/auth/thinking/tool blocks and the max payload contract; until
-then the qualification remains docs-verified, not live-verified. Create a
-new catalog19 checkpoint after activation; do not rewrite the
-v2.18.0/catalog18 historical checkpoint.
+served selectors. A **single separately approved bounded Pro max call** then
+validates wire/auth, acceptance of the configured max-thinking path, and one
+model-selected tool block. The request MUST offer the tool but omit
+`tool_choice` entirely (not even explicit `auto`): DeepSeek thinking rejected
+the first probe's named forced choice. Success proves default tool selection,
+not forced-choice compatibility or 1M context. Until success the qualification
+remains docs-verified, not live-verified. Create a new catalog19 checkpoint
+after activation; do not rewrite the v2.18.0/catalog18 historical checkpoint.
+
+**Attempt 1 (2026-08-19):** activation/local verification passed, including
+all six new served aliases and exact mode-0600 compositions. The approved
+Pro-max call reached DeepSeek but returned HTTP 400
+`Thinking mode does not support this tool_choice`; the probe had forced a
+named tool. The catalog18 rollback below completed exactly (current HM
+history generation 127 points at the generation-125 store), and no Grok call
+was made. Official compatibility lists tools and `tool_choice` separately but
+does not guarantee their thinking-mode combination; the official Oh My Pi
+integration independently disables `tool_choice` for V4 thinking. No gateway
+filter is added: silently dropping caller intent would be wrong. Reconsider
+runtime handling only if an unmodified Claude Code turn reproduces the error.
+References: [Anthropic compatibility](https://api-docs.deepseek.com/guides/anthropic_api),
+[thinking mode](https://api-docs.deepseek.com/guides/thinking_mode/), and the
+official [Oh My Pi integration](https://api-docs.deepseek.com/quick_start/agent_integrations/oh_my_pi/).
 
 **Failed-call rollback (explicit):** restore HM generation 125 (the
 catalog18 generation shown by `home-manager generations`; invoke its store

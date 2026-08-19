@@ -107,6 +107,13 @@ untouched; `claude-gateway` is the ordinary non-composition entrypoint.
   cross-family review; compatibility preset gains Pro max alternatives.
   Qwen3.8 Max/Sol remain stronger general options. DeepSeek listing
   advertises both stable aliases via OpenAI-shape `/models` (Bearer).
+  **Attempt 1 was safely rolled back:** local catalog19 activation checks
+  passed, but the approved Pro-max probe forced a named `tool_choice` and
+  DeepSeek thinking returned HTTP 400. Current HM history generation 127 points
+  at the generation-125 catalog18 store; the three catalog18 compositions,
+  gateway, and 35 repairable scopes were restored, with no Grok call made.
+  The corrected retry must offer one tool while omitting `tool_choice`; do not
+  add a gateway filter that silently changes caller intent.
 - **GLM-5.2 live on the qwen provider** (2.9.0, D45): wire `glm-5.2` at the
   Token Plan endpoint, selector `claude-multi-glm52-max[1m]`, lead+agents,
   lane max with `reasoning_effort: "max"` — 1M context, alibaba family

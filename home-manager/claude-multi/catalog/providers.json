@@ -36,7 +36,7 @@
         "output-config-max"
       ],
       "support": "locally-validated-experimental",
-      "support_note": "DeepSeek's Anthropic-compatible endpoint (docs + probes verified 2026-08-11/12; Pro GA alias/docs refreshed 2026-08-19): x-api-key auth (Bearer also answers), 1M context, thinking default-on. Text-only (no images/documents); cache_control ignored (provider-side implicit prefix cache); MCP server-side tool content unsupported. Listing is OpenAI-shape GET /models (Bearer) — the Anthropic path 404s. China-based provider, no region pinning.",
+      "support_note": "DeepSeek Anthropic endpoint (Flash probes 2026-08-12; Pro GA docs/live route 2026-08-19): x-api-key, 1M, thinking default-on. Tools work in Flash probes/docs; Pro tool acceptance is unverified because Pro max thinking rejected a named forced tool_choice. Omit tool_choice and let the model select offered tools. Text-only; cache_control ignored; server MCP blocks unsupported. Listing: Bearer OpenAI-shape GET /models (Anthropic path 404). China-based, no region pinning.",
       "transport": {
         "auth": {
           "header": "x-api-key",

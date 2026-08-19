@@ -1102,7 +1102,12 @@ class DeepSeekProductionModelsTests(unittest.TestCase):
         self.assertEqual(pro["context"]["provider_tokens"], 1000000)
         self.assertEqual(pro["context"]["ordinary_profile"], "large")
         self.assertEqual(pro["context"]["validated_tokens"], 200000)
-        self.assertIn("No live Pro call yet", pro["context"]["qualification"])
+        self.assertIn("no successful Pro acceptance", pro["context"]["qualification"])
+        self.assertIn("forced tool_choice", pro["context"]["qualification"])
+        self.assertIn(
+            "omit tool_choice",
+            bundle.providers["deepseek"]["support_note"].lower(),
+        )
 
     def test_deepseek_wires_and_selectors_are_unique(self) -> None:
         bundle = catalog.load_catalog(CATALOG_ROOT)

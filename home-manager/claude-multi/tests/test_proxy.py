@@ -34,6 +34,7 @@ from claude_multi.proxy import ProxyError
 CATALOG_ROOT = Path(__file__).resolve().parents[1]
 GATEWAY_TOKEN = "a" * 64
 DUMMY_KIMI = "dummy-kimi-key"
+DUMMY_DEEPSEEK = "dummy-deepseek-key"
 
 
 def _find_binary() -> str | None:
@@ -177,13 +178,20 @@ class DisposableProxyTests(unittest.TestCase):
         providers["kimi"]["transport"]["base_url"] = (
             f"http://127.0.0.1:{upstream_port}/coding"
         )
+        providers["deepseek"]["transport"]["base_url"] = (
+            f"http://127.0.0.1:{upstream_port}/anthropic"
+        )
         result = render.render_config(
             gateway,
             providers,
             bundle.docs["models"]["models"],
             home=self.root,
             gateway_token=GATEWAY_TOKEN,
-            resolve_secret=lambda name: DUMMY_KIMI,
+            resolve_secret=lambda name: (
+                DUMMY_DEEPSEEK
+                if name == "DEEPSEEK_CLAUDE_API_KEY"
+                else DUMMY_KIMI
+            ),
         )
         config_path = self.root / "config.yaml"
         state.atomic_write(config_path, result.yaml.encode("utf-8"))
@@ -254,6 +262,44 @@ class DisposableProxyTests(unittest.TestCase):
         self.assertNotIn("thinking", body, "payload filter strips top-level thinking")
         self.assertEqual(body.get("model"), "k3", "wire model mapping")
         self.assertEqual(body.get("output_config", {}).get("effort"), "max")
+
+        self._request(
+            base_url,
+            "/v1/messages",
+            {
+                "model": "claude-multi-deepseek-pro-max",
+                "max_tokens": 256,
+                "messages": [{"role": "user", "content": "use the check tool"}],
+                "tools": [
+                    {
+                        "name": "catalog19_check",
+                        "description": "Record a local request-shape check.",
+                        "input_schema": {
+                            "type": "object",
+                            "properties": {"status": {"type": "string"}},
+                            "required": ["status"],
+                        },
+                    }
+                ],
+            },
+        )
+        deepseek_hits = [
+            request
+            for request in _UpstreamCapture.requests
+            if urllib.parse.urlsplit(request["path"]).path
+            == "/anthropic/v1/messages"
+        ]
+        self.assertTrue(deepseek_hits, "upstream observed the DeepSeek Pro route")
+        self.assertEqual(deepseek_hits[0]["x-api-key"], DUMMY_DEEPSEEK)
+        body = json.loads(deepseek_hits[0]["body"])
+        self.assertEqual(body.get("model"), "deepseek-v4-pro")
+        self.assertEqual(body.get("output_config", {}).get("effort"), "max")
+        self.assertEqual(body.get("tools", [])[0].get("name"), "catalog19_check")
+        self.assertNotIn(
+            "tool_choice",
+            body,
+            "the gateway must not invent the forced choice rejected by thinking mode",
+        )
 
         self.process.terminate()
         self.process.wait(timeout=5)

@@ -76,9 +76,11 @@ are onboarded through `claude-multi-dev` (`--help` maps the two tracks;
 on this machine (all creatable in seconds with `compose new` /
 `use-as-template` — see "Managing compositions"). **Catalog19 staging
 note:** the DeepSeek/Grok rows below describe blueprints 024/025's tested
-post-activation files; live catalog18 keeps the old Flash-only DeepSeek
-shapes and Grok 4.5 until the approved activation, and creates
-`deepseek-flash` at that boundary:
+post-activation files. Attempt 1 passed local activation checks but was fully
+rolled back after DeepSeek thinking rejected the probe's named forced
+`tool_choice`; live catalog18 again keeps the old Flash-only DeepSeek shapes
+and Grok 4.5. The corrected retry offers a tool without `tool_choice` and
+creates `deepseek-flash` only at the approved activation boundary:
 
 | Preset | Lead | Subagents | Use it for |
 | --- | --- | --- | --- |

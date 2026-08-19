@@ -95,6 +95,9 @@ verify served selectors. Then separately approved bounded calls:
    xhigh mapping (and optionally confirm `~x-ai/grok-latest` response echo
    resolves 4.6—but never promote the moving alias into the trusted catalog).
 
+Attempt 1 stopped at the DeepSeek Pro check and rolled back before either Grok
+call, so no Grok 4.6 live evidence was produced or approval consumed.
+
 Failure rollback is blueprint 024's complete catalog+XDG path: activate HM
 gen125/catalog18, restore `024-rollback-catalog18` 0600, delete the new
 `deepseek-flash.json`, re-render/restart, doctor/repair-all. This
