@@ -102,8 +102,8 @@ untouched; `claude-gateway` is the ordinary non-composition entrypoint.
   `deepseek` = Pro lead → Flash scan → Pro max implementation → Flash review;
   `deepseek-flash` = preserved all-Flash rig; `grok-deepseek` = Grok xhigh
   lead → Flash scan → Pro max implementation → Grok xhigh cross-family review;
-  compatibility preset has Pro max alternatives. Qwen3.8 Max, staged GLM-5.3,
-  and Sol remain stronger general options. Acceptance 2026-08-19: corrected Pro max
+  compatibility preset has Pro max alternatives. Qwen3.8 Max/Sol remain
+  stronger general options. Acceptance 2026-08-19: corrected Pro max
   thinking/model-selected-tool call green; Grok exact-slug high tool and xhigh
   streaming tool calls green. Named forced `tool_choice` remains unsupported
   by Pro thinking; omit it rather than filtering caller intent. Context
@@ -115,23 +115,11 @@ untouched; `claude-gateway` is the ordinary non-composition entrypoint.
   and xAI. Official Anthropic and OpenAI-compatible platform routes preserve
   the field. The active Nix derivation runs the 28-test executor regression
   suite during build; doctor Ready and local aliases unchanged.
-- **GLM-5.3 promotion staged on the qwen provider** (catalog21, D61/issue
-  027, not yet activated): wire `glm-5.3`, display GLM-5.3, exact official
-  1M declared context, 128K max output, always-on thinking,
-  `reasoning_effort: "max"` lane (unchanged). **Stable technical
-  identities stay**: catalog key `glm52`, selector
-  `claude-multi-glm52-max[1m]`, gateway alias `claude-multi-glm52-max`,
-  session names `cg:glm52@project` — records, scopes, and compositions
-  pin `glm52` and never migrate. `glm-sol` = GLM lead;
+- **GLM-5.2 live on the qwen provider** (2.9.0, D45): wire `glm-5.2` at the
+  Token Plan endpoint, selector `claude-multi-glm52-max[1m]`, lead+agents,
+  lane max with `reasoning_effort: "max"` — 1M context, alibaba family
+  (Sol/Kimi stay the cross-family reviewers). `glm-sol` = GLM lead;
   `kimi-sol-qwen-glm` = Kimi lead with GLM/Qwen comparable alternates.
-  GLM-5.3 is positioned on par with Qwen3.8 Max and GPT-5.6 Sol; existing
-  preferred flags remain authoritative, so no composition reorder is needed.
-  Until activation the installed catalog20/gen130 still serves the
-  GLM-5.2 wire (D45, the rollback anchor); live Alibaba route acceptance
-  is one separately approved bounded call before activation. Rollback is
-  semantically sensitive **after** any GLM-5.3 request has been served
-  (stable `glm52` would map back to GLM-5.2) — stop GLM-bearing sessions
-  and prefer fixing forward.
 - **Ordinary sessions launch from the card** (2.10.0, D46): **G new gateway**
   opens a profile-grouped model picker — the TUI twin of `claude-gateway`.
   `(no secret)` rows reflect render-time availability; Enter rechecks and

@@ -179,7 +179,7 @@ class DirectProviderLaneTests(unittest.TestCase):
 
     def test_glm52_alias_and_max_reasoning_override_rendered(self) -> None:
         yaml = _render().yaml
-        block = yaml.split('name: "glm-5.3"', 1)[1]
+        block = yaml.split('name: "glm-5.2"', 1)[1]
         self.assertIn('alias: "claude-multi-glm52-max"', block)
         self.assertNotIn('alias: "claude-multi-glm52-max[1m]"', block)
         self.assertIn("context-length: 1000000", block)
@@ -192,10 +192,6 @@ class DirectProviderLaneTests(unittest.TestCase):
             '        reasoning_effort: "max"'
         )
         self.assertIn(override, yaml)
-        # Promotion boundary: the promoted route renders glm-5.3 under the
-        # stable alias; no glm-5.2 wire may survive anywhere in the document.
-        self.assertNotIn('name: "glm-5.2"', yaml)
-        self.assertNotIn("GLM-5.2", yaml)
 
 
 class SecretBoundaryTests(unittest.TestCase):

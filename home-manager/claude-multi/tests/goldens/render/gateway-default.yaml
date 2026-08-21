@@ -140,9 +140,9 @@ claude-api-key:
     cloak:
       mode: "never"
     models:
-      - name: "glm-5.3"
+      - name: "glm-5.2"
         alias: "claude-multi-glm52-max"
-        display-name: "GLM-5.3"
+        display-name: "GLM-5.2"
         owned-by: "alibaba"
         context-length: 1000000
         force-mapping: true

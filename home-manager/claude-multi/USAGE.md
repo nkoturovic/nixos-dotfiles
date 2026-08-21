@@ -75,10 +75,8 @@ are onboarded through `claude-multi-dev` (`--help` maps the two tracks;
 `default` is the only built-in trusted seed; the rest are the named profiles
 on this machine (all creatable in seconds with `compose new` /
 `use-as-template` — see "Managing compositions"). **Catalog20 is active**
-(HM generation 130): DeepSeek/Grok rows below are installed. The GLM-5.3
-labels describe the staged catalog21 target; live catalog20 still serves
-GLM-5.2 through the same stable `glm52` identity until the approval-gated call
-and activation. Acceptance already proved corrected Pro max thinking/tool use
+(HM generation 130): the DeepSeek/Grok rows below are the installed
+mode-0600 compositions. Acceptance proved corrected Pro max thinking/tool use
 and exact-slug Grok 4.6 high + xhigh streaming; named forced `tool_choice`
 remains unsupported by Pro thinking and is not silently filtered:
 
@@ -91,10 +89,10 @@ remains unsupported by Pro thinking and is not silently filtered:
 | `fable-sol-qwen-glm` | **Fable 5** | Sol preferred · Opus 5 · Kimi · GLM · Qwen alternates | default-shaped with the full pool |
 | `kimi-sol` | Kimi K3 | Sol preferred · Kimi alternates | Kimi 1M lead work |
 | `kimi-sol-qwen` | Kimi K3 | Sol preferred · Kimi alternates · Qwen alternates | Kimi lead with a Qwen escape lane |
-| `kimi-sol-qwen-glm` | Kimi K3 | Sol preferred · Kimi · GLM-5.3 · Qwen alternates | Kimi lead, GLM and Qwen as comparable escalations |
+| `kimi-sol-qwen-glm` | Kimi K3 | Sol preferred · Kimi · GLM-5.2 · Qwen alternates | Kimi lead, GLM and Qwen as comparable escalations |
 | `kimi-sol-qwen-glm-fable` | Kimi K3 | Sol preferred · Opus 5 option · Kimi · GLM · Qwen · **Fable specialist** | hardest tasks + finalization go to Fable |
 | `qwen-sol` | Qwen3.8 Max | Sol preferred · Qwen alternates | Qwen lead work |
-| `glm-sol` | GLM-5.3 | Sol preferred · GLM alternates | GLM 1M lead work (max reasoning) |
+| `glm-sol` | GLM-5.2 | Sol preferred · GLM alternates | GLM 1M lead work (max reasoning) |
 | `sol-direct` | GPT 5.6 Sol (1M since 2.18.0, D57) | — | single-model direct sessions |
 | `deepseek` | DeepSeek V4 Pro (high lead) | Flash scan · Pro max implement/finalize · Flash review | measured Flash→Pro pipeline; same-family review (reduced independence) |
 | `deepseek-flash` | DeepSeek V4 Flash | Flash high everywhere · Flash max reviewer | preserved fast/cheap all-Flash side-task rig |
@@ -113,15 +111,6 @@ trusted wire (D3: no hidden moving authority). Typed selectors are
 `/model claude-multi-grok46-high` and the default/max available reasoning
 `/model claude-multi-grok46-xhigh`; xhigh translation through OpenRouter's
 Anthropic skin remains acceptance-call-gated.
-
-GLM is promoted in place to **GLM-5.3** (catalog21, D61): the row id
-`glm52` and typed selector `/model claude-multi-glm52-max[1m]` are stable
-technical identities across the promotion — records, scopes, and
-compositions that pin `glm52` keep working unchanged. The gateway serves
-the alias `claude-multi-glm52-max` with wire `glm-5.3`, 1M context,
-always-on thinking, and `reasoning_effort: "max"`. GLM-5.3, Qwen3.8 Max,
-and GPT-5.6 Sol are treated as peer general-capability options; explicit
-preferred flags and role/route fit decide placement, not an old 5.2 hierarchy.
 
 Every profile keeps workflows native, worktree isolation on implementers,
 cross-provider subagent preference, the model fence, and the compaction pin.

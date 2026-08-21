@@ -3507,7 +3507,7 @@ class OrdinaryScreenTuiTests(CLITestCase):
         self.assertIn("grok · 500K context", text)
         for model_id in ("deepseek-flash", "deepseek-pro", "fable", "glm52", "grok46", "kimi-k3", "opus", "opus5", "qwen38", "sol"):
             self.assertIn(model_id, text)
-        self.assertIn("GLM-5.3 · alibaba", text)
+        self.assertIn("GLM-5.2 · alibaba", text)
         # The fixture secret file holds only the Kimi key: the five model
         # rows on keyless providers (glm52 + qwen38 on qwen, Flash + Pro on
         # deepseek, grok46 on openrouter) carry the compact marker.

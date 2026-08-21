@@ -35,7 +35,6 @@ CATALOG_ROOT = Path(__file__).resolve().parents[1]
 GATEWAY_TOKEN = "a" * 64
 DUMMY_KIMI = "dummy-kimi-key"
 DUMMY_DEEPSEEK = "dummy-deepseek-key"
-DUMMY_QWEN = "dummy-qwen-key"
 
 
 def _find_binary() -> str | None:
@@ -182,19 +181,17 @@ class DisposableProxyTests(unittest.TestCase):
         providers["deepseek"]["transport"]["base_url"] = (
             f"http://127.0.0.1:{upstream_port}/anthropic"
         )
-        providers["qwen"]["transport"]["base_url"] = (
-            f"http://127.0.0.1:{upstream_port}/qwen"
-        )
         result = render.render_config(
             gateway,
             providers,
             bundle.docs["models"]["models"],
             home=self.root,
             gateway_token=GATEWAY_TOKEN,
-            resolve_secret=lambda name: {
-                "DEEPSEEK_CLAUDE_API_KEY": DUMMY_DEEPSEEK,
-                "QWEN_CLAUDE_API_KEY": DUMMY_QWEN,
-            }.get(name, DUMMY_KIMI),
+            resolve_secret=lambda name: (
+                DUMMY_DEEPSEEK
+                if name == "DEEPSEEK_CLAUDE_API_KEY"
+                else DUMMY_KIMI
+            ),
         )
         config_path = self.root / "config.yaml"
         state.atomic_write(config_path, result.yaml.encode("utf-8"))
@@ -302,68 +299,6 @@ class DisposableProxyTests(unittest.TestCase):
             "tool_choice",
             body,
             "the gateway must not invent the forced choice rejected by thinking mode",
-        )
-
-        self.process.terminate()
-        self.process.wait(timeout=5)
-        self.assertIsNotNone(self.process.poll(), "no orphan proxy process")
-
-    def test_glm53_promoted_wire_via_stable_alias_with_qwen_bearer(self) -> None:
-        # catalog21 (D61): the stable alias claude-multi-glm52-max now routes
-        # to the promoted glm-5.3 wire over the existing Qwen bearer route.
-        # Proven against the disposable fake upstream only — Alibaba is never
-        # contacted.
-        self._start_proxy()
-        base_url = self.base_url
-
-        message = self._request(
-            base_url,
-            "/v1/messages",
-            {
-                "model": "claude-multi-glm52-max",
-                "max_tokens": 256,
-                "thinking": {"type": "enabled", "budget_tokens": 1024},
-                "messages": [{"role": "user", "content": "use the check tool"}],
-                "tools": [
-                    {
-                        "name": "catalog21_check",
-                        "description": "Record a local request-shape check.",
-                        "input_schema": {
-                            "type": "object",
-                            "properties": {"status": {"type": "string"}},
-                            "required": ["status"],
-                        },
-                    }
-                ],
-                # D60: the OpenAI Responses cache TTL control must not leak
-                # past the gateway's final outbound boundary on this route.
-                "prompt_cache_retention": "24h",
-            },
-        )
-        self.assertTrue(message.get("content"), "response mapped")
-
-        qwen_hits = [
-            request
-            for request in _UpstreamCapture.requests
-            if urllib.parse.urlsplit(request["path"]).path == "/qwen/v1/messages"
-        ]
-        self.assertTrue(qwen_hits, "upstream observed the qwen glm route")
-        self.assertEqual(qwen_hits[0]["authorization"], f"Bearer {DUMMY_QWEN}")
-        body = json.loads(qwen_hits[0]["body"])
-        self.assertEqual(body.get("model"), "glm-5.3", "promoted wire mapping")
-        self.assertEqual(
-            body.get("reasoning_effort"), "max", "max-lane payload override"
-        )
-        self.assertEqual(body.get("tools", [])[0].get("name"), "catalog21_check")
-        self.assertNotIn(
-            "tool_choice",
-            body,
-            "the gateway must not invent the forced choice rejected by thinking mode",
-        )
-        self.assertNotIn(
-            "prompt_cache_retention",
-            body,
-            "D60 boundary strips the cache TTL control on the qwen glm route",
         )
 
         self.process.terminate()

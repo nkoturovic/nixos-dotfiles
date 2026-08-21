@@ -104,32 +104,3 @@ profile remains operator-owned and is not rewritten by rollback automation.
 If a catalog19 session had been created, its record/transcript would remain
 intact but could be unresolvable under catalog18; use the retained catalog19
 package to transition it, never delete state as part of rollback.
-
-## 8. Catalog21 GLM-5.3 promotion rollback (D61/027)
-
-Catalog21 promotes the trusted `glm52` entry to the GLM-5.3 wire/display
-**in place** — catalog key `glm52`, selector `claude-multi-glm52-max[1m]`,
-gateway alias `claude-multi-glm52-max`, and all generated IDs stay, and no
-composition or state file is migrated. That stable identity makes rollback
-much simpler than catalog19, and also sets the one hard boundary below.
-Activation requires a metadata-only zero-live census: no live/mid-turn
-ordinary GLM session, GLM lead, or live managed session with an enabled GLM
-variant. Any hit aborts the cutover until it exits or is stopped safely.
-
-**Before any post-activation GLM request has been served** (the only safe
-window):
-
-1. Activate the pre-catalog21 Home Manager generation (generation **130**,
-   the catalog20 anchor: launcher 2.20.0 serving the `glm-5.2` wire).
-2. Restart the gateway (the HM switch does this) — no composition
-   restoration, no record/scope surgery, no state deletion. Records
-   written under catalog21 were written with internal model id `glm52`,
-   which remains resolvable under catalog20.
-
-**After a GLM-5.3 request has been served, rollback is semantically
-sensitive**: the stable identity `glm52` would map back to GLM-5.2, so a
-rolled-back gateway would silently serve the older model to any session
-that pinned `glm52`. In that window: stop GLM-bearing sessions and prefer
-fixing forward on the GLM-5.3 route. Never delete or rewrite records,
-scopes, credentials, compositions, or transcripts — neither direction of
-this migration rewrites them.
