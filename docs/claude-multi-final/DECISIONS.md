@@ -1319,6 +1319,40 @@ catalog 19 → 20. Activated 2026-08-21 at HM generation 130 after the exact
 Nix-tested gateway binary passed local health/model/doctor checks; no
 provider call was required. Generation 129 is the full rollback anchor.
 
+**D61 — Do not promote GLM-5.3 on Alibaba Token Plan until its exact
+allowlist includes it.** GLM-5.3 itself is a valid Z.ai release (exact native
+ID `glm-5.3`, 1M context, always-on low/high/max reasoning, Anthropic
+Messages/tools/streaming), but product availability is route-specific. The
+Alibaba Team Token Plan Singapore endpoint uses an exact-string allowlist whose
+newest GLM is `glm-5.2`; GLM-5.3 exists on Alibaba only as Beijing
+pay-as-you-go `ZHIPU/GLM-5.3` over a separate OpenAI-compatible workspace
+route/credential/billing product, and on Zhipu's own Coding Plan.
+
+A catalog21 candidate followed the Qwen production pattern: stable internal
+identity `glm52` and selector `claude-multi-glm52-max[1m]`, wire/display flip
+to `glm-5.3`/GLM-5.3, no record/composition migration, exact two-line golden
+delta, full offline tests/builds, and Sol-xhigh review APPROVE. One approved
+bounded disposable-gateway call then reached the configured Token Plan route
+with exact wire/max/stream/tool shape and no fallback; Alibaba returned HTTP
+400 `InvalidParameter: Model not exist` before model execution. Activation was
+therefore blocked exactly as designed. Candidate commit `caaa641` was reverted
+by `8db80c3`; catalog20/GLM-5.2 remains active and source-authoritative, with
+no live service/state/transcript change.
+
+Rejected:
+
+- guessing an alternate Token Plan model ID or moving alias;
+- substituting `ZHIPU/GLM-5.3` on the Singapore Token Plan host;
+- silently switching to a Beijing pay-as-you-go workspace or Zhipu plan;
+- retaining an unusable staged catalog wire merely because the model exists in
+  another product.
+
+Future trigger: when Alibaba publishes exact `glm-5.3` support in the Team
+Token Plan allowlist, reuse the reviewed in-place promotion, position GLM-5.3
+on par with Qwen3.8 Max and GPT-5.6 Sol, repeat one approved canary, and only
+then activate. The failed canary proves no GLM-5.3 execution properties on
+Alibaba; the 200K GLM-5.2 evidence floor remains unchanged.
+
 ## User decision summary (what you're approving by accepting this design)
 
 1. Selected agents become **real files** in a per-session scope; the failure

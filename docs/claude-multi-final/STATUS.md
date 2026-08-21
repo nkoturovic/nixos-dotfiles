@@ -1,5 +1,35 @@
 # STATUS — live tracker
 
+## 2026-08-21 — GLM-5.3 Token Plan promotion blocked and reverted (D61, issue 027)
+
+- **Research correction**: GLM-5.2 did not replace GLM-5.1 in this repository;
+  it was the first GLM catalog entry. Qwen3.8 Preview→production is the true
+  migration precedent: stable identity/selector with a wire/display flip.
+- **Candidate**: catalog21 retained internal `glm52` and
+  `claude-multi-glm52-max[1m]`, promoted wire/display to
+  `glm-5.3`/GLM-5.3, preserved compositions/records/scopes, positioned
+  GLM-5.3 with Qwen3.8 Max and GPT-5.6 Sol, and passed 1,683 Python tests,
+  package/sandbox/HM builds, exact two-line golden review, disposable Qwen
+  route tests, and Sol-xhigh review.
+- **Approved canary — rejected upstream**: exactly one candidate-gateway call
+  used the current Team Token Plan Singapore Anthropic endpoint, normal bearer
+  credential, stable alias force-mapped to exact `glm-5.3`, max reasoning,
+  streaming, one offered tool, no forced `tool_choice`, and no fallback.
+  Alibaba returned HTTP 400 `InvalidParameter: Model not exist` before model
+  execution. No retry was made.
+- **Root cause**: Alibaba Token Plan is an exact-string allowlist and currently
+  tops out at `glm-5.2`. Alibaba's GLM-5.3 is a different product:
+  `ZHIPU/GLM-5.3`, Beijing pay-as-you-go workspace, OpenAI-compatible only,
+  separate credential/region/billing. Zhipu's own Coding Plan is separate too.
+- **Safe outcome**: no activation or live gateway/state change. Candidate
+  commit `caaa641` was reverted by `8db80c3`; active/source system remains
+  2.20.0/catalog20/HM generation 130 with GLM-5.2, doctor Ready. No record,
+  scope, composition, credential, or transcript was touched.
+- **Future trigger**: only when Alibaba's Team Token Plan exact allowlist adds
+  `glm-5.3`; then reuse the reviewed stable-identity promotion, make one
+  approved canary, and activate. Do not guess aliases/endpoints or silently
+  switch products.
+
 ## 2026-08-21 — v2.20.0/catalog20: non-Claude `prompt_cache_retention` boundary (D60, issue 026, activated gen 130)
 
 - **Problem**: Sol/Codex subscription backend rejects the OpenAI

@@ -98,6 +98,13 @@ remains unsupported by Pro thinking and is not silently filtered:
 | `deepseek-flash` | DeepSeek V4 Flash | Flash high everywhere · Flash max reviewer | preserved fast/cheap all-Flash side-task rig |
 | `grok-deepseek` | Grok 4.6 xhigh (OpenRouter) | Flash scan · Pro max implementation · Grok xhigh preferred review | Grok lead + measured DeepSeek pipeline + cross-family review |
 
+GLM-5.3 is not currently available on this Alibaba Token Plan route. A reviewed
+candidate and one approved canary used exact `glm-5.3`; Alibaba returned
+`Model not exist`, matching the plan's exact allowlist (newest GLM:
+`glm-5.2`). Keep using GLM-5.2. Do not substitute the separate Beijing
+pay-as-you-go `ZHIPU/GLM-5.3` route or Zhipu Coding Plan without onboarding a
+new provider/credential explicitly (D61/issue 027).
+
 DeepSeek API aliases are deliberately stable: `deepseek-pro` routes wire
 `deepseek-v4-pro` (currently the official V4-Pro-0813 release) and
 `deepseek-flash` routes `deepseek-v4-flash` (currently Flash-0731); the dated
