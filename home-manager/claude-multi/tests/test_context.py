@@ -95,6 +95,9 @@ class ResolvedScalarTests(unittest.TestCase):
             "kimi-k3": (1_000_000, 1_000_000, 882_000),
             "deepseek-flash": (1_000_000, 1_000_000, 882_000),
             "deepseek-pro": (1_000_000, 1_000_000, 882_000),
+            # catalog21 (D61): glm52 keeps its 1M lead policy through the
+            # GLM-5.3 promotion — client/provider context unchanged.
+            "glm52": (1_000_000, 1_000_000, 882_000),
             "grok46": (500_000, 500_000, 432_000),
             "qwen38": (1_000_000, 983_616, 867_254),
             "sol": (1_000_000, 1_000_000, 882_000),

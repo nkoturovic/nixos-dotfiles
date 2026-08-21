@@ -134,7 +134,7 @@ class SeedLoadTests(unittest.TestCase):
     def test_version_json_matches_v2_2_schema_and_catalog_change(self) -> None:
         bundle = catalog.load_catalog(CATALOG_ROOT)
         self.assertEqual(bundle.docs["version"]["launcher_version"], "2.20.0")
-        self.assertEqual(bundle.docs["version"]["catalog_version"], 20)
+        self.assertEqual(bundle.docs["version"]["catalog_version"], 21)
 
     def test_qwen38_production_no_preview_residue(self) -> None:
         # D50: qwen3.8-max shipped production 2026-08-03; the D21 revision
@@ -144,6 +144,66 @@ class SeedLoadTests(unittest.TestCase):
         self.assertEqual(qwen["wire_model"], "qwen3.8-max")
         self.assertEqual(qwen["display"], "Qwen3.8 Max")
         self.assertNotIn("preview", json.dumps(qwen).lower())
+
+    def test_glm53_promotion_keeps_stable_compatibility_identity(self) -> None:
+        # catalog21 (D61/issue 027): the trusted GLM entry promotes to the
+        # GLM-5.3 wire/display in place — catalog key glm52, selector
+        # claude-multi-glm52-max[1m], and the gateway alias stay, so records,
+        # scopes, and compositions never need migration.
+        bundle = catalog.load_catalog(CATALOG_ROOT)
+        glm = bundle.models["glm52"]
+        self.assertEqual(glm["wire_model"], "glm-5.3")
+        self.assertEqual(glm["display"], "GLM-5.3")
+        self.assertEqual(glm["provider"], "qwen")
+        self.assertEqual(glm["client_selector"], "claude-multi-glm52-max[1m]")
+        self.assertEqual(glm["default_lane"], "max")
+        lane = glm["lanes"]["max"]
+        self.assertEqual(lane["client_selector"], "claude-multi-glm52-max[1m]")
+        self.assertEqual(lane["agent_effort"], "max")
+        self.assertEqual(lane["proxy_effort_contract"], "reasoning-effort-max")
+        self.assertEqual(
+            glm["compatible_roles"],
+            ["cm-lead", "cm-analyst", "cm-implementer", "cm-reviewer"],
+        )
+        # 1M client/provider and the 200K validated floor are unchanged; the
+        # declared context is the exact official 1,000,000 (not a 2**20
+        # approximation).
+        context = glm["context"]
+        self.assertEqual(context["client_tokens"], 1000000)
+        self.assertEqual(context["provider_tokens"], 1000000)
+        self.assertEqual(context["declared_tokens"], 1000000)
+        self.assertEqual(context["validated_tokens"], 200000)
+        self.assertEqual(context["ordinary_profile"], "large")
+        self.assertIsNone(context["scalar_tokens"])
+        # Current qualification/routing evidence carries the official Z.ai
+        # GLM-5.3 contract, the stale-allowlist caveat, and the pending live
+        # acceptance boundary.
+        qualification = context["qualification"]
+        self.assertIn("glm-5.3", qualification)
+        self.assertIn("1,000,000-token context", qualification)
+        self.assertIn("128K max output", qualification)
+        self.assertIn("2026-08-21", qualification)
+        self.assertIn("allowlists", qualification)
+        self.assertIn("separately approval-gated", qualification)
+        self.assertIn("GLM-5.3", glm["routing_note"])
+        self.assertIn("reasoning_effort=max", glm["routing_note"])
+        self.assertIn("Qwen3.8 Max", glm["routing_note"])
+        self.assertIn("GPT-5.6 Sol", glm["routing_note"])
+        self.assertNotIn("ahead of glm52", bundle.models["qwen38"]["routing_note"])
+        self.assertIn("GLM-5.3", bundle.models["qwen38"]["routing_note"])
+        self.assertIn("GLM-5.3", bundle.models["deepseek-pro"]["routing_note"])
+
+    def test_glm53_promotion_leaves_no_active_glm52_wire_or_display(self) -> None:
+        # No catalog model may carry the retired GLM-5.2 wire or display as an
+        # active field. The qualification caveat (the stale Alibaba allowlist
+        # stop line) is historical evidence and is pinned separately.
+        bundle = catalog.load_catalog(CATALOG_ROOT)
+        blob = strict_json.canonical_bytes(bundle.bundle).decode("utf-8")
+        self.assertNotIn('"wire_model": "glm-5.2"', blob)
+        self.assertNotIn('"display": "GLM-5.2"', blob)
+        # The qwen38 routing note may still name the stable identity glm52;
+        # it must not name the retired wire/display.
+        self.assertIn("glm52", blob)
 
     def test_opus5_all_roles_opus_stays_lead_reviewer(self) -> None:
         # D49: opus5 serves every role (operator-requested general option);

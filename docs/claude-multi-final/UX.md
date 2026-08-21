@@ -53,7 +53,7 @@ plain Claude through the local gateway · native /model within a group · no ros
 
 large · 1M context · /model switches freely within this group
   fable — Fable 5 · 1M selector · anthropic
-  glm52 — GLM-5.2 · alibaba  (no secret)
+  glm52 — GLM-5.3 · alibaba  (staged catalog21; live catalog20: GLM-5.2)
   kimi-k3 — Kimi K3 · 1M selector · moonshot
   opus — Opus 4.8 · 1M selector · anthropic
   opus5 — Opus 5 · 1M selector · anthropic
@@ -64,11 +64,17 @@ grok · 500K context · /model switches freely within this group
   grok46 — Grok 4.6 · x-ai  (no secret)
 
 in-session: /model claude-multi-grok46-high · /model claude-multi-grok46-xhigh
-(catalog19 is active at HM generation 129; Grok 4.5 no longer appears)
+(catalog20 is active at HM generation 130; the GLM-5.3 row above is staged catalog21)
 
 in-session: /model gpt-multi-sol-high[1m] · /model gpt-multi-sol-xhigh[1m]
 Enter launch · P providers · ? help · Esc back
 ```
+
+catalog21 (D61): the `glm52` row displays **GLM-5.3** (promoted wire
+`glm-5.3`) while `glm52` and the typed selector
+`claude-multi-glm52-max[1m]` stay — the row id and selectors are stable
+technical identities across the promotion; records, scopes, and
+compositions that pin `glm52` keep working unchanged.
 
 2.13.0 additions (D50): the selected row's detail line shows the exact typed
 `/model` selectors (the native picker display-filters custom aliases — typed

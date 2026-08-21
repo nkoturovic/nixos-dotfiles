@@ -733,6 +733,20 @@ class RuntimeIdentityAndDirectCompileTests(unittest.TestCase):
             compiler.direct_model_for_selector(bundle.docs, "claude-opus-4-8[1m]"),
             ("opus", "large"),
         )
+        # catalog21 (D61): the promoted glm-5.3 wire resolves to the stable
+        # glm52 identity in the large profile; the retired glm-5.2 wire no
+        # longer resolves.
+        self.assertEqual(
+            compiler.direct_model_for_selector(bundle.docs, "glm-5.3"),
+            ("glm52", "large"),
+        )
+        self.assertEqual(
+            compiler.direct_model_for_selector(bundle.docs, "glm-5.3[1m]"),
+            ("glm52", "large"),
+        )
+        self.assertIsNone(
+            compiler.direct_model_for_selector(bundle.docs, "glm-5.2")
+        )
         self.assertIsNone(
             compiler.direct_model_for_selector(bundle.docs, "unknown-provider-model")
         )

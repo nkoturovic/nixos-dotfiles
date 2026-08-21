@@ -97,11 +97,11 @@
       },
       "provider": "deepseek",
       "role_hints": {
-        "cm-analyst": "Use for broad structural analysis, architecture, refactoring plans, and documentation after a Flash bug scan; Qwen/Sol remain stronger general escalations.",
+        "cm-analyst": "Use for broad structural analysis, architecture, refactoring plans, and documentation after a Flash bug scan; Qwen/GLM/Sol remain stronger general escalations.",
         "cm-implementer": "Use for careful production fixes, multi-file implementation, and finalization; prefer Pro over Flash when code changes must propagate completely.",
         "cm-reviewer": "Use to fact-check Flash findings and verify implementation detail; same-family review does not satisfy independence for DeepSeek-authored work."
       },
-      "routing_note": "DeepSeek production flagship (currently V4-Pro-0813); thinking default-on. Broad architecture and careful production implementation; pair Flash scan → Pro implementation/fact-check. Qwen3.8 Max and Sol remain stronger general options.",
+      "routing_note": "DeepSeek production flagship (currently V4-Pro-0813); thinking default-on. Broad architecture and careful production implementation; pair Flash scan → Pro implementation/fact-check. Qwen3.8 Max, GLM-5.3, and Sol remain stronger general options.",
       "wire_model": "deepseek-v4-pro"
     },
     "fable": {
@@ -165,15 +165,15 @@
       ],
       "context": {
         "client_tokens": 1000000,
-        "declared_tokens": 1048576,
+        "declared_tokens": 1000000,
         "ordinary_profile": "large",
         "provider_tokens": 1000000,
-        "qualification": "HF-documented 1M context (zai-org/GLM-5.2, 1M-token window); canary-verified served at the Qwen Token Plan apps/anthropic path with wire id glm-5.2 and default-on thinking (2026-07-29, one bounded approved call). [1m] client selector with the compiler's 90% auto-compaction percentage of the 1M window; near-limit real-provider behavior unverified until a separately approved live acceptance.",
+        "qualification": "Official Z.ai documentation (2026-08-21) for GLM-5.3: exact wire id glm-5.3, 1,000,000-token context, 128K max output, text-only, always-on reasoning with low/high/max effort (default max), Anthropic Messages API with tools and streaming. Served over the existing Qwen Token Plan apps/anthropic route per user attestation of subscription availability; the Alibaba Token Plan public allowlists fetched 2026-08-21 still stop at GLM-5.2 and predate the release, so live route acceptance remains separately approval-gated. [1m] client selector with the compiler's 90% auto-compaction percentage of the 1M window; validated context stays 200K and near-limit 1M/128K-output behavior remains unverified until a separately approved live acceptance.",
         "scalar_tokens": null,
         "validated_tokens": 200000
       },
       "default_lane": "max",
-      "display": "GLM-5.2",
+      "display": "GLM-5.3",
       "lanes": {
         "max": {
           "agent_effort": "max",
@@ -195,8 +195,8 @@
         "cm-implementer": "Use when implementation requires broad context across many files.",
         "cm-reviewer": "Use for architecture/plan validation, security review, and broad cross-cutting, complex, high-risk, or large-context changes."
       },
-      "routing_note": "GLM-5.2 (Zhipu) flagship reasoning model; thinking default-on (canary-verified); reasoning_effort=max per HF docs. Served via the Qwen Token Plan (same apps/anthropic endpoint and key as qwen38).",
-      "wire_model": "glm-5.2"
+      "routing_note": "GLM-5.3 flagship reasoning model; always-on reasoning_effort=max. General capability tier on par with Qwen3.8 Max and GPT-5.6 Sol; same Qwen Token Plan endpoint/key. Live Alibaba acceptance pending one bounded approved call.",
+      "wire_model": "glm-5.3"
     },
     "gpt55": {
       "capabilities": [
@@ -282,11 +282,11 @@
       },
       "provider": "openrouter",
       "role_hints": {
-        "cm-analyst": "Use for frontier long-running analysis and knowledge work from the x-ai family; on par with Qwen3.8 Max and GPT-5.6 Sol.",
+        "cm-analyst": "Use for frontier long-running analysis and knowledge work from the x-ai family; on par with Qwen3.8 Max, GLM-5.3, and GPT-5.6 Sol.",
         "cm-implementer": "Use for long-running agentic coding and ambitious multi-step implementation when an x-ai-family route is wanted.",
         "cm-reviewer": "Use for independent x-ai-family review of DeepSeek/alibaba/openai work; request xhigh pending route acceptance."
       },
-      "routing_note": "Grok 4.6 via OpenRouter exact slug; long-running agents/coding/knowledge work, on par with Qwen3.8 Max and Sol. output_config xhigh requested (probe-pending). ~x-ai/grok-latest currently points here but is not wired (D3 moving authority).",
+      "routing_note": "Grok 4.6 via OpenRouter exact slug; long-running agents/coding/knowledge work, on par with Qwen3.8 Max, GLM-5.3, and Sol. output_config xhigh requested (probe-pending). ~x-ai/grok-latest currently points here but is not wired (D3 moving authority).",
       "wire_model": "x-ai/grok-4.6"
     },
     "kimi-k3": {
@@ -471,7 +471,7 @@
         "cm-implementer": "Use when implementation requires broad context across many files.",
         "cm-reviewer": "Use for architecture/plan validation, security review, and broad cross-cutting, complex, high-risk, or large-context changes."
       },
-      "routing_note": "Qwen flagship; thinking always on (reasoning_effort pinned xhigh, provider max). Preferred max-lane escalation ahead of glm52.",
+      "routing_note": "Qwen flagship; thinking always on (reasoning_effort pinned xhigh, provider max). General capability tier on par with GLM-5.3 and GPT-5.6 Sol; choose by role and route fit.",
       "wire_model": "qwen3.8-max"
     },
     "sol": {

@@ -301,7 +301,7 @@ def rendered_selectors(document: dict[str, Any]) -> frozenset[str]:
     themselves); direct sections serve the lane alias only — the gateway
     registers the alias as the public id, NOT the upstream wire name
     (verified live against a disposable loopback proxy: k3/qwen3.8-max/
-    glm-5.2 do not appear in /v1/models). The doctor served-models
+    glm-5.3 do not appear in /v1/models). The doctor served-models
     cross-check compares this set against the running gateway's /v1/models.
     """
 

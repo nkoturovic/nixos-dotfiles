@@ -1,5 +1,68 @@
 # STATUS — live tracker
 
+## 2026-08-21 — STAGING: catalog21 GLM-5.2 → GLM-5.3 promotion (D61, issue/blueprint 027; not activated)
+
+- **What**: the trusted `glm52` catalog entry promotes in place to the
+  GLM-5.3 wire/display. Official Z.ai documentation (2026-08-21) confirms
+  the release contract: exact model ID `glm-5.3`, 1,000,000-token
+  context, 128K max output, text-only, always-on reasoning with
+  low/high/max effort (default max), Anthropic Messages, tools,
+  streaming. Declared context moves to the exact official 1,000,000
+  (from 1,048,576).
+- **Stable compatibility identity (the key design)**: catalog key
+  `glm52`, selector `claude-multi-glm52-max[1m]`, gateway alias
+  `claude-multi-glm52-max`, and generated IDs
+  (`cm-reviewer-glm52-max`) stay. Renaming was rejected: it would rewrite
+  the 17 records/scopes and 11 live composition files that pin `glm52`.
+  Compositions and state are untouched; catalog20 records remain valid
+  catalog drift. Provider `qwen`, 1M client/provider context, 200K
+  validated floor, `large` profile, single `max` lane,
+  `reasoning-effort-max`, alibaba family, and roles are unchanged. No
+  new model/provider/schema/endpoint/secret/payload contract.
+- **Routing position**: GLM-5.3 is treated as a peer general-capability tier
+  with Qwen3.8 Max and GPT-5.6 Sol. Existing role hints are already identical
+  to Qwen's; no composition reorder or prompt expansion is needed — choose by
+  role/route fit, while existing explicit `preferred` flags remain authoritative.
+- **Evidence split (honest)**: source migration built from official Z.ai
+  contract facts + user-attested subscription availability. The Alibaba
+  Token Plan public allowlists fetched 2026-08-21 still stop at GLM-5.2
+  and predate the release; the live Alibaba route acceptance remains a
+  separately approved bounded call **before activation** (any failure
+  blocks activation, no GLM-5.2 fallback). D45, historical docs,
+  checkpoints, and catalog18 rollback fixtures keep saying GLM-5.2.
+- **Catalog-only release**: catalog 20 → 21; launcher stays 2.20.0. The
+  render golden moves exactly the two intended route lines
+  (`glm-5.2`→`glm-5.3`, display `GLM-5.2`→`GLM-5.3`); every
+  compiler/scope golden is byte-identical.
+- **Verification**: catalog/render/compiler/context/CLI and disposable Qwen
+  suites green (focused review run: 805 tests). The loopback route proves
+  bearer auth, stable alias → exact `glm-5.3` wire, max effort, offered-tool
+  preservation, no invented `tool_choice`, and D60 retention stripping with
+  zero Alibaba contact. Full discovery **1,683 tests OK** (2 skips); one known
+  PTY timeout reproduced once, passed immediately in isolation, and the full
+  rerun was clean. Package
+  `/nix/store/jxxx1d67xfbfhvr1ja2cwwlfzpbaxph1-claude-multi-2.20.0`, sandbox
+  `/nix/store/59mp1fgbqf9b9ppx7wm62nlidmvgwvk1-claude-multi-tests`, and fresh
+  activation package
+  `/nix/store/glilxg7akgw0yzn1z9lfyzna1rd4kc5m-home-manager-generation` built
+  green. Render golden changes exactly two GLM wire/display lines; compiler/
+  scope goldens and compositions are byte-unchanged. Sol-xhigh independent
+  review findings (staged/live wording and zero-live cutover gate) were fixed;
+  final re-review: **APPROVE**.
+- **Activation liveness gate**: metadata-only census must report zero
+  live/mid-turn GLM ordinary sessions, zero GLM leads, and zero live managed
+  sessions with an enabled GLM variant. Any nonzero result aborts activation
+  until the process exits or is stopped safely. `doctor --repair-all` runs
+  only after this gate and local route checks pass.
+- **Rollback**: pre-activation generation 130 restores GLM-5.2 (no
+  composition restoration needed). After GLM-5.3 has been used, rollback
+  is semantically sensitive — stable `glm52` would map back to GLM-5.2 —
+  stop GLM-bearing sessions and prefer fixing forward. Records, scopes,
+  credentials, compositions, and transcripts are never deleted or
+  rewritten.
+- **State**: committed on `feature/term-only`, not pushed. Live route
+  acceptance and Home Manager activation are separate approval gates.
+
 ## 2026-08-21 — v2.20.0/catalog20: non-Claude `prompt_cache_retention` boundary (D60, issue 026, activated gen 130)
 
 - **Problem**: Sol/Codex subscription backend rejects the OpenAI
