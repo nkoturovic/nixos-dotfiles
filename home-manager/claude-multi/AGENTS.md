@@ -140,6 +140,41 @@ Two modes:
    demonstrated failure case. Prefer deletion over addition.
 10. **Upstream `claude` is never configured or hijacked.** D19/D23: no global
     writes (`~/.claude/agents`, `~/.claude/settings.json`, gateway env).
+11. **Non-Claude outbound cache-retention boundary (D60).** The gateway
+    patch `cli-proxy-api-non-claude-cache-retention.patch` (pinned
+    CLIProxyAPI 7.2.80) enforces that `prompt_cache_retention` — the
+    OpenAI Responses-platform cache TTL control — is stripped at the
+    **final outbound boundary** for every non-Claude route: Codex
+    `cacheHelper` (ordinary + `/responses/compact`), Codex WebSocket
+    stream/non-stream `response.create`, third-party Claude-compatible
+    base URLs (Kimi/Qwen-GLM/DeepSeek/OpenRouter, all message paths), and
+    xAI final preparation (the pre-existing xAI early cleanup is removed,
+    not duplicated). Claude classification is **endpoint-first**: only
+    the default base URL or a resolved official HTTPS `api.anthropic.com`
+    (default/443 port, case-insensitive host, any path) keeps the field;
+    custom, non-HTTPS, non-default-port, or malformed base URLs strip
+    regardless of token shape — an OAuth-shaped token never upgrades a
+    non-official endpoint. OpenAI-compatible platform Responses keep the
+    field. The sanitizer removes **all** top-level occurrences (duplicate
+    keys included), preserves `prompt_cache_key` and nested entries, is
+    idempotent, and fails closed with an enforced postcondition — empty/
+    nil bodies fail closed as invalid JSON. On the Claude message paths
+    the strip runs **before CCH signing**, so the signature covers the
+    sanitized body and no later transformation can reintroduce the field
+    (count_tokens strips after its final sanitizer; it has no signing
+    step). The patch
+    hunks carry context against the sequentially patched source; the
+    module applies patches in manifest order and the patch-manifest tests
+    compare exact ordered lists — never reorder or drop entries without
+    regenerating the patch. The cli-proxy-api override runs
+    `go test ./internal/runtime/executor` in the sandboxed build
+    (`postCheck`, network-free); keep that gate when adding routes. Do not
+    add model-name conditions, do not strip globally, and keep the patch
+    independently removable — any new non-Claude route must route through
+    one of these boundaries, never re-introduce the field after them.
+    (Unmodified by design: the `/alpha/search` server passthrough, plugin
+    management routes, and Claude OAuth refresh — they carry no
+    messages/responses payloads.)
 
 ## 3. Module map (src/claude_multi/)
 

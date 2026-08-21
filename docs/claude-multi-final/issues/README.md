@@ -30,3 +30,4 @@ Status values: `open` (reported, not yet root-caused) · `investigating` ·
 | 011 | [Subagents denied spawning native types](011-native-type-denials/) | resolved | 2.11.0 (D47) |
 | 012 | [Sessions picker defaults to this directory](012-sessions-cwd-filter-default/) | resolved | 2.11.0 (D47) |
 | 013 | [Session --name distinguishes project](013-generic-session-names/) | resolved | 2.11.0 (D47) |
+| 026 | [Non-Claude routes leak `prompt_cache_retention` (HTTP 400)](026-prompt-cache-retention/) | in release | 2.20.0 (D60) |

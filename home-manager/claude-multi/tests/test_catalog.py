@@ -133,8 +133,8 @@ class SeedLoadTests(unittest.TestCase):
 
     def test_version_json_matches_v2_2_schema_and_catalog_change(self) -> None:
         bundle = catalog.load_catalog(CATALOG_ROOT)
-        self.assertEqual(bundle.docs["version"]["launcher_version"], "2.19.0")
-        self.assertEqual(bundle.docs["version"]["catalog_version"], 19)
+        self.assertEqual(bundle.docs["version"]["launcher_version"], "2.20.0")
+        self.assertEqual(bundle.docs["version"]["catalog_version"], 20)
 
     def test_qwen38_production_no_preview_residue(self) -> None:
         # D50: qwen3.8-max shipped production 2026-08-03; the D21 revision
@@ -981,11 +981,24 @@ class GatewayManifestConsistencyTests(unittest.TestCase):
         import re as _re
 
         bundle = catalog.load_catalog(CATALOG_ROOT)
-        manifest = set(bundle.docs["gateway"]["gateway"]["patches"])
+        # Exact ordered lists, not sets: the Nix patchPhase applies patches
+        # in this order, and the retention patch's context hunks are pinned
+        # against the sequentially patched source. Any reorder or entry
+        # drift must fail loudly.
+        manifest = list(bundle.docs["gateway"]["gateway"]["patches"])
         nix = (CATALOG_ROOT / "claude-multi.nix").read_text(encoding="utf-8")
-        applied = set(_re.findall(r"\.\./(cli-proxy-api-[a-z0-9-]+\.patch)", nix))
+        applied = _re.findall(r"\.\./(cli-proxy-api-[a-z0-9-]+\.patch)", nix)
         self.assertTrue(applied, "no patches found in claude-multi.nix?")
         self.assertEqual(manifest, applied)
+        self.assertEqual(
+            manifest,
+            [
+                "cli-proxy-api-loopback-oauth.patch",
+                "cli-proxy-api-kimi-claude-compat.patch",
+                "cli-proxy-api-opus-5-model.patch",
+                "cli-proxy-api-non-claude-cache-retention.patch",
+            ],
+        )
 
     def test_manifest_entries_exist_as_files(self) -> None:
         bundle = catalog.load_catalog(CATALOG_ROOT)

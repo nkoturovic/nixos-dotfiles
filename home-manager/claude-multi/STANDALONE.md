@@ -100,6 +100,16 @@ sessions and `/model` use exact names client-side and work daily. Do not
 "fix" it with `disable-claude-cloak-mode` (verified: that flag hides even
 the Anthropic pool instead). Nothing here touches plain `claude`.
 
+A second gateway behavior worth knowing (2.20.0): the gateway strips the
+OpenAI Responses-platform cache TTL field (`prompt_cache_retention`) at
+the final outbound boundary for every **non-Claude** route (Sol/Codex,
+Kimi/Qwen/GLM/DeepSeek/OpenRouter, xAI) because those backends reject it
+with HTTP 400. This is invisible in normal use — `prompt_cache_key`
+caching still works — and official Anthropic transport (default base URL
+or `api.anthropic.com`) and OpenAI-platform routes are untouched. If you
+still see the 400, the running gateway predates catalog20 (see the
+troubleshooting entry in USAGE.md).
+
 ## Forks in plain `claude`
 
 A fork is a full copy: the new session's transcript starts identical to the

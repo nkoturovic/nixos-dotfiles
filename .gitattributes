@@ -1,1 +1,7 @@
 .secrets/** filter=git-crypt diff=git-crypt
+# Context-bearing unified diffs (upstream patch files) reproduce the
+# upstream sources' own indentation verbatim in their hunk/context lines,
+# which trips git's space-before-tab / trailing-whitespace checks on every
+# `git diff --check` gate. Disable whitespace checking for *.patch only —
+# normal source/docs keep the full check.
+*.patch -whitespace

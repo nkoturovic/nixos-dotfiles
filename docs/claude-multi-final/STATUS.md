@@ -1,5 +1,78 @@
 # STATUS — live tracker
 
+## 2026-08-21 — v2.20.0/catalog20: non-Claude `prompt_cache_retention` boundary (D60, issue 026) — STAGING (not activated)
+
+- **Problem**: Sol/Codex subscription backend rejects the OpenAI
+  Responses-platform cache TTL control with HTTP 400
+  (`prompt_cache_retention is not supported on this model`), and the same
+  field leaks through ordinary `/v1/messages?beta=true` traffic (issue
+  026).
+- **Fix**: one focused CLIProxyAPI patch
+  (`home-manager/cli-proxy-api-non-claude-cache-retention.patch`, pinned
+  7.2.80) establishing a fail-closed final outbound boundary:
+  `stripPromptCacheRetention` in Codex `cacheHelper` (ordinary +
+  `/responses/compact`), Codex WebSocket stream/non-stream
+  `response.create`, third-party Claude-compatible routes (Kimi/Qwen-GLM/
+  DeepSeek/OpenRouter; stream/non-stream/count_tokens), and xAI final
+  preparation (the pre-existing xAI early cleanup is removed, not
+  duplicated). The helper removes **all** top-level occurrences (duplicate
+  keys included) and enforces a postcondition; empty/nil bodies fail
+  closed as invalid JSON. Claude classification is **endpoint-first**:
+  only the resolved official HTTPS `api.anthropic.com` (default/443 port)
+  or the default base URL is preserved; custom/malformed base URLs strip
+  regardless of token shape. On the Claude message paths the strip runs
+  after Claude-message normalization and **before CCH signing**, so the
+  signature covers the sanitized body and no later transformation can
+  reintroduce the field (count_tokens strips after its final sanitizer;
+  it has no signing step). OpenAI-compatible platform Responses are
+  preserved untouched; no model-name conditions. Patch hunks carry
+  context against the sequentially patched source (loopback → Kimi →
+  opus-5 → retention, the module's exact application order);
+  patch-manifest consistency compares exact ordered lists.
+- **Evidence**: loopback fake-upstream matrix on an unpatched writable
+  copy of the pinned source reproduced five leak cells (Codex compact,
+  Codex WS stream, Claude third-party ×3) and four already-covered cells
+  (Codex ordinary HTTP, Codex WS non-stream, xAI, OpenAI-compat
+  preservation). Patched tree: new 28-test suite green (repeated runs and
+  `-race` clean), including the two end-to-end CCH tests — custom base URL
+  + OAuth-shaped token, non-stream and stream — that assert retention is
+  absent and the emitted CCH recomputes exactly over the sanitized
+  outbound body; full `go test ./...` 77 packages OK; patch applies with
+  GNU `patch -p1` byte-exactly (zero offset/fuzz, no rejects) and the
+  resulting tree is byte-identical to the development tree. The
+  cli-proxy-api override now runs `go test ./internal/runtime/executor`
+  in the sandboxed build (`postCheck`, network-free, vendored modules) —
+  the upstream checkPhase only tests `subPackages` (cmd/server), so this
+  gate is what proves the patched tests run in the build; build logs show
+  the gate marker and the executor `ok` line.
+  claude-multi Python gates green; render/compiler/scope goldens
+  byte-identical (no model/provider/composition/context/schema change —
+  catalog delta is the patch-manifest line + version bump only).
+- **Honest boundary**: the exact ordinary Codex live leakage function
+  remains unproven (its early path already appears to strip the field);
+  the outbound invariant closes the class rather than one function. The
+  server-level `/alpha/search` passthrough, plugin management routes, and
+  Claude OAuth refresh carry no messages/responses payloads and are
+  unmodified. The Claude pipeline repairs malformed client JSON before
+  the boundary, so its fail-closed proof sits where the boundary can
+  observe malformed input (helper unit tests, Codex `cacheHelper`
+  end-to-end); the Claude end-to-end test pins the no-leak outcome. Two
+  pre-existing flakes — the timing flake
+  `TestCodexWebsocketsUpstreamDisconnectChanSignalsOnInvalidate` and the
+  repeated-run state flake
+  `TestAntigravityAuthHasCreditsRequiredHomeBalanceUsesKV` (KVGet counter
+  not reset between `-count` iterations), both reproducible on the
+  unpatched base and untouched by this patch — are recorded and out of
+  scope.
+- **Version**: launcher 2.19.0 → 2.20.0 (new gateway patch contract);
+  catalog 19 → 20.
+- **Activation**: separate approval gate — rebuild, gateway restart,
+  health, local model listing, config parity, doctor Ready, and the
+  installed-binary fake-upstream matrix. Rollback before any catalog20
+  record exists: activate the recorded catalog19 generation and restart
+  the gateway; never delete or rewrite sessions/scopes/credentials/
+  transcripts.
+
 ## 2026-08-19 — v2.19.0/catalog19: DeepSeek V4 Pro GA + Grok 4.6 (D58/D59, blueprints 024/025, activated gen 129)
 
 - **Production alias/version**: new catalog model `deepseek-pro`, wire

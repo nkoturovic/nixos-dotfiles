@@ -415,6 +415,18 @@ transcripts (always untouched).
 
 ## FAQ / troubleshooting
 
+- **HTTP 400 `prompt_cache_retention is not supported on this model`** —
+  a Sol/Codex or other non-Claude request carried the OpenAI
+  Responses-platform cache TTL control past the gateway. Since 2.20.0 the
+  gateway strips this field at the final outbound boundary for every
+  non-Claude route (Codex HTTP/WebSocket, Kimi/Qwen/GLM/DeepSeek/
+  OpenRouter, xAI), so the error means the running gateway predates
+  catalog20. Rebuild/activate the current generation (per the STATUS
+  entry), then retry; official OpenAI platform routes still support the
+  field and are intentionally untouched, and Claude requests to the
+  official Anthropic endpoint (default base URL or `api.anthropic.com`)
+  keep `prompt_cache_retention` untouched — this boundary preserves that
+  field for official Anthropic, not the whole request byte-for-byte.
 - **Which profile?** — `default` (Opus 5 + Sol + Kimi) for most work;
   `opus-sol` when you want the clean Opus+Sol pair; `opus-kimi` for Opus
   lead with Kimi agents; `kimi-sol`/`qwen-sol` when you need a Kimi or Qwen

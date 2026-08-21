@@ -108,8 +108,32 @@ class ModuleWiringTests(unittest.TestCase):
 
     def test_claude_multi_nix_module_shape(self) -> None:
         text = (V2_ROOT / "claude-multi.nix").read_text()
-        self.assertIn("cli-proxy-api-loopback-oauth.patch", text)
-        self.assertIn("cli-proxy-api-kimi-claude-compat.patch", text)
+        for patch in (
+            "cli-proxy-api-loopback-oauth.patch",
+            "cli-proxy-api-kimi-claude-compat.patch",
+            "cli-proxy-api-opus-5-model.patch",
+            "cli-proxy-api-non-claude-cache-retention.patch",
+        ):
+            self.assertIn(patch, text)
+        # The module applies the four patches in manifest order; the
+        # retention patch's hunks are pinned to the sequentially patched
+        # source, so the order is part of the contract.
+        import re as _re
+
+        applied = _re.findall(r"\.\./(cli-proxy-api-[a-z0-9-]+\.patch)", text)
+        self.assertEqual(
+            applied,
+            [
+                "cli-proxy-api-loopback-oauth.patch",
+                "cli-proxy-api-kimi-claude-compat.patch",
+                "cli-proxy-api-opus-5-model.patch",
+                "cli-proxy-api-non-claude-cache-retention.patch",
+            ],
+        )
+        # The network-free executor regression gate must be wired in the
+        # override so the patched tests run inside the sandboxed build.
+        self.assertIn("go test ./internal/runtime/executor", text)
+        self.assertIn("doCheck = true", text)
         self.assertIn("callPackage ./package.nix", text)
         self.assertIn("cliProxyApiBin", text)
         self.assertIn("systemd.user.services.cli-proxy-api", text)
@@ -155,6 +179,8 @@ class ModuleWiringTests(unittest.TestCase):
         for patch in (
             "cli-proxy-api-loopback-oauth.patch",
             "cli-proxy-api-kimi-claude-compat.patch",
+            "cli-proxy-api-opus-5-model.patch",
+            "cli-proxy-api-non-claude-cache-retention.patch",
         ):
             self.assertTrue((REPO_ROOT / "home-manager" / patch).is_file())
 

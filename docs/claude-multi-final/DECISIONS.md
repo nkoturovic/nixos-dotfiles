@@ -1235,6 +1235,88 @@ session/scope references to 4.5; recheck at activation. If any ordinary 4.5
 record appears, explicit `--model grok46` is a same-profile re-pin; managed
 4.5 snapshots need a composition transition, not repair-time refresh.
 
+**D60 — Final outbound boundary strips `prompt_cache_retention` for all
+non-Claude routes.**
+The Sol/Codex subscription backend rejects the OpenAI Responses-platform
+cache TTL control with HTTP 400 (`prompt_cache_retention is not supported
+on this model`); the same field leaks through ordinary
+`/v1/messages?beta=true` traffic. Route-support matrix (loopback-verified
+against pinned CLIProxyAPI 7.2.80):
+
+| Route | 7.2.80 unpatched | After the patch |
+| --- | --- | --- |
+| Codex `/responses` HTTP (stream + non-stream) | stripped early | stripped at boundary (`cacheHelper`) |
+| Codex `/responses/compact` | leaked | stripped at boundary |
+| Codex WebSocket non-stream `response.create` | stripped early | stripped at boundary |
+| Codex WebSocket stream `response.create` | leaked | stripped at boundary |
+| Third-party Claude-compatible `/v1/messages` (Kimi, Qwen/GLM, DeepSeek, OpenRouter; stream/non-stream/count_tokens) | leaked | stripped at boundary |
+| Official Anthropic endpoint (resolved HTTPS `api.anthropic.com`, default/443 port) or default base URL | preserved | preserved (untouched) |
+| xAI HTTP + WebSocket | stripped early | early cleanup removed, stripped at final preparation |
+| OpenAI-compatible platform Responses | preserved (supported) | preserved (executor untouched) |
+
+Rulings:
+
+- **Final-boundary invariant, not early cleanup.** One shared idempotent
+  helper (`stripPromptCacheRetention`) applied after every transformation
+  that can mutate the body — Codex cache-key insertion/identity rewriting,
+  Codex WebSocket frame construction, Claude translation/payload
+  rules/normalization, xAI final preparation. Removes **all** top-level
+  occurrences (duplicate keys included), preserves `prompt_cache_key` and
+  nested fields, and fails closed with an enforced postcondition (the
+  outbound body must be valid JSON and provably field-free, otherwise the
+  request errors instead of sending an unprovable body; empty/nil bodies
+  fail closed as invalid JSON). On the Claude message paths the strip
+  runs **before CCH signing**, so the signature covers the sanitized body
+  and no later transformation can reintroduce the field — two end-to-end
+  tests (non-stream and stream, custom base URL + OAuth-shaped token)
+  assert retention is absent and the emitted CCH recomputes exactly over
+  the sanitized outbound body; `count_tokens` strips after its final
+  sanitizer (it has no signing step).
+- **Model-scoped/catalog filtering rejected.** No `gpt-5.6-sol`/alias/lane/
+  context-profile conditions: the backend rejects the field regardless of
+  model name, and a catalog of names cannot anticipate the next model or
+  client. Route kind — which upstream family the body reaches — is the
+  right discriminator.
+- **Global stripping rejected.** Official OpenAI-compatible Responses
+  routes support the field; `openai_compat_executor.go` is deliberately
+  untouched and its preservation is the negative guard test against
+  over-broad sanitization.
+- **Third-party Claude-compatible detection is endpoint-first.** Claude
+  paths preserve only the default base URL (resolved to
+  `https://api.anthropic.com`) or a resolved official HTTPS
+  `api.anthropic.com` endpoint with default/443 port (hostname matched
+  case-insensitively, any path). Every custom, non-HTTPS, non-default-port,
+  or malformed base URL fails closed as third-party **regardless of token
+  shape**: an OAuth-shaped token never upgrades a non-official endpoint.
+- **xAI early cleanup removed, not duplicated.** The pre-existing early
+  delete is deleted; the single boundary strip is the one invariant, and
+  the xAI tests exercise it as the only strip.
+- **Patched tests must run in the Nix sandbox.** The upstream checkPhase
+  tests only `subPackages` (cmd/server), so the module override adds an
+  explicit network-free `postCheck` gate running
+  `go test ./internal/runtime/executor` (loopback fakes, vendored modules,
+  `GOPROXY=off`); the build log echoes the gate marker. Patch-manifest
+  consistency compares exact ordered lists, never sets — the retention
+  hunks are context-pinned to the sequentially patched source, so patch
+  order is part of the contract.
+- **Honest claim boundary.** The exact ordinary Codex live leakage function
+  remains **unproven** (its early path already appears to strip the field;
+  transcripts are never read). The invariant is accepted because it closes
+  the class: five deterministic leak cells were reproduced and closed, and
+  any future reintroduction path is caught at the same boundary. The
+  server-level Codex `/alpha/search` passthrough, plugin management
+  routes, and Claude OAuth refresh carry no messages/responses payloads
+  and sit outside the executor boundaries; they are unmodified. The
+  Claude pipeline repairs malformed client JSON before the boundary, so
+  fail-closed there is proven where the boundary can observe malformed
+  input (helper unit tests and the Codex `cacheHelper` end-to-end test);
+  the Claude end-to-end test pins the no-leak outcome either way.
+
+No model/provider/composition/context/schema change: the only catalog
+delta is the patch-manifest line; render/compiler/scope goldens stay
+byte-identical. Launcher 2.19.0 → 2.20.0 (new gateway patch contract);
+catalog 19 → 20.
+
 ## User decision summary (what you're approving by accepting this design)
 
 1. Selected agents become **real files** in a per-session scope; the failure
