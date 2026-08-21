@@ -74,8 +74,8 @@ are onboarded through `claude-multi-dev` (`--help` maps the two tracks;
 
 `default` is the only built-in trusted seed; the rest are the named profiles
 on this machine (all creatable in seconds with `compose new` /
-`use-as-template` — see "Managing compositions"). **Catalog19 is active**
-(HM generation 129): the DeepSeek/Grok rows below are the installed
+`use-as-template` — see "Managing compositions"). **Catalog20 is active**
+(HM generation 130): the DeepSeek/Grok rows below are the installed
 mode-0600 compositions. Acceptance proved corrected Pro max thinking/tool use
 and exact-slug Grok 4.6 high + xhigh streaming; named forced `tool_choice`
 remains unsupported by Pro thinking and is not silently filtered:

@@ -1315,7 +1315,9 @@ Rulings:
 No model/provider/composition/context/schema change: the only catalog
 delta is the patch-manifest line; render/compiler/scope goldens stay
 byte-identical. Launcher 2.19.0 → 2.20.0 (new gateway patch contract);
-catalog 19 → 20.
+catalog 19 → 20. Activated 2026-08-21 at HM generation 130 after the exact
+Nix-tested gateway binary passed local health/model/doctor checks; no
+provider call was required. Generation 129 is the full rollback anchor.
 
 ## User decision summary (what you're approving by accepting this design)
 

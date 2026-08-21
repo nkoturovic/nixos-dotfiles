@@ -74,11 +74,10 @@ untouched; `claude-gateway` is the ordinary non-composition entrypoint.
   one you're inside.
 - `--legacy` = old argv mode (compatibility hatch, not a durability answer).
 
-## Installed state (2026-08-19)
+## Installed state (2026-08-21)
 
-- claude-multi **2.19.0 / catalog 19** active (HM generation 129; immediate
-  prior 128 is catalog19 pre-evidence metadata; full catalog18 rollback is
-  generation 127),
+- claude-multi **2.20.0 / catalog 20** active (HM generation 130; full
+  pre-fix rollback is generation 129),
   Claude pinned at **2.1.220** (hash-verified, symlink-aligned).
   Resume gate live (D41): repair-needed records get one-keypress Repair &
   resume in the TUI, daemon-owned resumes gate with Stop & resume /
@@ -109,6 +108,13 @@ untouched; `claude-gateway` is the ordinary non-composition entrypoint.
   streaming tool calls green. Named forced `tool_choice` remains unsupported
   by Pro thinking; omit it rather than filtering caller intent. Context
   near-limits remain unprobed; validated floors stay 200K.
+- **Non-Claude cache-retention boundary active** (2.20.0, D60/issue 026):
+  `prompt_cache_retention` is stripped fail-closed at the final outbound
+  boundary for Codex subscription routes (Sol/gpt55), every current
+  third-party Claude-compatible route (Kimi, Qwen/GLM, DeepSeek, OpenRouter),
+  and xAI. Official Anthropic and OpenAI-compatible platform routes preserve
+  the field. The active Nix derivation runs the 28-test executor regression
+  suite during build; doctor Ready and local aliases unchanged.
 - **GLM-5.2 live on the qwen provider** (2.9.0, D45): wire `glm-5.2` at the
   Token Plan endpoint, selector `claude-multi-glm52-max[1m]`, lead+agents,
   lane max with `reasoning_effort: "max"` — 1M context, alibaba family
@@ -169,7 +175,7 @@ untouched; `claude-gateway` is the ordinary non-composition entrypoint.
   `systemctl --user restart cli-proxy-api` — the daemon does not hot-reload
   a rename-replaced config on 7.2.80 (HM switch does this for you).
 - Full evidence and census: the current checkpoint's
-  [`handoff/state-snapshot.md`](checkpoints/2026-08-19-v2.19.0/handoff/state-snapshot.md).
+  [`handoff/state-snapshot.md`](checkpoints/2026-08-21-v2.20.0/handoff/state-snapshot.md).
 
 ## Composition: qwen-sol
 
@@ -212,7 +218,7 @@ Token Plan `apps/anthropic`, bearer auth, key in
 
 ## Open items (as of 2026-08-19)
 
-Ordered in the current checkpoint: [`checkpoints/2026-08-19-v2.19.0/handoff/open-items.md`](checkpoints/2026-08-19-v2.19.0/handoff/open-items.md).
+Ordered in the current checkpoint: [`checkpoints/2026-08-21-v2.20.0/handoff/open-items.md`](checkpoints/2026-08-21-v2.20.0/handoff/open-items.md).
 
 ## Where things live
 

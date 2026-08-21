@@ -1,6 +1,6 @@
 # 026 — Non-Claude routes leak `prompt_cache_retention` (HTTP 400)
 
-**Status: in release** · fixed in 2.20.0/catalog20 (D60)
+**Status: resolved** · fixed and activated in 2.20.0/catalog20, HM generation 130 (D60)
 
 ## Report
 
@@ -140,9 +140,11 @@ OpenAI-compatible preservation.
   repeated runs (its KVGet counter is not reset between `-count`
   iterations). Both predate this patch and are not touched by it. The
   retention suite itself is stable across repeated and `-race` runs.
-- Activation (separate approval gate, not part of this issue): rebuild,
-  gateway restart, health, model listing, and the installed-binary
-  fake-upstream matrix.
+- Activation (2026-08-21): HM generation 130, gateway restart, health and
+  both model-list auth forms green, 37 selectors intact, doctor Ready. The
+  active gateway binary is the exact Nix-tested derivation and contains the
+  sanitizer symbol; its build log proves the executor regression gate ran.
+  No real-provider call was needed. Generation 129 is the rollback anchor.
 
 ## Claim boundary
 

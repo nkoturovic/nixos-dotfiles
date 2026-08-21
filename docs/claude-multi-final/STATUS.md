@@ -1,6 +1,6 @@
 # STATUS — live tracker
 
-## 2026-08-21 — v2.20.0/catalog20: non-Claude `prompt_cache_retention` boundary (D60, issue 026) — STAGING (not activated)
+## 2026-08-21 — v2.20.0/catalog20: non-Claude `prompt_cache_retention` boundary (D60, issue 026, activated gen 130)
 
 - **Problem**: Sol/Codex subscription backend rejects the OpenAI
   Responses-platform cache TTL control with HTTP 400
@@ -66,11 +66,23 @@
   scope.
 - **Version**: launcher 2.19.0 → 2.20.0 (new gateway patch contract);
   catalog 19 → 20.
-- **Activation**: separate approval gate — rebuild, gateway restart,
-  health, local model listing, config parity, doctor Ready, and the
-  installed-binary fake-upstream matrix. Rollback before any catalog20
-  record exists: activate the recorded catalog19 generation and restart
-  the gateway; never delete or rewrite sessions/scopes/credentials/
+- **Cross-family review**: Sol-xhigh REVISE exposed mislanded context hunks,
+  duplicate-key bypass, endpoint classification, missing Nix test gate/order
+  pins, CCH signing order, and empty-body fail-open behavior; all confirmed
+  findings were fixed. Final Qwen3.8 Max review independently re-ran patch
+  application, CCH/duplicate/fail-closed tests, route coverage, Go/Python/Nix
+  gates, and preservation negatives: **APPROVE**.
+- **Activated**: explicit approval applied Home Manager generation **130**
+  (`/nix/store/przzykwfdpqj754gxrys1zvch8cfglhd-home-manager-generation`).
+  Live launcher `/nix/store/q6sggf2sry5655yh8b0qkgv5aa37dd7f-claude-multi-2.20.0`
+  and gateway `/nix/store/kgbjv4g2smg5768anqbnf7yiqcyinrf6-cli-proxy-api-7.2.80`
+  are active; gateway sha256 `bf236023…`, sanitizer symbol present, and its
+  exact derivation log contains the executor regression-gate `ok` line.
+  `/healthz` and both `/v1/models` auth forms return 200 (37 selectors; all
+  required Sol/Kimi/Qwen/GLM/DeepSeek/Grok aliases present), config hash is
+  unchanged `53ddd9c7…`, and `claude-multi doctor` is **Ready** (36 durable,
+  zero collisions). No provider call was needed. Full rollback remains HM
+  generation **129**; activation changed no records, scopes, credentials, or
   transcripts.
 
 ## 2026-08-19 — v2.19.0/catalog19: DeepSeek V4 Pro GA + Grok 4.6 (D58/D59, blueprints 024/025, activated gen 129)
