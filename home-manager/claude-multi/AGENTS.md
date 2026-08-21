@@ -249,7 +249,11 @@ full): run with a disk-backed temp dir, e.g.
   Only `models.json` / `providers.json` / compositions are ever edited.
   A preview→production flip follows DECISIONS D21 (wire_model → context
   re-verify → effort tiers → one live call → display) — executed for
-  qwen3.8-max in 2.13.0 (D50/016). DeepSeek aliases follow a distinct
+  qwen3.8-max in 2.13.0 (D50/016). The blocked GLM-5.3 Alibaba Token Plan
+  promotion has a canonical trigger-to-rollback
+  [runbook](../../docs/claude-multi-final/issues/027-glm-53-token-plan-unavailable/REAPPLY.md);
+  do not infer availability from another GLM product or reuse its ID/route.
+  DeepSeek aliases follow a distinct
   first-party convention (D58/024): API wires stay `deepseek-v4-flash` /
   `deepseek-v4-pro`; the dated Flash-0731 / Pro-0813 strings are resolved
   version labels, not first-party callable ids. A docs-only GA adds the

@@ -31,4 +31,4 @@ Status values: `open` (reported, not yet root-caused) · `investigating` ·
 | 012 | [Sessions picker defaults to this directory](012-sessions-cwd-filter-default/) | resolved | 2.11.0 (D47) |
 | 013 | [Session --name distinguishes project](013-generic-session-names/) | resolved | 2.11.0 (D47) |
 | 026 | [Non-Claude routes leak `prompt_cache_retention` (HTTP 400)](026-prompt-cache-retention/) | resolved | 2.20.0/catalog20, activated gen 130 (D60) |
-| 027 | [GLM-5.3 is not available on Alibaba Token Plan](027-glm-53-token-plan-unavailable/) | blocked upstream | active route remains GLM-5.2 (D61) |
+| 027 | [GLM-5.3 is not available on Alibaba Token Plan](027-glm-53-token-plan-unavailable/) · [reactivation runbook](027-glm-53-token-plan-unavailable/REAPPLY.md) | blocked upstream | active route remains GLM-5.2 (D61) |

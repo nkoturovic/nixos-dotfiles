@@ -26,9 +26,11 @@
   2.20.0/catalog20/HM generation 130 with GLM-5.2, doctor Ready. No record,
   scope, composition, credential, or transcript was touched.
 - **Future trigger**: only when Alibaba's Team Token Plan exact allowlist adds
-  `glm-5.3`; then reuse the reviewed stable-identity promotion, make one
-  approved canary, and activate. Do not guess aliases/endpoints or silently
-  switch products.
+  `glm-5.3`; then follow the canonical
+  [reactivation runbook](issues/027-glm-53-token-plan-unavailable/REAPPLY.md)
+  for the reviewed stable-identity promotion, one approved canary, cutover,
+  and semantic rollback. Do not guess aliases/endpoints or silently switch
+  products.
 
 ## 2026-08-21 — v2.20.0/catalog20: non-Claude `prompt_cache_retention` boundary (D60, issue 026, activated gen 130)
 

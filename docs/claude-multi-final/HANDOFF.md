@@ -122,8 +122,11 @@ untouched; `claude-gateway` is the ordinary non-composition entrypoint.
   `kimi-sol-qwen-glm` = Kimi lead with GLM/Qwen comparable alternates.
   GLM-5.3 was researched/built/reviewed, but the approval-gated Token Plan
   canary returned `Model not exist`; keep GLM-5.2 until Alibaba's exact Team
-  allowlist adds `glm-5.3` (D61/issue 027). Do not substitute the separate
-  Beijing pay-as-you-go `ZHIPU/GLM-5.3` route.
+  allowlist adds `glm-5.3` (D61/issue 027). The canonical
+  [reactivation runbook](issues/027-glm-53-token-plan-unavailable/REAPPLY.md)
+  covers the exact trigger, selective reapply, one-call gate, activation, and
+  semantic rollback. Do not substitute the separate Beijing pay-as-you-go
+  `ZHIPU/GLM-5.3` route.
 - **Ordinary sessions launch from the card** (2.10.0, D46): **G new gateway**
   opens a profile-grouped model picker — the TUI twin of `claude-gateway`.
   `(no secret)` rows reflect render-time availability; Enter rechecks and

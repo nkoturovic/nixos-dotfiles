@@ -103,7 +103,9 @@ candidate and one approved canary used exact `glm-5.3`; Alibaba returned
 `Model not exist`, matching the plan's exact allowlist (newest GLM:
 `glm-5.2`). Keep using GLM-5.2. Do not substitute the separate Beijing
 pay-as-you-go `ZHIPU/GLM-5.3` route or Zhipu Coding Plan without onboarding a
-new provider/credential explicitly (D61/issue 027).
+new provider/credential explicitly (D61/issue 027). Future reactivation uses
+only the canonical
+[Token Plan runbook](../../docs/claude-multi-final/issues/027-glm-53-token-plan-unavailable/REAPPLY.md).
 
 DeepSeek API aliases are deliberately stable: `deepseek-pro` routes wire
 `deepseek-v4-pro` (currently the official V4-Pro-0813 release) and

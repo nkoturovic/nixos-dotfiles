@@ -1348,10 +1348,12 @@ Rejected:
   another product.
 
 Future trigger: when Alibaba publishes exact `glm-5.3` support in the Team
-Token Plan allowlist, reuse the reviewed in-place promotion, position GLM-5.3
-on par with Qwen3.8 Max and GPT-5.6 Sol, repeat one approved canary, and only
-then activate. The failed canary proves no GLM-5.3 execution properties on
-Alibaba; the 200K GLM-5.2 evidence floor remains unchanged.
+Token Plan allowlist, follow the canonical
+[reactivation runbook](issues/027-glm-53-token-plan-unavailable/REAPPLY.md):
+reuse the reviewed in-place promotion, position GLM-5.3 on par with Qwen3.8
+Max and GPT-5.6 Sol, repeat one approved canary, and only then activate. The
+failed canary proves no GLM-5.3 execution properties on Alibaba; the 200K
+GLM-5.2 evidence floor remains unchanged.
 
 ## User decision summary (what you're approving by accepting this design)
 
