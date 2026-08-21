@@ -60,10 +60,11 @@ Token Plan. Neither route may be silently substituted under D3.
 - Do not guess `glm-5.3`, `ZHIPU/GLM-5.3`, moving aliases, alternate regions,
   or endpoints on the current Token Plan credential.
 - Do not retain the unusable catalog21 candidate in source.
-- When Alibaba's exact Team Token Plan allowlist includes `glm-5.3`, repeat the
-  already-designed in-place promotion: stable identity/selector, wire/display
-  flip, official 1M contract, offline route tests, one approved canary, then
-  activation.
+- The complete reviewed candidate remains preserved in commit `caaa641`; its
+  safe rollback is commit `8db80c3`. When Alibaba's exact Team Token Plan
+  allowlist includes `glm-5.3`, use `caaa641` as the reapplication reference
+  (cherry-pick onto the then-current branch only after reviewing intervening
+  drift), then rerun the full offline gates, one approved canary, and activation.
 - At that future promotion GLM-5.3 should be positioned as a peer of Qwen3.8
   Max and GPT-5.6 Sol; explicit preferred flags remain authoritative.
 
