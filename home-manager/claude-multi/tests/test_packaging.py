@@ -112,12 +112,14 @@ class ModuleWiringTests(unittest.TestCase):
             "cli-proxy-api-loopback-oauth.patch",
             "cli-proxy-api-kimi-claude-compat.patch",
             "cli-proxy-api-opus-5-model.patch",
+            "cli-proxy-api-astra-registry.patch",
             "cli-proxy-api-non-claude-cache-retention.patch",
         ):
             self.assertIn(patch, text)
-        # The module applies the four patches in manifest order; the
+        # The module applies the five patches in manifest order; the
         # retention patch's hunks are pinned to the sequentially patched
-        # source, so the order is part of the contract.
+        # source, so the order is part of the contract. The gateway.json
+        # manifest must carry the same ordered list (S2 parity).
         import re as _re
 
         applied = _re.findall(r"\.\./(cli-proxy-api-[a-z0-9-]+\.patch)", text)
@@ -127,9 +129,12 @@ class ModuleWiringTests(unittest.TestCase):
                 "cli-proxy-api-loopback-oauth.patch",
                 "cli-proxy-api-kimi-claude-compat.patch",
                 "cli-proxy-api-opus-5-model.patch",
+                "cli-proxy-api-astra-registry.patch",
                 "cli-proxy-api-non-claude-cache-retention.patch",
             ],
         )
+        manifest = json.loads((V2_ROOT / "catalog" / "gateway.json").read_text())
+        self.assertEqual(manifest["gateway"]["patches"], applied)
         # The network-free executor regression gate must be wired in the
         # override so the patched tests run inside the sandboxed build.
         self.assertIn("go test ./internal/runtime/executor", text)
@@ -180,6 +185,7 @@ class ModuleWiringTests(unittest.TestCase):
             "cli-proxy-api-loopback-oauth.patch",
             "cli-proxy-api-kimi-claude-compat.patch",
             "cli-proxy-api-opus-5-model.patch",
+            "cli-proxy-api-astra-registry.patch",
             "cli-proxy-api-non-claude-cache-retention.patch",
         ):
             self.assertTrue((REPO_ROOT / "home-manager" / patch).is_file())

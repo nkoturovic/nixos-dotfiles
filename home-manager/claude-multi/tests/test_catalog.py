@@ -996,6 +996,7 @@ class GatewayManifestConsistencyTests(unittest.TestCase):
                 "cli-proxy-api-loopback-oauth.patch",
                 "cli-proxy-api-kimi-claude-compat.patch",
                 "cli-proxy-api-opus-5-model.patch",
+                "cli-proxy-api-astra-registry.patch",
                 "cli-proxy-api-non-claude-cache-retention.patch",
             ],
         )
