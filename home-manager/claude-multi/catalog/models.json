@@ -2,10 +2,12 @@
   "models": {
     "astra": {
       "capabilities": [
+        "lead",
         "agents"
       ],
       "client_selector": "gpt-multi-astra-high[1m]",
       "compatible_roles": [
+        "cm-lead",
         "cm-analyst",
         "cm-implementer",
         "cm-reviewer"
@@ -13,9 +15,9 @@
       "context": {
         "client_tokens": 1000000,
         "declared_tokens": 1050000,
-        "ordinary_profile": null,
+        "ordinary_profile": "large",
         "provider_tokens": 1000000,
-        "qualification": "1M-class candidate following the sol D57 pattern: the operator attests Astra 1M is enabled on their Codex subscription (like sol's separately enabled 1M); public OpenAI API docs say 1.05M context / 128K max output; codex-route registry metadata instead lists 272,000 normal / 872,000 configurable maximum with efforts low/medium/high/xhigh/max — the operator attestation wins pending the probe. validated_tokens stays 200,000 until the separately approved acceptance probe measures the route; if it rejects above 272,000, drop the fence back to 272,000 (catalog-only edit). Near-limit behavior unverified.",
+        "qualification": "1M-class candidate (sol D57 pattern): operator attests Astra 1M is enabled on their Codex subscription; public OpenAI docs say 1.05M/128K output; codex-route registry instead lists 272,000 normal / 872,000 configurable max, efforts low..max. Route acceptance verified 2026-09-05 (bounded ~310-token codex-route call returned the expected reply) — the route accepts Astra, but only ~310 input tokens were exercised, so validated_tokens stays 200,000 and the 1M fence is unverified near-limit. Joins the large profile without lowering its fence (stays qwen38's 983616). If a later probe rejects above 272,000, drop the fence to 272,000 (catalog-only).",
         "scalar_tokens": null,
         "validated_tokens": 200000
       },
@@ -33,18 +35,22 @@
           "proxy_effort_contract": "reasoning-effort-xhigh"
         }
       },
-      "lead": null,
+      "lead": {
+        "effort": "ultracode",
+        "env": {}
+      },
       "minimum_tested": {
         "claude_code": "2.1.216",
         "cliproxyapi": "7.2.80"
       },
       "provider": "openai",
       "role_hints": {
-        "cm-analyst": "Use for demanding analysis and synthesis on the openai family; unverified route entitlement — prefer sol/qwen38 for work that must not fail.",
-        "cm-implementer": "Use for broad implementation when an openai-family agent is wanted; route entitlement unverified until live acceptance.",
-        "cm-reviewer": "Use as an independent openai-family reviewer of alibaba/meta/deepseek-authored work; route entitlement unverified until live acceptance."
+        "cm-lead": "Use as an openai-family lead for demanding long-context work; 1M fence unverified near-limit.",
+        "cm-analyst": "Use for demanding analysis and synthesis on the openai family; route acceptance verified 2026-09-05.",
+        "cm-implementer": "Use for broad implementation when an openai-family agent is wanted; route acceptance verified 2026-09-05.",
+        "cm-reviewer": "Use as an independent openai-family reviewer of alibaba/meta/deepseek-authored work; route acceptance verified 2026-09-05."
       },
-      "routing_note": "Codex OAuth route only; hidden in discovery and not a default anywhere. Declared 1M-class pending the acceptance probe; agents-only until the probe confirms route entitlement.",
+      "routing_note": "Codex OAuth route; hidden in discovery. Route acceptance verified 2026-09-05 (~310-token probe). Declared 1M-class; near-limit unverified. Lead-capable since catalog22.",
       "wire_model": "gpt-6-astra"
     },
     "deepseek-flash": {

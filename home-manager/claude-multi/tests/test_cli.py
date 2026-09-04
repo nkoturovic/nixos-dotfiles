@@ -3430,17 +3430,18 @@ class OrdinaryLaunchModelsTests(CLITestCase):
             groups,
             {
                 "grok": ("grok46",),
-                "large": ("deepseek-flash", "deepseek-pro", "fable", "glm52", "kimi-k3", "muse-spark", "muse-spark-contributor", "opus", "opus5", "qwen38", "sol"),
+                "large": ("astra", "deepseek-flash", "deepseek-pro", "fable", "glm52", "kimi-k3", "muse-spark", "muse-spark-contributor", "opus", "opus5", "qwen38", "sol"),
             },
         )
 
     def test_agents_only_models_never_appear(self) -> None:
-        # gpt55 and astra have no ordinary profile: direct_context_profile
-        # rejects them, so the picker must never offer them.
+        # gpt55 has no ordinary profile: direct_context_profile rejects it,
+        # so the picker must never offer it. (astra joined large in
+        # catalog22, so it is offered now.)
         groups = cli.compiler.ordinary_launch_models(self.runtime.catalog.docs)
         offered = {m for ids in groups.values() for m in ids}
         self.assertNotIn("gpt55", offered)
-        self.assertNotIn("astra", offered)
+        self.assertIn("astra", offered)
 
 
 class OrdinaryScreenTuiTests(CLITestCase):
@@ -5679,8 +5680,9 @@ class OrdinaryModelSwitchTests(CLITestCase):
         # From kimi-k3 (large) to grok46 (grok profile): the confirm modal
         # must state the profile change and the fence/compaction rebuild.
         # The fixture gains the OpenRouter key so the target row is
-        # launchable; grok46 heads the grok group (five steps up from
-        # kimi-k3 after DeepSeek Pro joins the large group).
+        # launchable; grok46 heads the grok group (six steps up from
+        # kimi-k3 after Astra + DeepSeek Pro + muse pair join the large
+        # group).
         with open(self.secret_file, "a") as handle:
             handle.write("OPENROUTER_CLAUDE_API_KEY=fixture-or-key\n")
         # Source catalog19 intentionally differs from the still-running
@@ -5693,7 +5695,7 @@ class OrdinaryModelSwitchTests(CLITestCase):
         ):
             result, win, _screen = self._run(
                 [
-                    "t", "k", "k", "k", "k", "k", "\n",
+                    "t", "k", "k", "k", "k", "k", "k", "\n",
                     curses.KEY_RIGHT, "\n",  # Switch anyway on not-served modal
                     "\x1b", "\x1b", "\x1b",  # cancel profile; back; quit
                 ]

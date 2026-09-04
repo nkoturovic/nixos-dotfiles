@@ -911,6 +911,8 @@ class GrokProfileFenceTests(unittest.TestCase):
                 "claude-multi-opus-4-8[1m]",
                 "claude-multi-opus-5[1m]",
                 "claude-multi-qwen38-max[1m]",
+                "gpt-multi-astra-high[1m]",
+                "gpt-multi-astra-xhigh[1m]",
                 "gpt-multi-sol-high[1m]",
                 "gpt-multi-sol-xhigh[1m]",
             ),

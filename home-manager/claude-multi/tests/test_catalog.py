@@ -139,8 +139,8 @@ class SeedLoadTests(unittest.TestCase):
 
     def test_version_json_matches_v2_2_schema_and_catalog_change(self) -> None:
         bundle = catalog.load_catalog(CATALOG_ROOT)
-        self.assertEqual(bundle.docs["version"]["launcher_version"], "2.21.0")
-        self.assertEqual(bundle.docs["version"]["catalog_version"], 21)
+        self.assertEqual(bundle.docs["version"]["launcher_version"], "2.22.0")
+        self.assertEqual(bundle.docs["version"]["catalog_version"], 22)
 
     def test_qwen38_production_no_preview_residue(self) -> None:
         # D50: qwen3.8-max shipped production 2026-08-03; the D21 revision
@@ -1190,17 +1190,18 @@ class Grok46ReplacementTests(unittest.TestCase):
 class AstraAndMuseModelTests(unittest.TestCase):
     """028 batch: gpt-6-astra (codex route) and muse-spark pair (Meta API)."""
 
-    def test_astra_agents_only_1m_candidate_shape(self) -> None:
+    def test_astra_lead_capable_1m_shape(self) -> None:
         bundle = catalog.load_catalog(CATALOG_ROOT)
         astra = bundle.models["astra"]
         self.assertEqual(astra["provider"], "openai")
         self.assertEqual(astra["wire_model"], "gpt-6-astra")
         self.assertEqual(astra["display"], "GPT-6 Astra")
-        self.assertEqual(astra["capabilities"], ["agents"])
-        self.assertIsNone(astra["lead"])
+        # Lead-capable since catalog22 (route acceptance verified 2026-09-05).
+        self.assertEqual(astra["capabilities"], ["lead", "agents"])
+        self.assertEqual(astra["lead"], {"effort": "ultracode", "env": {}})
         self.assertEqual(
             set(astra["compatible_roles"]),
-            {"cm-analyst", "cm-implementer", "cm-reviewer"},
+            {"cm-lead", "cm-analyst", "cm-implementer", "cm-reviewer"},
         )
         self.assertEqual(astra["default_lane"], "high")
         self.assertEqual(set(astra["lanes"]), {"high", "xhigh"})
@@ -1221,13 +1222,15 @@ class AstraAndMuseModelTests(unittest.TestCase):
         self.assertEqual(context["provider_tokens"], 1000000)
         self.assertEqual(context["declared_tokens"], 1050000)
         self.assertEqual(context["validated_tokens"], 200000)
-        self.assertIsNone(context["ordinary_profile"])
+        # Lead-capable since catalog22 -> joins the large ordinary profile.
+        self.assertEqual(context["ordinary_profile"], "large")
         self.assertIsNone(context["scalar_tokens"])
-        # Evidence classes stay separated in the qualification: operator
-        # attestation pending the probe; probe may drop the fence to 272K.
-        self.assertIn("operator attests", context["qualification"])
+        # Route acceptance verified 2026-09-05 (~310-token probe); 1M fence
+        # remains unverified near-limit; may drop to 272K if a later probe
+        # rejects above it.
+        self.assertIn("Route acceptance verified 2026-09-05", context["qualification"])
         self.assertIn("272,000", context["qualification"])
-        self.assertIn("acceptance probe", context["qualification"])
+        self.assertIn("unverified near-limit", context["qualification"])
 
     def test_muse_spark_pair_shape(self) -> None:
         bundle = catalog.load_catalog(CATALOG_ROOT)
