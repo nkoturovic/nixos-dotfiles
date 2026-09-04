@@ -3430,15 +3430,17 @@ class OrdinaryLaunchModelsTests(CLITestCase):
             groups,
             {
                 "grok": ("grok46",),
-                "large": ("deepseek-flash", "deepseek-pro", "fable", "glm52", "kimi-k3", "opus", "opus5", "qwen38", "sol"),
+                "large": ("deepseek-flash", "deepseek-pro", "fable", "glm52", "kimi-k3", "muse-spark", "muse-spark-contributor", "opus", "opus5", "qwen38", "sol"),
             },
         )
 
     def test_agents_only_models_never_appear(self) -> None:
-        # gpt55 has no ordinary profile: direct_context_profile rejects it,
-        # so the picker must never offer it.
+        # gpt55 and astra have no ordinary profile: direct_context_profile
+        # rejects them, so the picker must never offer them.
         groups = cli.compiler.ordinary_launch_models(self.runtime.catalog.docs)
-        self.assertNotIn("gpt55", {m for ids in groups.values() for m in ids})
+        offered = {m for ids in groups.values() for m in ids}
+        self.assertNotIn("gpt55", offered)
+        self.assertNotIn("astra", offered)
 
 
 class OrdinaryScreenTuiTests(CLITestCase):
@@ -3505,13 +3507,15 @@ class OrdinaryScreenTuiTests(CLITestCase):
         self.assertIn("gateway session — no composition", text)
         self.assertIn("large · 1M context", text)
         self.assertIn("grok · 500K context", text)
-        for model_id in ("deepseek-flash", "deepseek-pro", "fable", "glm52", "grok46", "kimi-k3", "opus", "opus5", "qwen38", "sol"):
+        for model_id in ("deepseek-flash", "deepseek-pro", "fable", "glm52", "grok46", "kimi-k3", "muse-spark", "muse-spark-contributor", "opus", "opus5", "qwen38", "sol"):
             self.assertIn(model_id, text)
         self.assertIn("GLM-5.2 · alibaba", text)
-        # The fixture secret file holds only the Kimi key: the five model
+        self.assertIn("Muse Spark 1.3 · meta", text)
+        # The fixture secret file holds only the Kimi key: the seven model
         # rows on keyless providers (glm52 + qwen38 on qwen, Flash + Pro on
-        # deepseek, grok46 on openrouter) carry the compact marker.
-        self.assertEqual(text.count("(no secret)"), 5)
+        # deepseek, grok46 on openrouter, the two muse-spark models on meta)
+        # carry the compact marker.
+        self.assertEqual(text.count("(no secret)"), 7)
         self.assertIn("Enter launch", text)
 
     def test_default_selection_is_sol_like_the_cli(self) -> None:
@@ -3520,8 +3524,9 @@ class OrdinaryScreenTuiTests(CLITestCase):
         self.assertEqual(result, "sol")
 
     def test_navigation_picks_model(self) -> None:
-        # Rows: fable glm52 kimi-k3 opus opus5 qwen38 | sol; cursor starts
-        # on sol (index 6), three steps up land on opus.
+        # Rows: fable glm52 kimi-k3 muse-spark muse-spark-contributor opus
+        # opus5 qwen38 | sol; cursor starts on sol (index 8), three steps up
+        # land on opus.
         result, _win, _screen = self._run(["k", "k", "k", "\n"])
         self.assertEqual(result, "opus")
 
@@ -3534,9 +3539,11 @@ class OrdinaryScreenTuiTests(CLITestCase):
         self.assertEqual(result, "opus5")
 
     def test_unavailable_row_requires_explicit_confirm(self) -> None:
-        # sol(6) -> five steps up = glm52(1); Enter opens the confirm modal;
+        # sol(8) -> seven steps up = glm52(1); Enter opens the confirm modal;
         # the default button is Cancel.
-        result, win, _screen = self._run(["k", "k", "k", "k", "k", "\n", "\n", "\x1b"])
+        result, win, _screen = self._run(
+            ["k", "k", "k", "k", "k", "k", "k", "\n", "\n", "\x1b"]
+        )
         self.assertIsNone(result)
         self.assertTrue(
             any("Provider secret missing" in frame for frame in win.frames)
@@ -3552,7 +3559,7 @@ class OrdinaryScreenTuiTests(CLITestCase):
         import curses as _curses
 
         result, _win, _screen = self._run(
-            ["k", "k", "k", "k", "k", "\n", _curses.KEY_RIGHT, "\n"]
+            ["k", "k", "k", "k", "k", "k", "k", "\n", _curses.KEY_RIGHT, "\n"]
         )
         self.assertEqual(result, "glm52")
 
@@ -3566,13 +3573,17 @@ class OrdinaryScreenTuiTests(CLITestCase):
             handle.write("QWEN_CLAUDE_API_KEY=late-addition\n")
         from test_tui import FakeWindow
 
-        result = screen.run(FakeWindow(["k", "k", "k", "k", "k", "\n"]))
+        result = screen.run(
+            FakeWindow(["k", "k", "k", "k", "k", "k", "k", "\n"])
+        )
         self.assertEqual(result, "glm52")
 
     def test_row_unblocks_once_secret_appears(self) -> None:
         with open(self.secret_file, "a", encoding="utf-8") as handle:
             handle.write("QWEN_CLAUDE_API_KEY=late-addition\n")
-        result, _win, _screen = self._run(["k", "k", "k", "k", "k", "\n"])
+        result, _win, _screen = self._run(
+            ["k", "k", "k", "k", "k", "k", "k", "\n"]
+        )
         self.assertEqual(result, "glm52")
 
     def test_esc_creates_no_record(self) -> None:
@@ -3606,12 +3617,14 @@ class OrdinaryScreenTuiTests(CLITestCase):
 
     def test_full_reason_survives_minimum_width(self) -> None:
         # Width 44 must wrap, never truncate, the complete secret reference.
-        _result, win, _screen = self._run(["k", "k", "k", "k", "k", "\x1b"], width=44)
+        _result, win, _screen = self._run(
+            ["k", "k", "k", "k", "k", "k", "k", "\x1b"], width=44
+        )
         self.assertIn("env:QWEN_CLAUDE_API_KEY", win.text())
 
     def test_confirm_modal_intact_at_minimum_width(self) -> None:
         result, win, _screen = self._run(
-            ["k", "k", "k", "k", "k", "\n", "\n", "\x1b"], width=44
+            ["k", "k", "k", "k", "k", "k", "k", "\n", "\n", "\x1b"], width=44
         )
         self.assertIsNone(result)
         modal_frame = next(
@@ -4714,7 +4727,7 @@ class ModelsBrowserTests(CLITestCase):
     def test_lists_every_catalog_model_including_agents_only(self) -> None:
         _result, win, _screen = self._open(["\x1b"])
         text = win.text()
-        for model_id in ("deepseek-flash", "deepseek-pro", "fable", "glm52", "kimi-k3", "opus", "opus5", "qwen38", "sol"):
+        for model_id in ("astra", "deepseek-flash", "deepseek-pro", "fable", "glm52", "kimi-k3", "muse-spark", "muse-spark-contributor", "opus", "opus5", "qwen38", "sol"):
             self.assertIn(model_id, text)
         # gpt55 never appears in the G picker (no ordinary profile) but is
         # a full catalog member and must be visible here.
@@ -4722,8 +4735,8 @@ class ModelsBrowserTests(CLITestCase):
         self.assertIn("not in default", text)
 
     def test_details_modal_shows_wire_context_and_routing(self) -> None:
-        # fable is the third row (DeepSeek Flash + Pro sort first).
-        _result, win, _screen = self._open(["j", "j", "\n", "\x1b", "\x1b"])
+        # fable is the fourth row (Astra + DeepSeek Flash + Pro sort first).
+        _result, win, _screen = self._open(["j", "j", "j", "\n", "\x1b", "\x1b"])
         self.assertTrue(
             any("wire: claude-fable-5" in frame for frame in win.frames)
         )
@@ -4731,7 +4744,7 @@ class ModelsBrowserTests(CLITestCase):
 
     def test_e_jump_returns_model_only_when_allowed(self) -> None:
         result, _win, _screen = self._open(["e"])
-        self.assertEqual(result, "deepseek-flash")  # first row alphabetically
+        self.assertEqual(result, "astra")  # first row alphabetically
         # without the flag E is dead and the keybar hides it; Esc leaves
         result2, win2, _s2 = self._open(["e", "\x1b"], allow=False)
         self.assertIsNone(result2)
@@ -4749,8 +4762,8 @@ class ModelsBrowserTests(CLITestCase):
             self.runtime, plan, passthrough=[], palette=tui.MONO_PALETTE,
             gateway_check=lambda: None,
         )
-        # g → m → j j (Flash + Pro sort before fable) → e on fable.
-        win = FakeWindow(["g", "m", "j", "j", "e", "\x1b", "\x1b"])
+        # g → m → j j j (Astra + Flash + Pro sort before fable) → e on fable.
+        win = FakeWindow(["g", "m", "j", "j", "j", "e", "\x1b", "\x1b"])
         screen.run(win)
         self.assertTrue(
             any("set the fable scope" in frame for frame in win.frames),
@@ -5553,7 +5566,7 @@ class OrdinaryModelSwitchTests(CLITestCase):
 
     def test_full_flow_returns_model_override(self) -> None:
         self._ordinary()
-        result, _win, _screen = self._run(["t", "j", "j", "\n", "\n"])
+        result, _win, _screen = self._run(["t", "j", "j", "j", "j", "\n", "\n"])
         self.assertIsNotNone(result)
         self.assertEqual(result[0], "resume")
         self.assertEqual(result[1]["managed_id"], FIXED_ID)
@@ -5562,8 +5575,8 @@ class OrdinaryModelSwitchTests(CLITestCase):
 
     def test_initial_selection_is_current_model(self) -> None:
         self._ordinary(model="qwen38")
-        # Current qwen38 preselected (index 5); one step up lands on the
-        # available opus5 (index 4).
+        # Current qwen38 preselected (index 7); one step up lands on the
+        # available opus5 (index 6).
         result, _win, _screen = self._run(["t", "k", "\n", "\n"])
         self.assertEqual(result[3], "opus5")
 
@@ -5580,7 +5593,7 @@ class OrdinaryModelSwitchTests(CLITestCase):
 
     def test_confirm_cancel_stays(self) -> None:
         self._ordinary()
-        result, _win, screen = self._run(["t", "j", "\n", "\x1b", "\x1b"])
+        result, _win, screen = self._run(["t", "j", "j", "j", "\n", "\x1b", "\x1b"])
         self.assertIsNone(result)
         self.assertEqual(screen.message, "Switch cancelled.")
 
@@ -5595,7 +5608,7 @@ class OrdinaryModelSwitchTests(CLITestCase):
             cli, "_live_background_prefixes", return_value=frozenset({"11111111"})
         ):
             result, win, _screen = self._run(
-                ["t", "j", "j", "\n", "\n", _curses.KEY_RIGHT, "\n"]
+                ["t", "j", "j", "j", "j", "\n", "\n", _curses.KEY_RIGHT, "\n"]
             )
         self.assertIsNotNone(result)
         self.assertEqual(result[0], "resume")
@@ -5608,7 +5621,7 @@ class OrdinaryModelSwitchTests(CLITestCase):
             cli, "_live_background_prefixes", return_value=frozenset({"11111111"})
         ):
             result, _win, screen = self._run(
-                ["t", "j", "j", "\n", "\n", "\x1b", "\x1b"]
+                ["t", "j", "j", "j", "j", "\n", "\n", "\x1b", "\x1b"]
             )
         self.assertIsNone(result)
         self.assertEqual(screen.message, "Switch cancelled.")
@@ -5628,7 +5641,7 @@ class OrdinaryModelSwitchTests(CLITestCase):
         # No transcript fixture: after the switch confirm, the gate modal
         # names the missing transcript (R parity), and Esc cancels.
         result, win, screen = self._run(
-            ["t", "j", "j", "\n", "\n", "\x1b", "\x1b"]
+            ["t", "j", "j", "j", "j", "\n", "\n", "\x1b", "\x1b"]
         )
         self.assertIsNone(result)
         self.assertEqual(screen.message, "Switch cancelled.")
@@ -5655,7 +5668,7 @@ class OrdinaryModelSwitchTests(CLITestCase):
             cli, "_live_background_prefixes", return_value=frozenset({"11111111"})
         ):
             result, _win, _screen = self._run(
-                ["t", "j", "j", "\n", "\n"], resume_decision="force"
+                ["t", "j", "j", "j", "j", "\n", "\n"], resume_decision="force"
             )
         self.assertIsNotNone(result)
         self.assertEqual(result[2], "force")

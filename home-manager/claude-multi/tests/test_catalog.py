@@ -34,6 +34,12 @@ RETAINED_SELECTOR_BASES = {
     "claude-multi-deepseek-pro-max",
     "claude-multi-grok46-high",
     "claude-multi-grok46-xhigh",
+    "gpt-multi-astra-high",
+    "gpt-multi-astra-xhigh",
+    "claude-multi-muse-spark-high",
+    "claude-multi-muse-spark-xhigh",
+    "claude-multi-muse-spark-contributor-high",
+    "claude-multi-muse-spark-contributor-xhigh",
 }
 REMOVED_PATTERNS = (
     "claude-multi-fable-5",
@@ -69,10 +75,10 @@ class SeedLoadTests(unittest.TestCase):
     def test_seed_loads_clean(self) -> None:
         bundle = catalog.load_catalog(CATALOG_ROOT)
         self.assertEqual(
-            set(bundle.providers), {"anthropic", "deepseek", "kimi", "openai", "openrouter", "qwen"}
+            set(bundle.providers), {"anthropic", "deepseek", "kimi", "meta", "openai", "openrouter", "qwen"}
         )
         self.assertEqual(
-            set(bundle.models), {"fable", "opus", "opus5", "kimi-k3", "sol", "gpt55", "qwen38", "glm52", "deepseek-flash", "deepseek-pro", "grok46"}
+            set(bundle.models), {"astra", "fable", "opus", "opus5", "kimi-k3", "sol", "gpt55", "qwen38", "glm52", "deepseek-flash", "deepseek-pro", "grok46", "muse-spark", "muse-spark-contributor"}
         )
         self.assertEqual(
             set(bundle.roles), {"cm-lead", "cm-analyst", "cm-reviewer", "cm-implementer"}
@@ -1179,3 +1185,96 @@ class Grok46ReplacementTests(unittest.TestCase):
             set(bundle.providers["openrouter"]["payload_contracts"]),
             {"output-config-high", "output-config-xhigh"},
         )
+
+
+class AstraAndMuseModelTests(unittest.TestCase):
+    """028 batch: gpt-6-astra (codex route) and muse-spark pair (Meta API)."""
+
+    def test_astra_agents_only_1m_candidate_shape(self) -> None:
+        bundle = catalog.load_catalog(CATALOG_ROOT)
+        astra = bundle.models["astra"]
+        self.assertEqual(astra["provider"], "openai")
+        self.assertEqual(astra["wire_model"], "gpt-6-astra")
+        self.assertEqual(astra["display"], "GPT-6 Astra")
+        self.assertEqual(astra["capabilities"], ["agents"])
+        self.assertIsNone(astra["lead"])
+        self.assertEqual(
+            set(astra["compatible_roles"]),
+            {"cm-analyst", "cm-implementer", "cm-reviewer"},
+        )
+        self.assertEqual(astra["default_lane"], "high")
+        self.assertEqual(set(astra["lanes"]), {"high", "xhigh"})
+        self.assertEqual(
+            astra["lanes"]["high"]["client_selector"], "gpt-multi-astra-high[1m]"
+        )
+        self.assertEqual(
+            astra["lanes"]["xhigh"]["client_selector"], "gpt-multi-astra-xhigh[1m]"
+        )
+        self.assertEqual(
+            astra["lanes"]["high"]["proxy_effort_contract"], "reasoning-effort-high"
+        )
+        self.assertEqual(
+            astra["lanes"]["xhigh"]["proxy_effort_contract"], "reasoning-effort-xhigh"
+        )
+        context = astra["context"]
+        self.assertEqual(context["client_tokens"], 1000000)
+        self.assertEqual(context["provider_tokens"], 1000000)
+        self.assertEqual(context["declared_tokens"], 1050000)
+        self.assertEqual(context["validated_tokens"], 200000)
+        self.assertIsNone(context["ordinary_profile"])
+        self.assertIsNone(context["scalar_tokens"])
+        # Evidence classes stay separated in the qualification: operator
+        # attestation pending the probe; probe may drop the fence to 272K.
+        self.assertIn("operator attests", context["qualification"])
+        self.assertIn("272,000", context["qualification"])
+        self.assertIn("acceptance probe", context["qualification"])
+
+    def test_muse_spark_pair_shape(self) -> None:
+        bundle = catalog.load_catalog(CATALOG_ROOT)
+        spark = bundle.models["muse-spark"]
+        contrib = bundle.models["muse-spark-contributor"]
+        self.assertEqual(spark["wire_model"], "muse-spark-1.3")
+        self.assertEqual(contrib["wire_model"], "muse-spark-1.3-contributor")
+        for model in (spark, contrib):
+            self.assertEqual(model["provider"], "meta")
+            self.assertEqual(model["capabilities"], ["lead", "agents"])
+            self.assertEqual(model["context"]["client_tokens"], 1000000)
+            self.assertEqual(model["context"]["provider_tokens"], 1000000)
+            self.assertEqual(model["context"]["declared_tokens"], 1048576)
+            self.assertEqual(model["context"]["validated_tokens"], 200000)
+            self.assertEqual(model["context"]["ordinary_profile"], "large")
+            self.assertEqual(
+                model["lanes"]["high"]["proxy_effort_contract"], "output-config-high"
+            )
+            self.assertEqual(
+                model["lanes"]["xhigh"]["proxy_effort_contract"], "output-config-xhigh"
+            )
+        self.assertEqual(spark["default_lane"], "xhigh")
+        self.assertEqual(contrib["default_lane"], "high")
+        self.assertEqual(
+            spark["client_selector"], "claude-multi-muse-spark-xhigh[1m]"
+        )
+        self.assertEqual(
+            contrib["client_selector"], "claude-multi-muse-spark-contributor-high[1m]"
+        )
+        # Contributor carries the privacy caveat in both routing surfaces.
+        self.assertIn("improve Meta products", contrib["context"]["qualification"])
+        self.assertIn("train Meta", contrib["routing_note"])
+        self.assertIn("100 RPM", contrib["routing_note"])
+
+    def test_meta_provider_contract_and_bearer_transport(self) -> None:
+        bundle = catalog.load_catalog(CATALOG_ROOT)
+        meta = bundle.providers["meta"]
+        self.assertEqual(meta["adapter"], "cliproxy-claude-compatible-v1")
+        self.assertEqual(meta["independence_family"], "meta")
+        self.assertEqual(
+            set(meta["payload_contracts"]),
+            {"output-config-high", "output-config-xhigh"},
+        )
+        self.assertEqual(meta["transport"]["base_url"], "https://api.meta.ai")
+        self.assertEqual(meta["transport"]["auth"]["kind"], "bearer")
+        self.assertEqual(
+            meta["transport"]["auth"]["secret_ref"], "env:META_CLAUDE_API_KEY"
+        )
+        self.assertIn("NO max", meta["support_note"])
+        self.assertIn("thinking always on", meta["support_note"])

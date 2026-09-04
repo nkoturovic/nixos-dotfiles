@@ -68,6 +68,26 @@
         "kind": "direct"
       }
     },
+    "meta": {
+      "adapter": "cliproxy-claude-compatible-v1",
+      "display": "Meta",
+      "independence_family": "meta",
+      "passthrough_routes": [],
+      "payload_contracts": [
+        "output-config-high",
+        "output-config-xhigh"
+      ],
+      "support": "locally-validated-experimental",
+      "support_note": "Meta Model API Anthropic Messages adapter: the SDK appends /v1/messages to https://api.meta.ai; Bearer META_CLAUDE_API_KEY. Effort via output_config.effort low/medium/high/xhigh (NO max); thinking always on (disabled -> 400); rejects stop_sequences/top_k/unknown top-level fields; named forced tool_choice -> 400; extra stop_reason 'refusal'. Contributor variant: outputs may train Meta products (privacy), 100 RPM cap. Route acceptance live-probe-gated.",
+      "transport": {
+        "auth": {
+          "kind": "bearer",
+          "secret_ref": "env:META_CLAUDE_API_KEY"
+        },
+        "base_url": "https://api.meta.ai",
+        "kind": "direct"
+      }
+    },
     "openai": {
       "adapter": "cliproxy-oauth-codex-v1",
       "display": "OpenAI",

@@ -288,7 +288,9 @@ class LeadNativeAndActionTests(unittest.TestCase):
 class FormEditorRenderTests(unittest.TestCase):
     def test_card_renders_sections_status_and_keybar(self) -> None:
         state = make_state()
-        _, win, _ = run_form(state, [ESC], height=42)
+        # 45 rows: the availability list grew three model rows (Astra + the
+        # two muse-spark variants), pushing Actions down by three lines.
+        _, win, _ = run_form(state, [ESC], height=45)
         text = win.text()
         self.assertIn("claude-multi / Edit default", text)
         for section in ("General", "Lead", "Availability", "Roles", "Native agents", "Actions"):
@@ -339,7 +341,11 @@ class FormEditorFieldTests(unittest.TestCase):
     def test_lead_select_list_changes_model(self) -> None:
         state = make_state()
         keys = nav_keys(state_screen := _screen(state), lambda r: r.kind == "lead")
-        outcome, _win, _ = run_form(state, keys + [ENTER, UP, UP, ENTER, ESC, ENTER])
+        # From opus5, four steps up land on kimi-k3 (Astra is agents-only so
+        # the muse-spark pair sits between kimi-k3 and opus in the lead list).
+        outcome, _win, _ = run_form(
+            state, keys + [ENTER, UP, UP, UP, UP, ENTER, ESC, ENTER]
+        )
         self.assertIsNone(outcome)
         self.assertEqual(state.lead_slot()["model"], "kimi-k3")
 

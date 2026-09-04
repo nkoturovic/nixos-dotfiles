@@ -179,6 +179,15 @@ _LISTING_SUPPORT = _freeze_descriptors({
         "auth": "none",
         "shape": "openai",
     },
+    "meta": {
+        # Documented GET /v1/models with Bearer; unverified 2026-09 — the
+        # descriptor pins the attempt shape now and flips to "verified" only
+        # after a separately approved probe.
+        "status": "attempt",
+        "url": "https://api.meta.ai/v1/models",
+        "auth": "bearer",
+        "shape": "openai",
+    },
 })
 
 
