@@ -690,7 +690,7 @@ class PerformLaunchTests(LaunchTestCase):
             hook_command=str(scope.hook_shim_path(self.root / "state")),
         )
         _, captured = self._perform(result, self._record())
-        self.assertEqual(captured["env"]["CLAUDE_CODE_MAX_CONTEXT_TOKENS"], "983616")
+        self.assertEqual(captured["env"]["CLAUDE_CODE_MAX_CONTEXT_TOKENS"], "800000")
 
     def test_no_provider_path_taken(self) -> None:
         # The readiness probe only ever touches the loopback stub; a gateway

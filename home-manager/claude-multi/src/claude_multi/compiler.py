@@ -20,6 +20,7 @@ from .composition import (
     LEAD_ID,
     ResolvedComposition,
     auto_compact_trigger,
+    operating_window,
 )
 
 if TYPE_CHECKING:  # avoid the runtime cycle: scope.py imports this module
@@ -236,6 +237,12 @@ def generate_lead_appendix(
         f"reactive trigger {resolved.lead.auto_compact_tokens}. Proactive summary "
         "preparation is runtime-controlled and may occur earlier."
     )
+    if resolved.auto_compact_window_tokens < resolved.lead.provider_context_tokens:
+        lines.append(
+            "- Operating ceiling: the process capacity above is capped below the "
+            "lead's configured provider bound by local operating policy (D63); "
+            "it is not a route-capability claim."
+        )
     if resolved.scalar_context_tokens is not None:
         lines.append(
             f"- Process scalar: CLAUDE_CODE_MAX_CONTEXT_TOKENS="
@@ -722,7 +729,11 @@ def direct_profile_selectors(docs: dict[str, Any], profile: str) -> tuple[str, .
 def direct_profile_context(
     docs: dict[str, Any], profile: str
 ) -> tuple[int | None, int, int]:
-    """Process scalar, capacity, and deterministic reactive trigger."""
+    """Process scalar, capacity, and deterministic reactive trigger.
+
+    The D63 operating ceiling applies to the profile minimum exactly as it
+    does to managed capacity; smaller member bounds still win.
+    """
 
     members = []
     for model_id, model in docs["models"]["models"].items():
@@ -746,10 +757,11 @@ def direct_profile_context(
         if model["context"]["scalar_tokens"] is not None
     ]
     process_scalar = (
-        min(scalar_values)
+        operating_window(min(scalar_values))
         if scalar_values and max(client_windows) < 1_000_000
         else None
     )
+    provider_window = operating_window(provider_window)
     trigger = auto_compact_trigger(provider_window)
     return process_scalar, provider_window, trigger
 

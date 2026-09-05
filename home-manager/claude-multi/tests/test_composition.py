@@ -315,7 +315,7 @@ class SnapshotTests(unittest.TestCase):
         self.assertEqual(snap["lead"]["model"], "opus5")
         self.assertEqual(len(snap["variants"]), 6)
         self.assertIsNone(snap["scalar_context_tokens"])
-        self.assertEqual(snap["auto_compact_window_tokens"], 1000000)
+        self.assertEqual(snap["auto_compact_window_tokens"], 800000)
         self.assertEqual(
             snap["native_agents"],
             {"explore": "replace", "plan": "native", "general_purpose": "off"},

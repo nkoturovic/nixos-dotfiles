@@ -57,6 +57,18 @@ WORKFLOWS_VOCABULARY = ("native", "off")
 AUTO_COMPACT_PERCENT = 90
 AUTO_COMPACT_OUTPUT_RESERVE = 20_000
 AUTO_COMPACT_REACTIVE_HEADROOM = 13_000
+# D63 operating default: 1M-class routes are capped to an 800K operating
+# window (reactive trigger 702K via auto_compact_trigger). This is a local
+# operating policy, not a route-capability claim: catalog client/provider/
+# declared/validated evidence fields stay untouched, so smaller route bounds
+# still narrow the window further and future/custom models are covered.
+OPERATING_WINDOW_CEILING = 800_000
+
+
+def operating_window(window_tokens: int) -> int:
+    """Clamp a derived operating window to the D63 ceiling (idempotent)."""
+
+    return min(window_tokens, OPERATING_WINDOW_CEILING)
 
 
 @dataclass(frozen=True)
@@ -79,14 +91,14 @@ def variant_id(role: str, model: str, lane: str) -> str:
 
 
 def compute_scalar(selected_models: list[dict[str, Any]]) -> int | None:
-    """Minimum explicit process scalar across selected models."""
+    """Minimum explicit process scalar across selected models (D63-capped)."""
 
     values = [
         model["context"]["scalar_tokens"]
         for model in selected_models
         if model["context"]["scalar_tokens"] is not None
     ]
-    return min(values) if values else None
+    return operating_window(min(values)) if values else None
 
 
 def auto_compact_trigger(window_tokens: int) -> int:
@@ -126,16 +138,25 @@ def compute_auto_compact_capacity(
         context = model["context"]
         if context["provider_tokens"] < context["client_tokens"]:
             capacity = min(capacity, context["provider_tokens"])
-    return capacity
+    return operating_window(capacity)
 
 
 def _lead_context_policy(model: dict[str, Any]) -> tuple[int, int, int]:
-    """Claude-client context, provider bound, and initial reactive trigger."""
+    """Claude-client context, provider bound, and initial reactive trigger.
+
+    The trigger is provisional (resolve() recomputes it from the shared
+    D63-capped capacity); the returned client/provider values stay raw
+    catalog evidence.
+    """
 
     context = model["context"]
     client_tokens = context["client_tokens"]
     provider_tokens = context["provider_tokens"]
-    return client_tokens, provider_tokens, auto_compact_trigger(provider_tokens)
+    return (
+        client_tokens,
+        provider_tokens,
+        auto_compact_trigger(operating_window(provider_tokens)),
+    )
 
 
 def validate_document(

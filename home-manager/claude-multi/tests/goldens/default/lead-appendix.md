@@ -22,7 +22,8 @@ Enabled provider families: anthropic, moonshot, openai.
 
 ## Context policy (generated)
 
-- Lead context: 1000000 client tokens; user-attested configured provider bound 1000000; process compaction capacity 1000000; deterministic reactive trigger 882000. Proactive summary preparation is runtime-controlled and may occur earlier.
+- Lead context: 1000000 client tokens; user-attested configured provider bound 1000000; process compaction capacity 800000; deterministic reactive trigger 702000. Proactive summary preparation is runtime-controlled and may occur earlier.
+- Operating ceiling: the process capacity above is capped below the lead's configured provider bound by local operating policy (D63); it is not a route-capability claim.
 - Context qualification: this configured provider bound is not near-limit benchmark-verified. It follows explicit route/operator attestation; live acceptance must confirm it before it is described as provider-safe.
 
 ## Standing rules (generated)

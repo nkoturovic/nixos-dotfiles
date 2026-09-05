@@ -281,9 +281,10 @@ class AgentDefinitionTests(unittest.TestCase):
         self.assertIn("never pass a per-invocation model override", prompt)
         self.assertIn("Lead context: 1000000 client tokens", prompt)
         self.assertIn(
-            "process compaction capacity 1000000; deterministic reactive trigger 882000",
+            "process compaction capacity 800000; deterministic reactive trigger 702000",
             prompt,
         )
+        self.assertIn("Operating ceiling", prompt)
         self.assertIn("Proactive summary preparation is runtime-controlled", prompt)
         # G0' sentinel: exact session UUID, no-substitution clause, relaunch.
         self.assertIn(f"Managed session: {FIXED_SESSION}", prompt)
@@ -464,8 +465,9 @@ class EnvironmentTests(unittest.TestCase):
         self.assertNotIn("CLAUDE_CODE_MAX_CONTEXT_TOKENS", result.env_set)
 
     def test_scalar_present_sets_exact_value(self) -> None:
-        # A rig with a sub-1M scalar member (qwen38: 983616) exports the exact
-        # process scalar; the all-1M default leaves it unset (test above).
+        # A rig with an explicit scalar member (qwen38: 983616) exports the
+        # D63-capped process scalar; the all-1M default leaves it unset
+        # (test above).
         import copy
 
         bundle = catalog.load_catalog(CATALOG_ROOT)
@@ -488,7 +490,7 @@ class EnvironmentTests(unittest.TestCase):
                 Path("/state"), strict_json.bundle_digest(snap), FIXED_SESSION
             ),
         )
-        self.assertEqual(result.env_set["CLAUDE_CODE_MAX_CONTEXT_TOKENS"], "983616")
+        self.assertEqual(result.env_set["CLAUDE_CODE_MAX_CONTEXT_TOKENS"], "800000")
         self.assertNotIn("CLAUDE_CODE_MAX_CONTEXT_TOKENS", result.env_unset)
 
     def test_env_set_and_unset(self) -> None:
@@ -524,10 +526,10 @@ class EnvironmentTests(unittest.TestCase):
         self.assertEqual(result.env_set["CLAUDE_MULTI_SESSION_ID"], FIXED_SESSION)
         self.assertEqual(result.env_set["DISABLE_AUTOUPDATER"], "1")
         # All-1M rig: no process scalar (unset kills any inherited cap);
-        # the window stays the lead's full bound.
+        # the window is the D63 operating ceiling, not the lead's full bound.
         self.assertNotIn("CLAUDE_CODE_MAX_CONTEXT_TOKENS", result.env_set)
         self.assertIn("CLAUDE_CODE_MAX_CONTEXT_TOKENS", result.env_unset)
-        self.assertEqual(result.env_set["CLAUDE_CODE_AUTO_COMPACT_WINDOW"], "1000000")
+        self.assertEqual(result.env_set["CLAUDE_CODE_AUTO_COMPACT_WINDOW"], "800000")
         self.assertEqual(result.env_set["CLAUDE_AUTOCOMPACT_PCT_OVERRIDE"], "90")
         self.assertNotIn("ANTHROPIC_AUTH_TOKEN", result.env_set)
 
@@ -565,7 +567,7 @@ class EnvironmentTests(unittest.TestCase):
                         docs["gateway"], docs["providers"]["providers"], resolved
                     )
 
-    def test_kimi_uses_1m_capacity_with_explicit_90_percent(self) -> None:
+    def test_kimi_uses_capped_capacity_with_explicit_90_percent(self) -> None:
         import copy
 
         bundle = catalog.load_catalog(CATALOG_ROOT)
@@ -587,11 +589,12 @@ class EnvironmentTests(unittest.TestCase):
         )
         self.assertIn("CLAUDE_CODE_AUTO_COMPACT_WINDOW", result.env_unset)
         self.assertIn("CLAUDE_AUTOCOMPACT_PCT_OVERRIDE", result.env_unset)
-        # Kimi remains a 1M main-loop lead. Claude
-        # Code caps each model, reserves 20K output, then applies the common
-        # preparation and reactive percentage policy to the prompt budget.
+        # Kimi remains a 1M-class main-loop lead, operated at the D63 800K
+        # ceiling. Claude Code caps each model, reserves 20K output, then
+        # applies the common preparation and reactive percentage policy to
+        # the prompt budget.
         self.assertEqual(
-            result.env_set["CLAUDE_CODE_AUTO_COMPACT_WINDOW"], "1000000"
+            result.env_set["CLAUDE_CODE_AUTO_COMPACT_WINDOW"], "800000"
         )
         self.assertEqual(result.env_set["CLAUDE_AUTOCOMPACT_PCT_OVERRIDE"], "90")
 
@@ -618,16 +621,17 @@ class CompactionPolicyTests(unittest.TestCase):
             ),
         )
 
-    def test_fable_lead_uses_1m_capacity_and_90_percent_trigger(self) -> None:
+    def test_fable_lead_uses_capped_capacity_and_90_percent_trigger(self) -> None:
         import copy
 
         bundle = catalog.load_catalog(CATALOG_ROOT)
         document = copy.deepcopy(bundle.default_composition)
-        # Default Fable lead stays at 1M even though selected Sol variants keep
-        # the process scalar at 372K. The effective lead trigger is 900K.
+        # Default Fable lead stays 1M-class; the D63 operating ceiling caps
+        # the process window at 800K (reactive trigger 702K) even though the
+        # selected Sol variants keep the process scalar unset.
         result = self._compile(document)
         self.assertEqual(
-            result.env_set["CLAUDE_CODE_AUTO_COMPACT_WINDOW"], "1000000"
+            result.env_set["CLAUDE_CODE_AUTO_COMPACT_WINDOW"], "800000"
         )
         self.assertEqual(result.env_set["CLAUDE_AUTOCOMPACT_PCT_OVERRIDE"], "90")
 
@@ -641,12 +645,14 @@ class CompactionPolicyTests(unittest.TestCase):
         document["availability"]["models"]["qwen38"] = "lead+agents"
         document["availability"]["providers"]["qwen"] = "lead+agents"
         result = self._compile(document)
+        # D63: qwen38's 983,616 bound narrows first, then the 800K operating
+        # ceiling applies on top (trigger 702K).
         self.assertEqual(
-            result.env_set["CLAUDE_CODE_AUTO_COMPACT_WINDOW"], "983616"
+            result.env_set["CLAUDE_CODE_AUTO_COMPACT_WINDOW"], "800000"
         )
         resolved = composition.resolve(bundle.docs, document)
-        self.assertEqual(resolved.auto_compact_window_tokens, 983616)
-        self.assertEqual(resolved.lead.auto_compact_tokens, 867254)
+        self.assertEqual(resolved.auto_compact_window_tokens, 800000)
+        self.assertEqual(resolved.lead.auto_compact_tokens, 702000)
 
     def test_explicit_provider_window_controls_compaction_capacity(self) -> None:
         import copy
@@ -707,12 +713,12 @@ class RuntimeIdentityAndDirectCompileTests(unittest.TestCase):
             result.scope_plan.settings["model"], "claude-multi-qwen38-max[1m]"
         )
         self.assertEqual(
-            result.env_set["CLAUDE_CODE_AUTO_COMPACT_WINDOW"], "983616"
+            result.env_set["CLAUDE_CODE_AUTO_COMPACT_WINDOW"], "800000"
         )
         self.assertEqual(result.env_set["CLAUDE_AUTOCOMPACT_PCT_OVERRIDE"], "90")
         self.assertEqual(
             compiler.direct_profile_context(bundle.docs, "large"),
-            (None, 983616, 867254),
+            (None, 800000, 702000),
         )
         self.assertNotIn("--agents", result.argv)
         self.assertNotIn("--append-system-prompt-file", result.argv)
@@ -773,9 +779,10 @@ class RuntimeIdentityAndDirectCompileTests(unittest.TestCase):
             result.scope_plan.settings["availableModels"],
             list(compiler.direct_profile_selectors(bundle.docs, "large")),
         )
-        # The large fence derives min(member bounds): qwen38's 983616.
+        # The large fence derives min(member bounds), then the D63 operating
+        # ceiling caps it at 800K (was qwen38's 983616 before the ceiling).
         self.assertNotIn("CLAUDE_CODE_MAX_CONTEXT_TOKENS", result.env_set)
-        self.assertEqual(result.env_set["CLAUDE_CODE_AUTO_COMPACT_WINDOW"], "983616")
+        self.assertEqual(result.env_set["CLAUDE_CODE_AUTO_COMPACT_WINDOW"], "800000")
         self.assertEqual(result.env_set["CLAUDE_AUTOCOMPACT_PCT_OVERRIDE"], "90")
         with self.assertRaises(compiler.CompilerError):
             compiler.direct_profile_context(bundle.docs, "sol")
@@ -804,9 +811,12 @@ class RuntimeIdentityAndDirectCompileTests(unittest.TestCase):
             declared_tokens=900000,
             validated_tokens=900000,
         )
+        # D63: an above-ceiling synthetic bound is capped to the operating
+        # window (the 400K grok rig above still proves below-ceiling
+        # passthrough, including the scalar).
         self.assertEqual(
             compiler.direct_profile_context(docs, "large"),
-            (None, 900000, 792000),
+            (None, 800000, 702000),
         )
 
 

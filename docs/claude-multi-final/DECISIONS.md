@@ -1355,6 +1355,58 @@ Max and GPT-5.6 Sol, repeat one approved canary, and only then activate. The
 failed canary proves no GLM-5.3 execution properties on Alibaba; the 200K
 GLM-5.2 evidence floor remains unchanged.
 
+**D62 — Astra (`gpt-6-astra`) + Meta muse-spark batch (catalog21→22,
+activated gen 134).** Gateway registry backport patch adds `gpt-6-astra` to
+the pinned 7.2.80 Codex tiers (272K ctx / 128K maxout metadata, mirroring the
+Opus-5 patch pattern); Astra was hidden in upstream discovery so the entry is
+required for routing. Catalog adds model `astra` (Codex OAuth route, 1M
+client/provider, declared 1.05M, validated floor 200K, lanes high+xhigh via
+the existing reasoning-effort contracts) plus provider `meta` (Anthropic
+Messages at `https://api.meta.ai`, bearer `META_CLAUDE_API_KEY`,
+`output_config.effort` high/xhigh — Meta has no max) with `muse-spark` and
+`muse-spark-contributor` (both 1M/1M/declared 1,048,576/validated 200K,
+`large` profile; contributor carries the outputs-train-Meta privacy caveat
+and 100 RPM note). One operator-approved bounded codex-route probe returned
+the expected reply (~310 input tokens): the route accepts Astra, but the 1M
+fence is unverified near-limit, so Astra joined `large` without lowering its
+fence (stays qwen38's 983,616) and `validated_tokens` stays 200,000. Astra
+became lead-capable in catalog22 (2.22.0). Activated at HM generation 134;
+`doctor --repair-all` converged 37 sessions; three Astra compositions
+(`astra`, `astra-muse`, `astra-qwen-muse`) were created via CompositionStore.
+Meta muse-spark is activated but NOT live-probed (approval-gated, still
+pending). Full handoff: `HANDOFF-ASTRA-BATCH.md`. WS4 (single-model mode for
+any model + `--no-subagents` + local Qwen adapter) was deliberately left
+unimplemented; spec preserved in the handoff. Rollback anchor: gen 134.
+
+**D63 — 1M-class operating window capped at 800K (2.23.0, catalog stays
+22).** Operator direction: the 1M default is too aggressive (Astra's route in
+particular is only acceptance-verified, not near-limit verified), so every
+1M-class model operates at an 800,000-token window by default. Implemented as
+one central clamp (`operating_window()` in `composition.py`, D63 ceiling
+constant) applied to final managed capacity, non-null scalars, and the
+ordinary-profile minimum — not as twelve per-model catalog edits. Rejected
+alternatives: (a) catalog-only `provider_tokens` edits — would force
+rewriting Kimi's `user_reported_tokens` attestation to satisfy the
+attested-bound invariant, stale a dozen "1M fence" qualifications/displays,
+and churn rendered `context-length` for direct providers; (b) ~900K/922K from
+the documented 1.05M−128K arithmetic — exact for the public API's stated max
+input, but Codex-OAuth-route equivalence is unverified and the operator set
+800K as the default. Smaller bounds (Grok 500K, GPT-5.5 258K, Qwen's
+tighter-than-client cases) are preserved: the clamp is `min()`, idempotent,
+and `auto_compact_trigger()` stays transparent arithmetic. Result: 800K
+window → 702K reactive trigger via the unchanged formula
+((800000−20000)×90//100); `[1m]` selectors, client/provider/declared/
+validated evidence, and Kimi's attestation are untouched. Rendered gateway
+YAML is byte-identical (OAuth aliases carry no context-length), so no
+gateway restart is required for correctness. The generated lead prompt gains
+one operating-ceiling line when capacity sits below the lead's configured
+bound; the ordinary large-group label reads "800K operating window". Same
+durability boundary as any policy change: launcher-mediated
+fresh/resume/repair inherit the cap; already-running processes keep their
+environment until relaunched. Source-complete with full suite green (2
+pre-existing environmental failures, proven on clean HEAD), package +
+sandbox builds green; activation is a separate operator gate.
+
 ## User decision summary (what you're approving by accepting this design)
 
 1. Selected agents become **real files** in a per-session scope; the failure

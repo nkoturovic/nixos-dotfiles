@@ -1,5 +1,29 @@
 # STATUS — live tracker
 
+## 2026-09-06 — D63: 1M-class operating window capped at 800K (2.23.0, source-complete, NOT activated)
+
+- **Goal**: Astra + all other 1M models use an 800K context window by default
+  (Astra's route is acceptance-verified only, not near-limit verified).
+- **Implementation**: one central `operating_window()` clamp
+  (`composition.py`, D63 ceiling constant) over final managed capacity,
+  non-null scalars, and the ordinary-profile minimum. 800K window → 702K
+  reactive trigger via the unchanged formula. Catalog evidence, `[1m]`
+  selectors, and Kimi's attestation untouched; rendered gateway YAML
+  byte-identical. Catalog-only per-model edits and ~900K/922K were considered
+  and rejected (see D63).
+- **Evidence**: 1,687 Python tests green except 2 pre-existing environmental
+  failures (proven failing on clean HEAD: a real 2.1.261 binary on disk trips
+  the doctor-Ready assertion; a tmp-checkout detection trips the override
+  test); `nix-build package.nix` green (2.23.0); sandbox suite green;
+  `git diff --check` clean; goldens re-blessed with line-by-line review (env
+  window, appendix capacity/trigger + one ceiling line, argv digests only).
+- **Not yet done**: activation needs the operator green light
+  (`home-manager switch`; rollback anchor gen 134). Running processes keep
+  their environment until relaunched. WS4 stays deferred; Meta muse-spark
+  live probe still approval-gated.
+- **Backfill**: the Astra+Meta batch (D62, 2.21.0/2.22.0, gen 134) was never
+  ledgered — recorded now in D62; full narrative in `HANDOFF-ASTRA-BATCH.md`.
+
 ## 2026-08-21 — GLM-5.3 Token Plan promotion blocked and reverted (D61, issue 027)
 
 - **Research correction**: GLM-5.2 did not replace GLM-5.1 in this repository;

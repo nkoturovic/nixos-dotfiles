@@ -3506,7 +3506,7 @@ class OrdinaryScreenTuiTests(CLITestCase):
         self.assertIsNone(result)
         text = win.text()
         self.assertIn("gateway session — no composition", text)
-        self.assertIn("large · 1M context", text)
+        self.assertIn("large · 800K operating window", text)
         self.assertIn("grok · 500K context", text)
         for model_id in ("deepseek-flash", "deepseek-pro", "fable", "glm52", "grok46", "kimi-k3", "muse-spark", "muse-spark-contributor", "opus", "opus5", "qwen38", "sol"):
             self.assertIn(model_id, text)
@@ -6159,7 +6159,7 @@ class SessionEventAndDirectModeTests(CLITestCase):
             "gpt-multi-sol-high[1m]",
         )
         self.assertEqual(
-            prepared.result.env_set["CLAUDE_CODE_AUTO_COMPACT_WINDOW"], "983616"
+            prepared.result.env_set["CLAUDE_CODE_AUTO_COMPACT_WINDOW"], "800000"
         )
         self.assertEqual(
             prepared.result.env_set["CLAUDE_AUTOCOMPACT_PCT_OVERRIDE"], "90"
@@ -8774,7 +8774,7 @@ class NewProviderCompositionTests(CLITestCase):
             },
         }
 
-    def test_all_flash_rig_resolves_with_1m_window(self) -> None:
+    def test_all_flash_rig_resolves_with_capped_window(self) -> None:
         doc = {
             "version": 1, "name": "deepseek-flash", "description": "test",
             "availability": self._availability(
@@ -8791,8 +8791,9 @@ class NewProviderCompositionTests(CLITestCase):
         resolved = self.runtime.resolve_document(doc)
         snap = composition.snapshot(resolved)
         self.assertEqual(resolved.lead.model, "deepseek-flash")
-        self.assertEqual(snap["auto_compact_window_tokens"], 1000000)
-        self.assertEqual(snap["lead"]["auto_compact_tokens"], 882000)
+        # D63: 1M-class rigs operate at the 800K ceiling (trigger 702K).
+        self.assertEqual(snap["auto_compact_window_tokens"], 800000)
+        self.assertEqual(snap["lead"]["auto_compact_tokens"], 702000)
 
     def test_deepseek_hybrid_routes_flash_scan_pro_implementation(self) -> None:
         doc = {
@@ -8815,7 +8816,7 @@ class NewProviderCompositionTests(CLITestCase):
         snap=composition.snapshot(resolved)
         self.assertEqual(resolved.lead.model,"deepseek-pro")
         self.assertEqual(snap["lead"]["client_selector"],"claude-multi-deepseek-pro-high[1m]")
-        self.assertEqual(snap["auto_compact_window_tokens"],1000000)
+        self.assertEqual(snap["auto_compact_window_tokens"],800000)
         by_role={v.role:v for v in resolved.variants if v.preferred}
         self.assertEqual(by_role["cm-analyst"].model,"deepseek-flash")
         self.assertEqual(by_role["cm-implementer"].model,"deepseek-pro")
@@ -8865,7 +8866,7 @@ class NewProviderDirectLaunchTests(CLITestCase):
         self.assertEqual(prepared.record["ordinary_model"], "deepseek-flash")
         self.assertEqual(prepared.record["context_profile"], "large")
         self.assertEqual(
-            prepared.result.env_set["CLAUDE_CODE_AUTO_COMPACT_WINDOW"], "983616"
+            prepared.result.env_set["CLAUDE_CODE_AUTO_COMPACT_WINDOW"], "800000"
         )
 
     def test_deepseek_pro_direct_launch_defaults_high_in_large_profile(self) -> None:
@@ -8876,7 +8877,7 @@ class NewProviderDirectLaunchTests(CLITestCase):
         self.assertEqual(prepared.record["context_profile"], "large")
         self.assertIn("claude-multi-deepseek-pro-high[1m]", prepared.result.argv)
         self.assertEqual(
-            prepared.result.env_set["CLAUDE_CODE_AUTO_COMPACT_WINDOW"], "983616"
+            prepared.result.env_set["CLAUDE_CODE_AUTO_COMPACT_WINDOW"], "800000"
         )
 
     def test_grok46_direct_launch_uses_xhigh_500k_window(self) -> None:

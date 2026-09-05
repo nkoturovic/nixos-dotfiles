@@ -62,6 +62,31 @@ class AutoCompactThresholdTests(unittest.TestCase):
             composition.auto_compact_trigger(33_000)
 
 
+class OperatingWindowCeilingTests(unittest.TestCase):
+    def test_ceiling_boundary_and_idempotence(self) -> None:
+        self.assertEqual(composition.operating_window(800_000), 800_000)
+        self.assertEqual(composition.operating_window(1_000_000), 800_000)
+        self.assertEqual(composition.operating_window(983_616), 800_000)
+        self.assertEqual(composition.operating_window(500_000), 500_000)
+        self.assertEqual(composition.operating_window(258_400), 258_400)
+
+    def test_capped_window_trigger_math(self) -> None:
+        # D63: an 800K operating window compacts reactively at 702K through
+        # the unchanged client formula; the raw 1M arithmetic is untouched.
+        self.assertEqual(
+            composition.auto_compact_trigger(composition.operating_window(1_000_000)),
+            702_000,
+        )
+        self.assertEqual(composition.auto_compact_trigger(1_000_000), 882_000)
+
+    def test_explicit_scalar_above_ceiling_is_capped(self) -> None:
+        selected = _models("qwen38")
+        self.assertEqual(composition.compute_scalar(selected), 800_000)
+
+    def test_explicit_scalar_below_ceiling_is_untouched(self) -> None:
+        self.assertEqual(composition.compute_scalar(_models("gpt55")), 258400)
+
+
 class ResolvedScalarTests(unittest.TestCase):
     def test_default_seed_scalar(self) -> None:
         bundle = catalog.load_catalog(CATALOG_ROOT)
@@ -71,8 +96,9 @@ class ResolvedScalarTests(unittest.TestCase):
     def test_default_mixed_scalar_models_keep_large_process_capacity(self) -> None:
         bundle = catalog.load_catalog(CATALOG_ROOT)
         resolved = composition.resolve(bundle.docs, bundle.default_composition)
-        self.assertEqual(resolved.auto_compact_window_tokens, 1_000_000)
-        self.assertEqual(resolved.lead.auto_compact_tokens, 882_000)
+        # D63: the 1M-class default composition operates at the 800K ceiling.
+        self.assertEqual(resolved.auto_compact_window_tokens, 800_000)
+        self.assertEqual(resolved.lead.auto_compact_tokens, 702_000)
 
     def test_qwen_variant_narrows_extended_process_capacity(self) -> None:
         bundle = catalog.load_catalog(CATALOG_ROOT)
@@ -83,21 +109,30 @@ class ResolvedScalarTests(unittest.TestCase):
         document["availability"]["providers"]["qwen"] = "lead+agents"
         resolved = composition.resolve(bundle.docs, document)
         self.assertEqual(resolved.lead.model, "opus5")
-        self.assertEqual(resolved.auto_compact_window_tokens, 983_616)
-        self.assertEqual(resolved.lead.auto_compact_tokens, 867_254)
+        # D63: qwen38's 983,616 bound would narrow the window, then the
+        # operating ceiling applies on top.
+        self.assertEqual(resolved.auto_compact_window_tokens, 800_000)
+        self.assertEqual(resolved.lead.auto_compact_tokens, 702_000)
 
     def test_every_supported_lead_has_explicit_context_and_compaction_policy(self) -> None:
         bundle = catalog.load_catalog(CATALOG_ROOT)
+        # D63: client/provider stay raw catalog evidence; the trigger comes
+        # from the 800K-capped operating window (702K) for every 1M-class
+        # lead, while sub-ceiling leads keep their own math.
         expected = {
-            "fable": (1_000_000, 1_000_000, 882_000),
-            "opus": (1_000_000, 1_000_000, 882_000),
-            "opus5": (1_000_000, 1_000_000, 882_000),
-            "kimi-k3": (1_000_000, 1_000_000, 882_000),
-            "deepseek-flash": (1_000_000, 1_000_000, 882_000),
-            "deepseek-pro": (1_000_000, 1_000_000, 882_000),
+            "fable": (1_000_000, 1_000_000, 702_000),
+            "opus": (1_000_000, 1_000_000, 702_000),
+            "opus5": (1_000_000, 1_000_000, 702_000),
+            "kimi-k3": (1_000_000, 1_000_000, 702_000),
+            "deepseek-flash": (1_000_000, 1_000_000, 702_000),
+            "deepseek-pro": (1_000_000, 1_000_000, 702_000),
             "grok46": (500_000, 500_000, 432_000),
-            "qwen38": (1_000_000, 983_616, 867_254),
-            "sol": (1_000_000, 1_000_000, 882_000),
+            "qwen38": (1_000_000, 983_616, 702_000),
+            "sol": (1_000_000, 1_000_000, 702_000),
+            "astra": (1_000_000, 1_000_000, 702_000),
+            "glm52": (1_000_000, 1_000_000, 702_000),
+            "muse-spark": (1_000_000, 1_000_000, 702_000),
+            "muse-spark-contributor": (1_000_000, 1_000_000, 702_000),
         }
         for model_id, values in expected.items():
             with self.subTest(model=model_id):

@@ -3734,7 +3734,7 @@ ORDINARY_SUBTITLE = (
     "no roster, no workflow pins"
 )
 ORDINARY_PROFILE_NOTES = {
-    "large": "1M context · /model switches freely within this group",
+    "large": "800K operating window · /model switches freely within this group",
     "grok": "500K context · /model switches freely within this group",
 }
 ORDINARY_PROFILE_NOTE_DEFAULT = "/model switches freely within this group"
