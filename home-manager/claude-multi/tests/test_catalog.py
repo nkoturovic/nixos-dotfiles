@@ -40,6 +40,7 @@ RETAINED_SELECTOR_BASES = {
     "claude-multi-muse-spark-xhigh",
     "claude-multi-muse-spark-contributor-high",
     "claude-multi-muse-spark-contributor-xhigh",
+    "claude-multi-qwen-flash-next",
 }
 REMOVED_PATTERNS = (
     "claude-multi-fable-5",
@@ -75,10 +76,10 @@ class SeedLoadTests(unittest.TestCase):
     def test_seed_loads_clean(self) -> None:
         bundle = catalog.load_catalog(CATALOG_ROOT)
         self.assertEqual(
-            set(bundle.providers), {"anthropic", "deepseek", "kimi", "meta", "openai", "openrouter", "qwen"}
+            set(bundle.providers), {"anthropic", "deepseek", "kimi", "meta", "openai", "openrouter", "qwen", "llm-local"}
         )
         self.assertEqual(
-            set(bundle.models), {"astra", "fable", "opus", "opus5", "kimi-k3", "sol", "gpt55", "qwen38", "glm52", "deepseek-flash", "deepseek-pro", "grok46", "muse-spark", "muse-spark-contributor"}
+            set(bundle.models), {"astra", "fable", "opus", "opus5", "kimi-k3", "sol", "gpt55", "qwen38", "glm52", "deepseek-flash", "deepseek-pro", "grok46", "muse-spark", "muse-spark-contributor", "qwen-flash-next"}
         )
         self.assertEqual(
             set(bundle.roles), {"cm-lead", "cm-analyst", "cm-reviewer", "cm-implementer"}

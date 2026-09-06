@@ -201,7 +201,7 @@ class SecretBoundaryTests(unittest.TestCase):
             return None
 
         result = _render(resolve_secret=resolver)
-        self.assertEqual(result.available_providers, ("anthropic", "openai"))
+        self.assertEqual(result.available_providers, ("anthropic", "llm-local", "openai"))
         self.assertEqual(len(result.unavailable), 5)
         self.assertEqual(
             {entry["provider"] for entry in result.unavailable}, {"kimi", "qwen", "deepseek", "openrouter", "meta"}
@@ -230,7 +230,7 @@ class SecretBoundaryTests(unittest.TestCase):
             else:
                 os.environ["KIMI_CLAUDE_API_KEY"] = prior
         self.assertNotIn("env-value-must-be-ignored", result.yaml)
-        self.assertEqual(result.available_providers, ("anthropic", "openai"))
+        self.assertEqual(result.available_providers, ("anthropic", "llm-local", "openai"))
 
     def test_resolver_value_used_verbatim(self) -> None:
         result = _render(resolve_secret=lambda name: "resolved-dummy-value")

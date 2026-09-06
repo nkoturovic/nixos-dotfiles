@@ -3736,6 +3736,7 @@ ORDINARY_SUBTITLE = (
 ORDINARY_PROFILE_NOTES = {
     "large": "800K operating window · /model switches freely within this group",
     "grok": "500K context · /model switches freely within this group",
+    "flash431": "320K operating window · keyless LAN route · /model switches freely within this group",
 }
 ORDINARY_PROFILE_NOTE_DEFAULT = "/model switches freely within this group"
 # Explicit catalog-id replacements for ordinary record re-pinning. This is
@@ -3907,7 +3908,7 @@ def _print_ordinary_listing(runtime: Runtime, output_stream: Any) -> None:
             )
     output_stream.write("  providers (local status; names only):\n")
     for fact in _provider_facts(runtime).facts:
-        kind_label = "OAuth pool" if fact["kind"] == "oauth-pool" else "direct key"
+        kind_label = _provider_kind_label(fact["kind"])
         output_stream.write(
             f"    {fact['id']}\t{kind_label} · {fact['credential']} · "
             f"{fact['expected']} rendered · {fact['served_note']}\n"
@@ -4576,6 +4577,16 @@ def _registry_id_for_wire(wire: str, taken: set[str]) -> str | None:
     return None
 
 
+def _provider_kind_label(kind: str) -> str:
+    """Short transport label for provider rows (018)."""
+
+    if kind == "oauth-pool":
+        return "OAuth pool"
+    if kind == "direct-openai":
+        return "keyless LAN"
+    return "direct key"
+
+
 def _connect_hint(runtime: Runtime, provider_id: str) -> str:
     """Exact per-provider connect instruction (018) — names/paths, no values."""
 
@@ -4585,6 +4596,11 @@ def _connect_hint(runtime: Runtime, provider_id: str) -> str:
         pool = transport["pool"]
         command = _OAUTH_LOGIN_COMMANDS.get(pool, f"{pool}-login")
         return f"run `claude-multi-proxy {command}` (OAuth sign-in)"
+    if transport["kind"] == "direct-openai":
+        return (
+            f"keyless LAN route at {transport['base_url']} (no credential; "
+            "the server must be up — no key to set here)"
+        )
     name = transport["auth"]["secret_ref"].removeprefix("env:")
     path = proxy_mod.secret_env_path(runtime.environ)
     return (
@@ -4647,6 +4663,12 @@ def _provider_facts(runtime: Runtime) -> ProviderFacts:
             )
             command = _OAUTH_LOGIN_COMMANDS.get(pool, f"{pool}-login")
             guidance = f"sign in: `claude-multi-proxy {command}`"
+            expected = render.provider_selectors(provider_id, provider, models)
+        elif kind == "direct-openai":
+            # Keyless LAN route: no secret exists, so the keyed branch
+            # below cannot apply.
+            credential = "keyless LAN"
+            guidance = f"server must be up at {transport['base_url']}"
             expected = render.provider_selectors(provider_id, provider, models)
         else:
             secret_ref = transport["auth"]["secret_ref"]
@@ -4768,7 +4790,7 @@ class _ProvidersScreen:
             row += 1
         row += 1
         for index, fact in enumerate(self.facts):
-            kind_label = "OAuth pool" if fact["kind"] == "oauth-pool" else "direct key"
+            kind_label = _provider_kind_label(fact["kind"])
             if fact.get("custom"):
                 kind_label += " · custom"
             head = f"{fact['display']} · {kind_label} · {fact['credential']}"
@@ -4902,6 +4924,20 @@ class _ProvidersScreen:
             if choice is None:
                 return
             # choice 0 falls through to the masked key entry below
+        if transport["kind"] == "direct-openai":
+            # Keyless LAN route: there is no credential to set — explain
+            # instead of opening the masked key entry.
+            tui.Modal(
+                f"{fact['display']} — keyless LAN route",
+                [
+                    f"no credential: requests go to {transport['base_url']}",
+                    "without Authorization (pinned executor omits it).",
+                    "If routes stay absent, the server is down or moved —",
+                    "check the host, then `claude-multi-proxy init` + restart.",
+                ],
+                buttons=(("Close", True),),
+            ).run(win, self.palette, background=self._draw)
+            return
         name = transport["auth"]["secret_ref"].removeprefix("env:")
         path = proxy_mod.secret_env_path(self.runtime.environ)
         modal = tui.Modal(

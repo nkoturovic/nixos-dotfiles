@@ -29,6 +29,9 @@ class RenderError(ValueError):
 
 # Pinned adapter payload contracts (trusted in-process protocol semantics).
 ADAPTER_PAYLOAD_CONTRACTS: dict[str, dict[str, dict[str, Any]]] = {
+    # Keyless OpenAI-compatible upstreams (LAN trust boundary): no payload
+    # params — the compat executor translates shape, never effort tiers.
+    "cliproxy-openai-compat-v1": {},
     "cliproxy-oauth-codex-v1": {
         "reasoning-effort-high": {
             "kind": "override",
@@ -198,9 +201,10 @@ def unavailable_providers(
 
     The rule mirrors the omission pass in ``build_config_document`` exactly:
     a direct provider whose secret resolves to None is unavailable; OAuth
-    pools always render. UIs that mark provider availability (the ordinary
-    gateway picker, D46) share it so their marking can never drift from
-    what the renderer actually serves; a parity test pins the two together.
+    pools and keyless direct-openai providers always render. UIs that mark
+    provider availability (the ordinary gateway picker, D46) share it so
+    their marking can never drift from what the renderer actually serves;
+    a parity test pins the two together.
     """
 
     unavailable: list[dict[str, str]] = []
@@ -277,13 +281,17 @@ def provider_selectors(
 
     OAuth pools always render (passthrough names + lane-derived aliases);
     direct providers render their lane aliases only when available (secret
-    resolved) — matching the config sections exactly.
+    resolved); direct-openai providers are keyless by construction, so they
+    render exactly like an available direct provider — matching the config
+    sections exactly.
     """
 
     if provider["transport"]["kind"] == "oauth-pool":
         return frozenset(
             entry["alias"] for entry in _alias_entries(provider_id, provider, models)
         )
+    if provider["transport"]["kind"] == "direct-openai":
+        available = True
     if not available:
         return frozenset()
     return frozenset(
@@ -301,7 +309,8 @@ def rendered_selectors(document: dict[str, Any]) -> frozenset[str]:
     themselves); direct sections serve the lane alias only — the gateway
     registers the alias as the public id, NOT the upstream wire name
     (verified live against a disposable loopback proxy: k3/qwen3.8-max/
-    glm-5.2 do not appear in /v1/models). The doctor served-models
+    glm-5.2 do not appear in /v1/models). OpenAI-compatibility sections
+    serve the same lane aliases. The doctor served-models
     cross-check compares this set against the running gateway's /v1/models.
     """
 
@@ -310,6 +319,9 @@ def rendered_selectors(document: dict[str, Any]) -> frozenset[str]:
         for entry in entries:
             selectors.add(entry["alias"])
     for section in document.get("claude-api-key", []):
+        for entry in section.get("models", []):
+            selectors.add(entry["alias"])
+    for section in document.get("openai-compatibility", []):
         for entry in section.get("models", []):
             selectors.add(entry["alias"])
     return frozenset(selectors)
@@ -430,6 +442,45 @@ def build_config_document(
         section["models"] = section_models
         direct_sections.append(section)
     document["claude-api-key"] = direct_sections
+
+    # Keyless OpenAI-compatible upstreams (direct-openai): only the pinned
+    # 7.2.80 fields — name, base-url, models with name/alias/display-name/
+    # force-mapping. No api-key-entries/headers/prefix/thinking: the pinned
+    # executor omits Authorization without a key (verified in source) and
+    # the LAN server is a text-only keyless trust boundary.
+    compat_sections: list[dict[str, Any]] = []
+    for provider_id in sorted(available):
+        provider = available[provider_id]
+        transport = provider["transport"]
+        if transport["kind"] != "direct-openai":
+            continue
+        section_models = []
+        seen_aliases = set()
+        for model_id in sorted(models):
+            model = models[model_id]
+            if model["provider"] != provider_id:
+                continue
+            for lane_id in sorted(model["lanes"]):
+                alias = _selector_base(model["lanes"][lane_id]["client_selector"])
+                if alias in seen_aliases:
+                    continue
+                seen_aliases.add(alias)
+                section_models.append(
+                    {
+                        "name": model["wire_model"],
+                        "alias": alias,
+                        "display-name": model["display"],
+                        "force-mapping": True,
+                    }
+                )
+        compat_sections.append(
+            {
+                "name": provider_id,
+                "base-url": transport["base_url"],
+                "models": section_models,
+            }
+        )
+    document["openai-compatibility"] = compat_sections
 
     overrides: list[dict[str, Any]] = []
     filters: list[dict[str, Any]] = []

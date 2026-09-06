@@ -3429,6 +3429,7 @@ class OrdinaryLaunchModelsTests(CLITestCase):
         self.assertEqual(
             groups,
             {
+                "flash431": ("qwen-flash-next",),
                 "grok": ("grok46",),
                 "large": ("astra", "deepseek-flash", "deepseek-pro", "fable", "glm52", "kimi-k3", "muse-spark", "muse-spark-contributor", "opus", "opus5", "qwen38", "sol"),
             },
@@ -3507,6 +3508,9 @@ class OrdinaryScreenTuiTests(CLITestCase):
         text = win.text()
         self.assertIn("gateway session — no composition", text)
         self.assertIn("large · 800K operating window", text)
+        self.assertIn("flash431 · 320K operating window", text)
+        self.assertIn("qwen-flash-next", text)
+        self.assertIn("Qwen3.8 Flash Next (local)", text)
         self.assertIn("grok · 500K context", text)
         for model_id in ("deepseek-flash", "deepseek-pro", "fable", "glm52", "grok46", "kimi-k3", "muse-spark", "muse-spark-contributor", "opus", "opus5", "qwen38", "sol"):
             self.assertIn(model_id, text)
@@ -3607,25 +3611,29 @@ class OrdinaryScreenTuiTests(CLITestCase):
         self.assertIn("terminal too small for the gateway picker", win.text())
 
     def test_floor_boundary_at_wide_width(self) -> None:
-        # Width 90 wraps the worst-case detail to one line: needed is 17,
-        # so 16 floors and 17 renders (exact boundary pins).
-        result, win, _screen = self._run(["\x1b"], height=16, width=90)
+        # Width 90 wraps the worst-case detail to one line: needed is 29
+        # (4 + 14 rows + 2x3 groups + 1 + 4 detail; the flash431 group added
+        # one row and one group), so 28 floors and 29 renders (exact pins).
+        result, win, _screen = self._run(["\x1b"], height=28, width=90)
         self.assertIsNone(result)
         self.assertIn("terminal too small for the gateway picker", win.text())
-        result, win, _screen = self._run(["\x1b"], height=17, width=90)
+        result, win, _screen = self._run(["\x1b"], height=29, width=90)
         self.assertIsNone(result)
         self.assertIn("gateway session — no composition", win.text())
+        self.assertNotIn("terminal too small", win.text())
 
     def test_full_reason_survives_minimum_width(self) -> None:
         # Width 44 must wrap, never truncate, the complete secret reference.
+        # Height 33 is the exact floor at this width (4 + 14 rows + 2x3
+        # groups + 1 + 8 wrapped detail).
         _result, win, _screen = self._run(
-            ["k", "k", "k", "k", "k", "k", "k", "\x1b"], width=44
+            ["k", "k", "k", "k", "k", "k", "k", "\x1b"], width=44, height=33
         )
         self.assertIn("env:QWEN_CLAUDE_API_KEY", win.text())
 
     def test_confirm_modal_intact_at_minimum_width(self) -> None:
         result, win, _screen = self._run(
-            ["k", "k", "k", "k", "k", "k", "k", "\n", "\n", "\x1b"], width=44
+            ["k", "k", "k", "k", "k", "k", "k", "\n", "\n", "\x1b"], width=44, height=33
         )
         self.assertIsNone(result)
         modal_frame = next(
@@ -4823,8 +4831,10 @@ class CustomModelsTests(CLITestCase):
 
         screen = cli._OrdinaryScreen(self.runtime, palette=tui.MONO_PALETTE)
         # The custom row sorts first; the cursor starts on sol — go up to it.
+        # Height 32 is the exact floor with the custom group present (4 + 15
+        # rows + 2x4 groups + 1 + 4 detail at width 90).
         keys = ["k"] * (len(screen.rows) - 1) + ["\x1b"]
-        win = FakeWindow(keys)
+        win = FakeWindow(keys, height=32)
         screen.run(win)
         text = win.text()
         self.assertIn("custom · 256K context", text)

@@ -131,6 +131,36 @@
                     ]
                   }
                 }
+              },
+              {
+                "type": "object",
+                "required": [
+                  "kind",
+                  "base_url",
+                  "auth"
+                ],
+                "additionalProperties": false,
+                "properties": {
+                  "kind": {
+                    "const": "direct-openai"
+                  },
+                  "base_url": {
+                    "type": "string",
+                    "pattern": "^http://[a-z0-9.-]+(:[0-9]+)?(/[a-z0-9._/-]*)?$"
+                  },
+                  "auth": {
+                    "type": "object",
+                    "required": [
+                      "kind"
+                    ],
+                    "additionalProperties": false,
+                    "properties": {
+                      "kind": {
+                        "const": "none"
+                      }
+                    }
+                  }
+                }
               }
             ]
           },

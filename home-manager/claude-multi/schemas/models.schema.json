@@ -44,7 +44,7 @@
               },
               "ordinary_profile": {
                 "oneOf": [
-                  { "enum": ["sol", "large", "grok"] },
+                  { "enum": ["sol", "large", "grok", "flash431"] },
                   { "type": "null" }
                 ]
               },

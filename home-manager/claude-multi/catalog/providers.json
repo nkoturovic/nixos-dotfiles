@@ -68,6 +68,22 @@
         "kind": "direct"
       }
     },
+    "llm-local": {
+      "adapter": "cliproxy-openai-compat-v1",
+      "display": "Local LLM",
+      "independence_family": "local",
+      "passthrough_routes": [],
+      "payload_contracts": [],
+      "support": "locally-validated-experimental",
+      "support_note": "Keyless LAN OpenAI-compatible route to ik_llama.cpp on bt-lab-02 (no credential; pinned executor omits Authorization without a key). Server window 431104 with 131072 completion reserve = 300032 input budget; catalog fence 320032 adds Claude's 20K reserve. Served alias must be listing-confirmed (assumed qwen3.8-flash-next per serving scripts) and route acceptance-probed before use; near-limit unvalidated.",
+      "transport": {
+        "auth": {
+          "kind": "none"
+        },
+        "base_url": "http://bt-lab-02.lan:8010/v1",
+        "kind": "direct-openai"
+      }
+    },
     "meta": {
       "adapter": "cliproxy-claude-compatible-v1",
       "display": "Meta",

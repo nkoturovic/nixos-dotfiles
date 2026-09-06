@@ -189,6 +189,14 @@ claude-api-key:
         owned-by: "alibaba"
         context-length: 983616
         force-mapping: true
+openai-compatibility:
+  - name: "llm-local"
+    base-url: "http://bt-lab-02.lan:8010/v1"
+    models:
+      - name: "qwen3.8-flash-next"
+        alias: "claude-multi-qwen-flash-next"
+        display-name: "Qwen3.8 Flash Next (local)"
+        force-mapping: true
 payload:
   override:
     - models:

@@ -288,9 +288,10 @@ class LeadNativeAndActionTests(unittest.TestCase):
 class FormEditorRenderTests(unittest.TestCase):
     def test_card_renders_sections_status_and_keybar(self) -> None:
         state = make_state()
-        # 45 rows: the availability list grew three model rows (Astra + the
-        # two muse-spark variants), pushing Actions down by three lines.
-        _, win, _ = run_form(state, [ESC], height=45)
+        # 47 rows: the availability list grew three model rows (Astra + the
+        # two muse-spark variants), then two more (llm-local provider +
+        # qwen-flash-next), pushing Actions down accordingly.
+        _, win, _ = run_form(state, [ESC], height=47)
         text = win.text()
         self.assertIn("claude-multi / Edit default", text)
         for section in ("General", "Lead", "Availability", "Roles", "Native agents", "Actions"):
