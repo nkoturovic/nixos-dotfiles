@@ -18,6 +18,14 @@
   (branch unpushed).
 - Full rationale: D64. Presets are created via CompositionStore at
   activation.
+- **Activated 2026-09-06 at HM generation 136** (operator green light):
+  healthz ok, doctor Ready (only the known 2.1.261 Attention), 38 sessions
+  recorded/durable with no collisions, 44 selectors served including
+  `claude-multi-qwen-flash-next` plus the Astra and gpt55 lanes. Presets
+  `muse-direct`, `muse-contributor-direct`, `qwen-local-direct` created via
+  CompositionStore (0600) and resolve-verified (muse leads 800000/702000;
+  qwen-local 320032/270028 — still gated on the alias decision + probes).
+  Rollback anchor stays gen 135.
 
 ## 2026-09-06 — D63: 1M-class operating window capped at 800K (2.23.0, source-complete, NOT activated)
 

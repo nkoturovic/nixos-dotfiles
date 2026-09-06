@@ -25,14 +25,14 @@
 - HM generation **135**, launcher 2.23.0/catalog22, doctor Ready.
 - 38 sessions recorded/durable. Rollback anchor for WS4 activation: **gen 135**.
 
-## Deltas that activation will apply (pending green light)
+## Activation 2026-09-06 (gen 136)
 
-- Launcher 2.23.0 → 2.24.0, catalog 22 → 23 (llm-local provider +
-  qwen-flash-next model + qualification prose).
-- Rendered gateway config gains the `openai-compatibility` section with
-  the llm-local entry (currently unrouteable until the alias gate clears).
-- G picker gains `flash431` + `single` sections; floor boundaries move
-  (exact pins in tests).
+- `home-manager switch` applied; gateway restarted; healthz `{"status":"ok"}`.
+- `claude-multi doctor`: **Ready** (only the by-design 2.1.261 Attention);
+  38 sessions recorded/durable, no collisions.
+- 44 selectors served, incl. `claude-multi-qwen-flash-next` and the Astra +
+  gpt55 lanes (route presence only — qwen-local still unrouteable until
+  the alias gate clears).
 - Presets `muse-direct`, `muse-contributor-direct`, `qwen-local-direct`
-  to be created via CompositionStore at activation (0600), then validated.
-- `home-manager switch` restarts the gateway per standing procedure.
+  created via CompositionStore (0600) and resolve-verified. Rollback
+  anchor stays gen 135.
