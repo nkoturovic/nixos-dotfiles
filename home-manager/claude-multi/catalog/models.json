@@ -597,7 +597,7 @@
         "declared_tokens": 431104,
         "ordinary_profile": "flash431",
         "provider_tokens": 320032,
-        "qualification": "Local ik_llama.cpp (bt-lab-02 LAN, keyless OpenAI-compatible): live /props n_ctx=431104, completion reserve 131072 = 300032 input budget; fence 320032 adds Claude Code's 20K reserve (trigger 270028). LAN listing 2026-09-06 serves the GGUF-path id with no alias, so wire qwen3.8-flash-next needs a server --alias (loadtest.sh convention) or a wire change - unrouteable until then; acceptance/near-limit unverified. Text-only; recall at depth unqualified per serving docs.",
+        "qualification": "Local ik_llama.cpp (bt-lab-02 LAN, keyless OpenAI-compatible): live /props n_ctx=431104, completion reserve 131072 = 300032 input budget; fence 320032 adds Claude Code's 20K reserve (trigger 270028). Acceptance-probed 2026-09-06 direct + via gateway (server accepts the qwen3.8-flash-next name; force-mapping returns our alias). Production serves the GGUF-path id with no alias yet (a server --alias is future work); the GGUF id keeps working for direct LAN users. Near-limit unverified. Text-only; recall at depth unqualified per serving docs.",
         "scalar_tokens": null,
         "validated_tokens": 200000
       },

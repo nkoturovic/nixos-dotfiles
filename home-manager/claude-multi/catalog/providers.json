@@ -75,7 +75,7 @@
       "passthrough_routes": [],
       "payload_contracts": [],
       "support": "locally-validated-experimental",
-      "support_note": "Keyless LAN OpenAI-compatible route to ik_llama.cpp on bt-lab-02 (no credential; pinned executor omits Authorization without a key). Server window 431104 with 131072 completion reserve = 300032 input budget; catalog fence 320032 adds Claude's 20K reserve. LAN listing 2026-09-06 serves the GGUF-path id with no alias: the wire needs a server --alias or a wire change before use; near-limit unvalidated.",
+      "support_note": "Keyless LAN OpenAI-compatible route to ik_llama.cpp on bt-lab-02 (no credential; pinned executor omits Authorization without a key). Server window 431104 with 131072 completion reserve = 300032 input budget; catalog fence 320032 adds Claude's 20K reserve. Acceptance-probed 2026-09-06 direct + via gateway (alias returns correctly). No server alias yet (future work); the GGUF-path id keeps working directly. Near-limit unvalidated.",
       "transport": {
         "auth": {
           "kind": "none"
