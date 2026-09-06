@@ -494,8 +494,15 @@ def compile_ordinary_scope(
     launch_epoch: int = 0,
     gateway_base_url: str | None = None,
     token_helper_command: str | None = None,
+    no_subagents: bool = False,
 ) -> ScopePlan:
-    """Minimal tracked gateway scope: hooks and a context-safe model fence."""
+    """Minimal tracked gateway scope: hooks and a context-safe model fence.
+
+    ``no_subagents`` hard-denies the whole Agent tool in compiled settings
+    (whole-tool deny, not per-variant): the session cannot delegate, to a
+    generated variant or natively. Applied after the lifecycle merge so no
+    lifecycle default can overwrite it.
+    """
 
     models = sorted(set(available_models))
     if not models:
@@ -514,6 +521,8 @@ def compile_ordinary_scope(
             token_helper_command=token_helper_command,
         ),
     }
+    if no_subagents:
+        settings["permissions"] = {"deny": ["Agent"]}
     unknown = sorted(set(settings) - COMPILED_SETTINGS_KEYS)
     if unknown:
         raise ScopeError(

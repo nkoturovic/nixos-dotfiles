@@ -306,7 +306,7 @@ def make_ordinary_record(
     runtime_session_id: str | None,
     cwd: str,
     model: str,
-    context_profile: str,
+    context_profile: str | None,
     catalog_version: int,
     catalog_hash: str,
     launcher_version: str,
@@ -315,6 +315,7 @@ def make_ordinary_record(
     launch_epoch: int = 0,
     mode: str = "durable",
     scope_generation: int = 1,
+    no_subagents: bool = False,
 ) -> dict[str, Any]:
     """Build an ordinary gateway v3 record with no composition semantics."""
 
@@ -333,6 +334,7 @@ def make_ordinary_record(
         "cwd": cwd,
         "ordinary_model": model,
         "context_profile": context_profile,
+        "no_subagents": bool(no_subagents),
         "mode": mode,
         "scope_generation": scope_generation,
         "catalog_version": catalog_version,
@@ -676,7 +678,14 @@ def reconcile_runtime_record(
         if observed_model and model is None:
             updated["observed_model"] = observed_model
         elif model:
-            if model_profile != current["context_profile"]:
+            if model_profile != current["context_profile"] or (
+                # Null-profile (single-model) records share no fence: same
+                # profile-None does NOT imply same model, so a different
+                # reconciled model must stay an observation, never a re-pin
+                # (the live scope still fences the recorded model).
+                current["context_profile"] is None
+                and model != current["ordinary_model"]
+            ):
                 updated["observed_model"] = observed_model or model
             else:
                 updated["ordinary_model"] = model

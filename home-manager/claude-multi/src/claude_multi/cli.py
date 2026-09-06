@@ -566,8 +566,14 @@ class Runtime:
         model_id: str | None,
         passthrough: list[str],
         session_id: str | None = None,
+        no_subagents: bool | None = None,
     ) -> PreparedLaunch:
-        """Prepare an ordinary gateway session with no composition semantics."""
+        """Prepare an ordinary gateway session with no composition semantics.
+
+        ``no_subagents`` is tri-state: None re-applies the record on resume
+        (False on fresh), True/False are explicit — an explicit value that
+        mismatches the record is rejected instead of silently re-fencing.
+        """
 
         prior: dict[str, Any] | None = None
         pin_model = action == "fresh" or model_id is not None
@@ -610,7 +616,25 @@ class Runtime:
             raise CLIError(f"unknown direct launch action {action!r}")
 
         launch_epoch = 1 if prior is None else prior.get("launch_epoch", 0) + 1
-        profile = compiler.direct_context_profile(self.ordinary_docs, selected_model)
+        if prior is None:
+            subagents_denied = bool(no_subagents)
+        else:
+            recorded = bool(prior.get("no_subagents", False))
+            if no_subagents is not None and bool(no_subagents) != recorded:
+                raise CLIError(
+                    "explicit --no-subagents does not match the recorded session "
+                    f"({'on' if recorded else 'off'}) — relaunch fresh to change "
+                    "the subagent policy instead of silently re-fencing a transcript"
+                )
+            subagents_denied = recorded
+        try:
+            profile = compiler.direct_context_profile(
+                self.ordinary_docs, selected_model
+            )
+        except compiler.CompilerError:
+            # Single-model path: profile-less models record a null profile;
+            # launch.py/transition.py rebuild their fence from the model.
+            profile = None
         scope_dir = scope_mod.scope_dir(self.session_store.root, stable_id)
         result = compiler.compile_direct_launch(
             docs=self.ordinary_docs,
@@ -624,6 +648,7 @@ class Runtime:
             launch_epoch=launch_epoch,
             token_helper_command=self.token_helper_command,
             session_cwd=prior["cwd"] if prior is not None else self.cwd,
+            no_subagents=subagents_denied,
         )
         if prior is None:
             record = sessions.make_ordinary_record(
@@ -636,12 +661,14 @@ class Runtime:
                 catalog_hash=self.catalog.bundle_sha256,
                 launcher_version=self.launcher_version,
                 launch_epoch=launch_epoch,
+                no_subagents=subagents_denied,
             )
         else:
             record = {
                 **prior,
                 "ordinary_model": selected_model,
                 "context_profile": profile,
+                "no_subagents": subagents_denied,
                 "mode": "durable",
                 "scope_generation": prior.get("scope_generation", 0) + 1,
                 "launch_epoch": launch_epoch,
@@ -767,6 +794,7 @@ def build_parser() -> argparse.ArgumentParser:
         "direct", help="launch an ordinary gateway session without a composition"
     )
     direct_parser.add_argument("--model", dest="direct_model", help="catalog or custom-registry model id (see `claude-multi models` and `claude-multi custom list`)")
+    direct_parser.add_argument("--no-subagents", action="store_true", default=argparse.SUPPRESS, help="hard-deny subagent delegation for this session (recorded; resume re-applies it, a mismatching explicit flag is rejected)")
     direct_parser.add_argument("--force", action="store_true", default=argparse.SUPPRESS, help="resume despite a background-liveness marker (only bypasses the heuristic ● check)")
     direct_parser.add_argument("--print-launch", action="store_true")
     direct_identity = direct_parser.add_mutually_exclusive_group()
@@ -3676,17 +3704,35 @@ class _SessionsScreen:
             self.message = f"already on {picked}"
             return None
         old_profile = record["context_profile"]
-        new_profile = compiler.direct_context_profile(
-            self.runtime.ordinary_docs, picked
-        )
-        profile_line = (
-            f"same context profile ({old_profile})"
-            if new_profile == old_profile
-            else (
+        try:
+            new_profile = compiler.direct_context_profile(
+                self.runtime.ordinary_docs, picked
+            )
+        except compiler.CompilerError:
+            new_profile = None
+        if (old_profile is None) != (new_profile is None):
+            # Cross-class switches (profile fence vs own-model fence) rebuild
+            # the scope from a different authority — refuse with the explicit
+            # relaunch instead of silently re-fencing. Deliberately symmetric:
+            # profile-to-profile switches keep their grandfathered confirmed
+            # rebuild, but entering or leaving a one-model fence mid-transcript
+            # re-scopes what /model can address, so both crossings relaunch.
+            old_label = old_profile if old_profile is not None else "single-model"
+            new_label = new_profile if new_profile is not None else "single-model"
+            self.message = (
+                f"cross-class switch refused ({old_label} → {new_label}) — "
+                "relaunch a fresh session on the new model instead"
+            )
+            return None
+        if old_profile is None:
+            profile_line = "same single-model class (own-model fence)"
+        elif new_profile == old_profile:
+            profile_line = f"same context profile ({old_profile})"
+        else:
+            profile_line = (
                 f"context profile {old_profile} → {new_profile} — the scope "
                 "fence and compaction policy are rebuilt"
             )
-        )
         confirmed = tui.Modal(
             "Switch model?",
             [
@@ -3737,6 +3783,7 @@ ORDINARY_PROFILE_NOTES = {
     "large": "800K operating window · /model switches freely within this group",
     "grok": "500K context · /model switches freely within this group",
     "flash431": "320K operating window · keyless LAN route · /model switches freely within this group",
+    "single": "single-model sessions · each model fenced to itself · cross-section switch needs a relaunch",
 }
 ORDINARY_PROFILE_NOTE_DEFAULT = "/model switches freely within this group"
 # Explicit catalog-id replacements for ordinary record re-pinning. This is
@@ -3895,7 +3942,7 @@ def _print_ordinary_listing(runtime: Runtime, output_stream: Any) -> None:
     output_stream.write(
         "ordinary gateway sessions (no composition; /model within a group):\n"
     )
-    for profile, model_ids in compiler.ordinary_launch_models(runtime.ordinary_docs).items():
+    for profile, model_ids in compiler.ordinary_picker_groups(runtime.ordinary_docs).items():
         note = ORDINARY_PROFILE_NOTES.get(profile, ORDINARY_PROFILE_NOTE_DEFAULT)
         output_stream.write(f"  {profile} · {note}:\n")
         for model_id in model_ids:
@@ -4141,7 +4188,7 @@ class _OrdinaryScreen:
         self.runtime = runtime
         self.palette = palette
         self.purpose = purpose
-        self.groups = compiler.ordinary_launch_models(runtime.ordinary_docs)
+        self.groups = compiler.ordinary_picker_groups(runtime.ordinary_docs)
         self.rows = [
             model_id for model_ids in self.groups.values() for model_id in model_ids
         ]
@@ -4452,7 +4499,7 @@ class _OrdinaryScreen:
                 ).run(win, self.palette, background=self._draw)
                 if confirmed:
                     custom.remove_model(self.runtime.environ, picked_id)
-                    self.groups = compiler.ordinary_launch_models(self.runtime.ordinary_docs)
+                    self.groups = compiler.ordinary_picker_groups(self.runtime.ordinary_docs)
                     self.rows = [
                         m for ids in self.groups.values() for m in ids
                     ]
@@ -6306,7 +6353,7 @@ _SESSION_START_SOURCES = frozenset({"startup", "resume", "clear", "compact", "fo
 
 def _direct_model_for_selector(
     runtime: Runtime, selector: str
-) -> tuple[str, str] | None:
+) -> tuple[str, str | None] | None:
     return compiler.direct_model_for_selector(runtime.ordinary_docs, selector)
 
 
@@ -6900,13 +6947,18 @@ def handle_command(
             # Cross-profile relaunch swaps the scope's fence/compaction policy:
             # surface the same live-process caution a managed transition gates.
             prior_record = runtime.session_store.resolve(identifier)
-            new_profile = compiler.direct_context_profile(
-                runtime.ordinary_docs, args.direct_model
-            )
+            try:
+                new_profile = compiler.direct_context_profile(
+                    runtime.ordinary_docs, args.direct_model
+                )
+            except compiler.CompilerError:
+                new_profile = None
             if new_profile != prior_record["context_profile"]:
+                old_label = prior_record["context_profile"] or "single-model"
+                new_label = new_profile or "single-model"
                 output_stream.write(
-                    f"note: cross-profile relaunch ({prior_record['context_profile']}"
-                    f" -> {new_profile}) replaces the session scope before the new "
+                    f"note: cross-profile relaunch ({old_label}"
+                    f" -> {new_label}) replaces the session scope before the new "
                     "process starts; make sure the previous process has exited.\n"
                 )
         prepared = runtime.prepare_direct(
@@ -6914,6 +6966,7 @@ def handle_command(
             model_id=args.direct_model,
             passthrough=list(passthrough or []),
             session_id=identifier,
+            no_subagents=getattr(args, "no_subagents", None),
         )
         if args.print_launch:
             _print_launch_plan(prepared, output_stream)
@@ -7533,14 +7586,20 @@ def _check_scope_integrity(runtime: Runtime, record: dict[str, Any]) -> tuple[st
     if record["session_type"] == sessions.SESSION_TYPE_ORDINARY:
         # A retired ordinary profile (e.g. 'sol' after D57) can never
         # recompile — --repair would just error. Point at the re-pinning
-        # resume instead (review sweep, 023).
+        # resume instead (review sweep, 023). Null-profile (single-model)
+        # records verify through the model's own context instead.
         try:
-            compiler.direct_context_profile(
-                runtime.ordinary_docs, record["ordinary_model"]
-            )
-            compiler.direct_profile_selectors(
-                runtime.ordinary_docs, record["context_profile"]
-            )
+            if record["context_profile"] is None:
+                compiler.direct_single_model_context(
+                    runtime.ordinary_docs, record["ordinary_model"]
+                )
+            else:
+                compiler.direct_context_profile(
+                    runtime.ordinary_docs, record["ordinary_model"]
+                )
+                compiler.direct_profile_selectors(
+                    runtime.ordinary_docs, record["context_profile"]
+                )
         except compiler.CompilerError as exc:
             replacement = _ordinary_replacement_model(
                 runtime, record["ordinary_model"]
@@ -7566,12 +7625,18 @@ def _check_scope_integrity(runtime: Runtime, record: dict[str, Any]) -> tuple[st
             )
     try:
         if record["session_type"] == sessions.SESSION_TYPE_ORDINARY:
+            if record["context_profile"] is None:
+                available_models = compiler.direct_single_model_selectors(
+                    runtime.ordinary_docs, record["ordinary_model"]
+                )
+            else:
+                available_models = compiler.direct_profile_selectors(
+                    runtime.ordinary_docs, record["context_profile"]
+                )
             expected = scope_mod.compile_ordinary_scope(
                 managed_id=session_id,
                 hook_command=runtime.hook_command,
-                available_models=compiler.direct_profile_selectors(
-                    runtime.ordinary_docs, record["context_profile"]
-                ),
+                available_models=available_models,
                 default_model=runtime.ordinary_docs["models"]["models"][
                     record["ordinary_model"]
                 ]["client_selector"],
@@ -7653,9 +7718,16 @@ def _doctor_scope_report(runtime: Runtime) -> tuple[list[str], list[str], list[s
         state_label = record.get("identity_state", sessions.IDENTITY_UNVERIFIED)
         if record["session_type"] == sessions.SESSION_TYPE_ORDINARY:
             try:
-                _scalar, window, trigger = compiler.direct_profile_context(
-                    runtime.ordinary_docs, record["context_profile"]
-                )
+                if record["context_profile"] is None:
+                    _scalar, window, trigger = compiler.direct_single_model_context(
+                        runtime.ordinary_docs, record["ordinary_model"]
+                    )
+                    profile_label = "single-model"
+                else:
+                    _scalar, window, trigger = compiler.direct_profile_context(
+                        runtime.ordinary_docs, record["context_profile"]
+                    )
+                    profile_label = f"profile {record['context_profile']}"
                 replacement = _ordinary_replacement_model(
                     runtime, record["ordinary_model"]
                 )
@@ -7669,24 +7741,35 @@ def _doctor_scope_report(runtime: Runtime) -> tuple[list[str], list[str], list[s
                     )
                     target = (
                         f"ordinary model {record['ordinary_model']} (replaced by "
-                        f"{replacement}) · profile {record['context_profile']} · "
+                        f"{replacement}) · {profile_label} · "
                         f"compact capacity {window} / reactive trigger {trigger}"
                     )
                 else:
                     target = (
-                        f"ordinary model {record['ordinary_model']} · profile "
-                        f"{record['context_profile']} · compact capacity {window} / "
+                        f"ordinary model {record['ordinary_model']} · {profile_label} · "
+                        f"compact capacity {window} / "
                         f"reactive trigger {trigger}"
                     )
             except compiler.CompilerError:
                 # A catalog update that renamed/removed the profile is exactly
                 # the drift doctor exists to report — never abort the run.
-                target = (
-                    f"ordinary model {record['ordinary_model']} · profile "
-                    f"{record['context_profile']} (no longer in the installed catalog)"
-                )
+                if record["context_profile"] is None:
+                    target = (
+                        f"ordinary model {record['ordinary_model']} · single-model "
+                        "(no longer in the installed catalog)"
+                    )
+                else:
+                    target = (
+                        f"ordinary model {record['ordinary_model']} · profile "
+                        f"{record['context_profile']} (no longer in the installed catalog)"
+                    )
                 problems.append(
                     f"session {sessions.managed_id(record)} records ordinary "
+                    f"model {record['ordinary_model']!r} as single-model, which the "
+                    "installed catalog no longer provides; resume it with an "
+                    "explicit supported `--model` to re-pin it"
+                    if record["context_profile"] is None
+                    else f"session {sessions.managed_id(record)} records ordinary "
                     f"profile {record['context_profile']!r}, which the installed "
                     "catalog no longer provides; resume it with an explicit "
                     "supported `--model` to re-pin its profile"

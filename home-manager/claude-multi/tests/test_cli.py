@@ -3503,7 +3503,7 @@ class OrdinaryScreenTuiTests(CLITestCase):
         self.assertNotIn("Enter launch", text)
 
     def test_renders_groups_models_and_availability(self) -> None:
-        result, win, _screen = self._run(["\x1b"])
+        result, win, _screen = self._run(["\x1b"], height=32)
         self.assertIsNone(result)
         text = win.text()
         self.assertIn("gateway session — no composition", text)
@@ -3511,6 +3511,8 @@ class OrdinaryScreenTuiTests(CLITestCase):
         self.assertIn("flash431 · 320K operating window", text)
         self.assertIn("qwen-flash-next", text)
         self.assertIn("Qwen3.8 Flash Next (local)", text)
+        self.assertIn("single ·", text)
+        self.assertIn("gpt55", text)
         self.assertIn("grok · 500K context", text)
         for model_id in ("deepseek-flash", "deepseek-pro", "fable", "glm52", "grok46", "kimi-k3", "muse-spark", "muse-spark-contributor", "opus", "opus5", "qwen38", "sol"):
             self.assertIn(model_id, text)
@@ -3611,29 +3613,30 @@ class OrdinaryScreenTuiTests(CLITestCase):
         self.assertIn("terminal too small for the gateway picker", win.text())
 
     def test_floor_boundary_at_wide_width(self) -> None:
-        # Width 90 wraps the worst-case detail to one line: needed is 29
-        # (4 + 14 rows + 2x3 groups + 1 + 4 detail; the flash431 group added
-        # one row and one group), so 28 floors and 29 renders (exact pins).
-        result, win, _screen = self._run(["\x1b"], height=28, width=90)
+        # Width 90 wraps the worst-case detail to one line: needed is 32
+        # (4 + 15 rows + 2x4 groups + 1 + 4 detail; the flash431 group and
+        # the single-model section added one row + two groups over the D63
+        # 29), so 31 floors and 32 renders (exact pins).
+        result, win, _screen = self._run(["\x1b"], height=31, width=90)
         self.assertIsNone(result)
         self.assertIn("terminal too small for the gateway picker", win.text())
-        result, win, _screen = self._run(["\x1b"], height=29, width=90)
+        result, win, _screen = self._run(["\x1b"], height=32, width=90)
         self.assertIsNone(result)
         self.assertIn("gateway session — no composition", win.text())
         self.assertNotIn("terminal too small", win.text())
 
     def test_full_reason_survives_minimum_width(self) -> None:
         # Width 44 must wrap, never truncate, the complete secret reference.
-        # Height 33 is the exact floor at this width (4 + 14 rows + 2x3
+        # Height 36 is the exact floor at this width (4 + 15 rows + 2x4
         # groups + 1 + 8 wrapped detail).
         _result, win, _screen = self._run(
-            ["k", "k", "k", "k", "k", "k", "k", "\x1b"], width=44, height=33
+            ["k", "k", "k", "k", "k", "k", "k", "\x1b"], width=44, height=36
         )
         self.assertIn("env:QWEN_CLAUDE_API_KEY", win.text())
 
     def test_confirm_modal_intact_at_minimum_width(self) -> None:
         result, win, _screen = self._run(
-            ["k", "k", "k", "k", "k", "k", "k", "\n", "\n", "\x1b"], width=44, height=33
+            ["k", "k", "k", "k", "k", "k", "k", "\n", "\n", "\x1b"], width=44, height=36
         )
         self.assertIsNone(result)
         modal_frame = next(
@@ -3674,14 +3677,15 @@ class OrdinaryScreenTuiTests(CLITestCase):
 
     def test_empty_catalog_never_indexes_or_launches(self) -> None:
         # Defense parity with the sessions screen's empty guard: a catalog
-        # with no ordinary-capable models renders a note and ignores Enter.
+        # with no models at all renders a note and ignores Enter.
+        # (Nulling profiles no longer empties the picker: profile-less
+        # models are offered as single-model sessions.)
         import copy as _copy
         import dataclasses as _dc
         from test_tui import FakeWindow
 
         docs = _copy.deepcopy(self.runtime.catalog.docs)
-        for model in docs["models"]["models"].values():
-            model["context"]["ordinary_profile"] = None
+        docs["models"]["models"] = {}
         self.runtime.catalog = _dc.replace(self.runtime.catalog, docs=docs)
         result, win, _screen = self._run(["j", "k", "\n", "\x1b"])
         self.assertIsNone(result)
@@ -4245,16 +4249,16 @@ class OrdinarySelectorDetailTests(CLITestCase):
         return result, win, screen
 
     def test_selected_row_shows_typed_selector(self) -> None:
-        _result, win, _screen = self._run(["k", "\x1b"])  # sol -> qwen38
+        _result, win, _screen = self._run(["k", "\x1b"], height=32)  # sol -> qwen38
         self.assertIn("in-session: /model claude-multi-qwen38-max[1m]", win.text())
 
     def test_sol_row_shows_both_lane_selectors(self) -> None:
-        _result, win, _screen = self._run(["\x1b"])  # starts on sol
+        _result, win, _screen = self._run(["\x1b"], height=32)  # starts on sol
         self.assertIn("/model gpt-multi-sol-high", win.text())
         self.assertIn("/model gpt-multi-sol-xhigh", win.text())
 
     def test_unavailable_row_shows_reason_then_selector(self) -> None:
-        _result, win, _screen = self._run(["k", "\x1b"])  # qwen38: no secret
+        _result, win, _screen = self._run(["k", "\x1b"], height=32)  # qwen38: no secret
         text = win.text()
         reason_at = text.find("missing required secret")
         selector_at = text.find("in-session: /model claude-multi-qwen38-max[1m]")
@@ -4543,7 +4547,7 @@ class ImprovementBatchTests(CLITestCase):
         from test_tui import FakeWindow
 
         screen = cli._OrdinaryScreen(self.runtime, palette=tui.MONO_PALETTE)
-        win = FakeWindow(["\x1b"])
+        win = FakeWindow(["\x1b"], height=32)
         screen.run(win)
         text = win.text()
         self.assertIn("(sign in needed)", text)  # fixture has no auth records
@@ -4555,7 +4559,7 @@ class ImprovementBatchTests(CLITestCase):
         screen = cli._OrdinaryScreen(
             self.runtime, palette=tui.MONO_PALETTE, initial_model="opus5"
         )
-        win = FakeWindow(["\n", "\n", "\x1b"])  # Enter → modal → Cancel
+        win = FakeWindow(["\n", "\n", "\x1b"], height=32)  # Enter → modal → Cancel
         result = screen.run(win)
         self.assertIsNone(result)
         self.assertIn("claude-multi-proxy claude-login", win.text())
@@ -4831,10 +4835,10 @@ class CustomModelsTests(CLITestCase):
 
         screen = cli._OrdinaryScreen(self.runtime, palette=tui.MONO_PALETTE)
         # The custom row sorts first; the cursor starts on sol — go up to it.
-        # Height 32 is the exact floor with the custom group present (4 + 15
-        # rows + 2x4 groups + 1 + 4 detail at width 90).
+        # Height 35 is the exact floor with the custom group present (4 + 16
+        # rows + 2x5 groups + 1 + 4 detail at width 90).
         keys = ["k"] * (len(screen.rows) - 1) + ["\x1b"]
-        win = FakeWindow(keys, height=32)
+        win = FakeWindow(keys, height=35)
         screen.run(win)
         text = win.text()
         self.assertIn("custom · 256K context", text)
@@ -8917,6 +8921,137 @@ class NewProviderDirectLaunchTests(CLITestCase):
             self.runtime.session_store.save(prepared.record)
             loaded = self.runtime.session_store.load(prepared.record["managed_id"])
             self.assertEqual(loaded["context_profile"], profile)
+
+
+class SingleModelPrepareTests(CLITestCase):
+    """WS4c/4d: any catalog model launches; subagent policy is recorded."""
+
+    def test_gpt55_fresh_records_null_profile(self) -> None:
+        prepared = self.runtime.prepare_direct(
+            action="fresh", model_id="gpt55", passthrough=[]
+        )
+        self.assertEqual(prepared.record["ordinary_model"], "gpt55")
+        self.assertIsNone(prepared.record["context_profile"])
+        self.assertFalse(prepared.record["no_subagents"])
+        self.assertEqual(
+            prepared.result.env_set["CLAUDE_CODE_AUTO_COMPACT_WINDOW"], "258400"
+        )
+        self.runtime.session_store.save(prepared.record)
+        loaded = self.runtime.session_store.load(prepared.record["managed_id"])
+        self.assertIsNone(loaded["context_profile"])
+
+    def test_unknown_model_still_rejected(self) -> None:
+        with self.assertRaises(cli.compiler.CompilerError):
+            self.runtime.prepare_direct(
+                action="fresh", model_id="no-such-model", passthrough=[]
+            )
+
+    def test_no_subagents_fresh_records_and_compiles(self) -> None:
+        prepared = self.runtime.prepare_direct(
+            action="fresh", model_id="sol", passthrough=[], no_subagents=True
+        )
+        self.assertTrue(prepared.record["no_subagents"])
+        self.assertEqual(
+            prepared.result.scope_plan.settings["permissions"],
+            {"deny": ["Agent"]},
+        )
+        self.assertEqual(
+            prepared.result.env_set["CLAUDE_CODE_DISABLE_EXPLORE_PLAN_AGENTS"],
+            "1",
+        )
+
+    def test_resume_reapplies_recorded_policy_silently(self) -> None:
+        fresh = self.runtime.prepare_direct(
+            action="fresh", model_id="sol", passthrough=[], no_subagents=True
+        )
+        self.runtime.session_store.save(fresh.record)
+        resumed = self.runtime.prepare_direct(
+            action="resume", model_id=None, passthrough=[],
+            session_id=fresh.record["managed_id"],
+        )
+        self.assertTrue(resumed.record["no_subagents"])
+        self.assertEqual(
+            resumed.result.env_set["CLAUDE_CODE_DISABLE_EXPLORE_PLAN_AGENTS"],
+            "1",
+        )
+
+    def test_resume_accepts_matching_explicit_flag(self) -> None:
+        fresh = self.runtime.prepare_direct(
+            action="fresh", model_id="sol", passthrough=[], no_subagents=True
+        )
+        self.runtime.session_store.save(fresh.record)
+        resumed = self.runtime.prepare_direct(
+            action="resume", model_id=None, passthrough=[], no_subagents=True,
+            session_id=fresh.record["managed_id"],
+        )
+        self.assertTrue(resumed.record["no_subagents"])
+
+    def test_resume_rejects_mismatching_explicit_flag(self) -> None:
+        fresh = self.runtime.prepare_direct(
+            action="fresh", model_id="sol", passthrough=[]
+        )
+        self.runtime.session_store.save(fresh.record)
+        with self.assertRaises(cli.CLIError):
+            self.runtime.prepare_direct(
+                action="resume", model_id=None, passthrough=[],
+                no_subagents=True, session_id=fresh.record["managed_id"],
+            )
+
+    def test_direct_flag_parses_tri_state(self) -> None:
+        args = cli.build_parser().parse_args(["direct", "--no-subagents"])
+        self.assertTrue(args.no_subagents)
+        plain = cli.build_parser().parse_args(["direct"])
+        self.assertFalse(hasattr(plain, "no_subagents"))
+
+
+class OrdinarySwitchClassTests(CLITestCase):
+    """WS4c: model switches stay within their fence class."""
+
+    def _screen_and_record(self, model_id="sol"):
+        from test_tui import FakeWindow
+
+        prepared = self.runtime.prepare_direct(
+            action="fresh", model_id=model_id, passthrough=[]
+        )
+        screen = cli._SessionsScreen(self.runtime, palette=tui.MONO_PALETTE)
+        return screen, prepared.record, FakeWindow
+
+    def test_cross_class_switch_to_single_refused(self) -> None:
+        import curses as _curses
+        from test_tui import FakeWindow
+
+        screen, record, _ = self._screen_and_record("sol")
+        # sol(13) -> one step down -> gpt55(14, single section); the
+        # unsigned openai row needs its confirm modal first.
+        win = FakeWindow(["j", "\n", _curses.KEY_RIGHT, "\n"], height=32)
+        self.assertIsNone(screen._switch_ordinary_model(win, record))
+        self.assertIn("cross-class switch refused", screen.message)
+        self.assertIn("large → single-model", screen.message)
+
+    def test_cross_class_switch_from_single_refused(self) -> None:
+        import curses as _curses
+        from test_tui import FakeWindow
+
+        screen, record, _ = self._screen_and_record("gpt55")
+        # gpt55(14) -> one step up -> sol(13, large profile); sol's openai
+        # row also needs its confirm modal first.
+        win = FakeWindow(["k", "\n", _curses.KEY_RIGHT, "\n"], height=32)
+        self.assertIsNone(screen._switch_ordinary_model(win, record))
+        self.assertIn("cross-class switch refused", screen.message)
+        self.assertIn("single-model → large", screen.message)
+
+    def test_same_profile_switch_reaches_confirm(self) -> None:
+        import curses as _curses
+        from test_tui import FakeWindow
+
+        screen, record, _ = self._screen_and_record("sol")
+        # sol(13) -> one step up -> qwen38(12); confirm modal, then cancel
+        # at the Switch modal.
+        win = FakeWindow(
+            ["k", "\n", _curses.KEY_RIGHT, "\n", "\x1b"], height=32
+        )
+        self.assertIsNone(screen._switch_ordinary_model(win, record))
+        self.assertEqual(screen.message, "Switch cancelled.")
 
 
 class RegistryIdForWireTests(unittest.TestCase):

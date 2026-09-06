@@ -164,6 +164,90 @@ class RecordTests(SessionTestCase):
         record = _record(self.snapshot, forked_from=OTHER_ID)
         self.assertEqual(validate.validate(record, _schema()), [])
 
+    def test_ordinary_record_nullable_profile_and_subagents_flag(self) -> None:
+        from claude_multi import validate
+
+        record = sessions.make_ordinary_record(
+            managed_id=FIXED_ID,
+            runtime_session_id=OTHER_ID,
+            cwd="/project/path",
+            model="gpt55",
+            context_profile=None,
+            catalog_version=1,
+            catalog_hash="sha256:" + "0" * 64,
+            launcher_version="2.2.0",
+            no_subagents=True,
+        )
+        self.assertIsNone(record["context_profile"])
+        self.assertTrue(record["no_subagents"])
+        self.assertEqual(validate.validate(record, _schema()), [])
+        self.store.save(record)
+        self.assertTrue(self.store.load(FIXED_ID)["no_subagents"])
+
+    def test_ordinary_record_emits_subagents_false_by_default(self) -> None:
+        record = sessions.make_ordinary_record(
+            managed_id=FIXED_ID,
+            runtime_session_id=OTHER_ID,
+            cwd="/project/path",
+            model="sol",
+            context_profile="large",
+            catalog_version=1,
+            catalog_hash="sha256:" + "0" * 64,
+            launcher_version="2.2.0",
+        )
+        self.assertFalse(record["no_subagents"])
+
+    def test_single_model_reconcile_never_repins_across_models(self) -> None:
+        # Null-profile records share no fence: observing a different
+        # single-model selector must stay an observation, never overwrite
+        # ordinary_model (the live scope still fences the recorded model).
+        current = sessions.make_ordinary_record(
+            managed_id=FIXED_ID,
+            runtime_session_id=FIXED_ID,
+            cwd="/project/path",
+            model="gpt55",
+            context_profile=None,
+            catalog_version=1,
+            catalog_hash="sha256:" + "0" * 64,
+            launcher_version="2.2.0",
+        )
+        updated = sessions.reconcile_runtime_record(
+            current,
+            observed_runtime_id=OTHER_ID,
+            source="resume",
+            cwd="/project/path",
+            model="other-single",
+            model_profile=None,
+            observed_model="other-single",
+            now="2026-09-06T00:00:00Z",
+        )
+        self.assertEqual(updated["ordinary_model"], "gpt55")
+        self.assertEqual(updated["observed_model"], "other-single")
+
+    def test_single_model_reconcile_adopts_same_model(self) -> None:
+        current = sessions.make_ordinary_record(
+            managed_id=FIXED_ID,
+            runtime_session_id=FIXED_ID,
+            cwd="/project/path",
+            model="gpt55",
+            context_profile=None,
+            catalog_version=1,
+            catalog_hash="sha256:" + "0" * 64,
+            launcher_version="2.2.0",
+        )
+        updated = sessions.reconcile_runtime_record(
+            current,
+            observed_runtime_id=OTHER_ID,
+            source="resume",
+            cwd="/project/path",
+            model="gpt55",
+            model_profile=None,
+            observed_model="gpt-multi-gpt55-high",
+            now="2026-09-06T00:00:00Z",
+        )
+        self.assertEqual(updated["ordinary_model"], "gpt55")
+        self.assertNotIn("observed_model", updated)
+
     def test_published_schema_rejects_incomplete_or_cross_type_v3_records(self) -> None:
         from claude_multi import validate
 

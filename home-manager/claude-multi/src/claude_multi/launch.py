@@ -491,6 +491,14 @@ def _resume_failure_scope(
 
         try:
             model = trusted.docs["models"]["models"][prior_record["ordinary_model"]]
+            if prior_record["context_profile"] is None:
+                selectors = compiler.direct_single_model_selectors(
+                    trusted.docs, prior_record["ordinary_model"]
+                )
+            else:
+                selectors = compiler.direct_profile_selectors(
+                    trusted.docs, prior_record["context_profile"]
+                )
             expected = scope.compile_ordinary_scope(
                 managed_id=session_id,
                 hook_command=str(
@@ -499,15 +507,14 @@ def _resume_failure_scope(
                         scope.resolve_hook_command(environ, trusted.root),
                     )
                 ),
-                available_models=compiler.direct_profile_selectors(
-                    trusted.docs, prior_record["context_profile"]
-                ),
+                available_models=selectors,
                 default_model=model["client_selector"],
                 launch_epoch=prior_record.get("launch_epoch", 0),
                 gateway_base_url=trusted.docs["gateway"]["gateway"]["base_url"],
                 token_helper_command=scope.ensure_token_helper_command(
                     store.root, environ
                 ),
+                no_subagents=bool(prior_record.get("no_subagents", False)),
             )
         except Exception:
             scope.remove_scope(store.root, session_id)

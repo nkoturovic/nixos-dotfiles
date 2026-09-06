@@ -285,13 +285,36 @@ claude-gateway -r <uuid> --model sol # explicit cross-profile relaunch
 
 Native `/model` works inside one safe context profile; switching profiles is
 an explicit relaunch (a note reminds you the old process must have exited).
-A CLI launch whose provider secret is missing prints a non-blocking warning
+In-session model switches stay within their fence class: profile ↔ profile
+switches rebuild with confirmation, while profile ↔ single-model crossings
+are refused — relaunch fresh instead. A CLI launch whose provider secret is
+missing prints a non-blocking warning
 first (the TUI picker asks for confirmation instead). The in-session `/model`
 picker shows the Default row, allowed built-in Anthropic rows, and the
 current model (always appended) — custom selectors (Kimi, Qwen, GLM) get
 no row of their own but switch by typing the selector
 (`/model claude-multi-kimi-k3[1m]`), by **T** in the
 sessions screen, or by `claude-gateway -r <uuid> --model <model>`.
+
+Models with no ordinary profile (agents-only, e.g. GPT-5.5) launch as
+**single-model sessions** (`claude-gateway --model gpt55`): fenced to their
+own selectors under their own provider bound, recorded with a null profile.
+The G picker lists them under a `single` section.
+
+`--no-subagents` hard-denies delegation for one ordinary session (scope
+`permissions.deny: ["Agent"]` plus a native-agent env belt). It is recorded;
+resume re-applies it silently, and an explicit mismatching flag is rejected:
+
+```bash
+claude-gateway --model qwen-flash-next --no-subagents
+```
+
+The local Qwen model (`qwen-flash-next`, `flash431` profile, 320K operating
+window) rides the keyless LAN route to ik_llama.cpp on bt-lab-02: no
+credential exists, so the providers pane shows server-up guidance instead of
+key entry. The served alias must be listing-confirmed and the route
+acceptance-probed before real work (see the catalog qualification); text
+only.
 
 ### Adopt an existing plain-Claude session
 

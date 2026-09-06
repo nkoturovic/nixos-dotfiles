@@ -1,5 +1,24 @@
 # STATUS — live tracker
 
+## 2026-09-06 — D64: WS4 source-complete, NOT activated (2.24.0/catalog23)
+
+- **What**: single-model mode for any catalog model (null-profile records,
+  own-model fence; G picker `single` section; class-confined switches),
+  `--no-subagents` (scope deny + env belt, recorded, mismatch-rejected),
+  keyless OpenAI-compat adapter + `llm-local`/`qwen-flash-next`
+  (fence 320032, `flash431` profile, dev-pipeline promoted).
+- **Evidence**: 1,710 Python tests green except the 2 known pre-existing
+  environmental failures; package (2.24.0) + sandbox green; `git diff
+  --check` clean; same-family review APPROVE-WITH-NITS with all 3
+  findings fixed; goldens re-blessed with line-by-line review.
+- **Blocked on operator**: LAN alias (production serves the GGUF-path id,
+  no alias — needs server `--alias` or a wire change), all live probes
+  (Meta incl. tools/schema case per issue 028; LAN acceptance/near-limit),
+  activation (`home-manager switch`, rollback anchor gen 135), push
+  (branch unpushed).
+- Full rationale: D64. Presets are created via CompositionStore at
+  activation.
+
 ## 2026-09-06 — D63: 1M-class operating window capped at 800K (2.23.0, source-complete, NOT activated)
 
 - **Goal**: Astra + all other 1M models use an 800K context window by default

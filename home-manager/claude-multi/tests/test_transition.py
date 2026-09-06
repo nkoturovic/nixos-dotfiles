@@ -1231,6 +1231,26 @@ class OrdinaryTransitionRefusalTests(TransitionTestCase):
         self.assertNotIn("permissions", settings)
         self.assertEqual(settings["env"]["CLAUDE_MULTI_MANAGED_ID"], FIXED_ID)
 
+    def test_converge_repairs_single_model_scope(self) -> None:
+        record = sessions.make_ordinary_record(
+            managed_id=FIXED_ID,
+            runtime_session_id=FIXED_ID,
+            cwd=str(self.project),
+            model="gpt55",
+            context_profile=None,
+            catalog_version=self.bundle.docs["version"]["catalog_version"],
+            catalog_hash=self.bundle.bundle_sha256,
+            launcher_version=self.bundle.docs["version"]["launcher_version"],
+        )
+        self.store.save(record)
+        report = transition.converge(self.store.root, self.store, FIXED_ID, self.bundle)
+        self.assertTrue(any("authoritative" in line for line in report))
+        live = scope.scope_dir(self.store.root, FIXED_ID)
+        settings = strict_json.load(live / "settings.json")
+        self.assertEqual(
+            settings["availableModels"], ["gpt-multi-gpt55-high"]
+        )
+
 
 class RestoreReturnValueTests(ConvergeTests):
     """H17: restore_exec_failure reports whether it actually restored."""

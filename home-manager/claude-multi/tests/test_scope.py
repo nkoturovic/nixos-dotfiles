@@ -307,6 +307,15 @@ class CompileScopeSettingsTests(unittest.TestCase):
         self.assertNotIn("permissions", plan.settings)
         self.assertNotIn("disableWorkflows", plan.settings)
 
+    def test_ordinary_scope_no_subagents_denies_whole_agent_tool(self) -> None:
+        plan = scope.compile_ordinary_scope(
+            managed_id=FIXED_SESSION,
+            hook_command="/nix/store/test/bin/claude-multi",
+            available_models=("gpt-multi-gpt55-high",),
+            no_subagents=True,
+        )
+        self.assertEqual(plan.settings["permissions"], {"deny": ["Agent"]})
+
     def test_worktree_baseref_only_with_worktree_isolation(self) -> None:
         _, _, plan = _plan()
         self.assertEqual(plan.settings["worktree"], {"baseRef": "head"})

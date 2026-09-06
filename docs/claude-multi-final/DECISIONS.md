@@ -1407,6 +1407,58 @@ environment until relaunched. Source-complete with full suite green (2
 pre-existing environmental failures, proven on clean HEAD), package +
 sandbox builds green; activation is a separate operator gate.
 
+**D64 — WS4: single-model mode for any model, `--no-subagents`, local Qwen
+(2.24.0/catalog23, source-complete, not activated).** Three sub-parts:
+
+1. **Keyless OpenAI-compatible adapter.** New renderer adapter
+   `cliproxy-openai-compat-v1` (empty payload contracts) + `direct-openai`
+   transport branch (http + port allowed ONLY here with auth none; https and
+   secrets rejected). Emits a pinned-shape `openai-compatibility` section
+   (name/base-url/models with name/alias/display-name/force-mapping; no
+   api-key-entries) — verified field-by-field against the pinned 7.2.80
+   lineage (v7.2.80..v7.2.81 has zero diff in config + compat executor),
+   including the keyless fallback (executor omits Authorization without a
+   key). Selectors/availability treat direct-openai as always available;
+   TUI panes show keyless-LAN labels and server-up guidance instead of key
+   entry (which would KeyError on the missing secret_ref).
+2. **Local Qwen.** Provider `llm-local` + model `qwen-flash-next` via the
+   dev pipeline (draft → check → review → promote): fence 320032 (= 300032
+   input budget + Claude's 20K reserve; trigger 270028), declared 431104,
+   validated floor 200K, new `flash431` profile. The LAN listing probe
+   (read-only `/v1/models`) confirmed max_model_len 431104 and text-only
+   but ALSO found production serves the GGUF-path id with no alias — so the
+   `qwen3.8-flash-next` wire needs a server `--alias` (loadtest.sh
+   convention) or a wire change; recorded in both qualifications as
+   unrouteable-until-then. Acceptance + near-limit LAN probes remain
+   approval-gated.
+3. **Single-model mode + `--no-subagents`.** Any catalog model launches
+   (`prepare_direct` accepts all; unknown ids still fail closed):
+   profile-less models (today: agents-only gpt55) run fenced to their own
+   selectors under their own bound with a null `context_profile` (own
+   window/trigger/scalar math, fail-closed against profile substitution);
+   profiled models are byte-identical to before. The G picker gains a
+   `single` section; hook reconciliation resolves single selectors to
+   (model, None) but never re-pins ACROSS single models (shared no fence);
+   doctor/repair/launch rebuild null-profile fences from the model;
+   in-session switches stay within their fence class (profile↔profile keeps
+   the confirmed rebuild; either crossing with single-model relaunches).
+   `--no-subagents` (tri-state, SUPPRESS default) hard-denies the Agent
+   tool in scope settings plus a native-agent env belt; recorded on fresh,
+   re-applied silently on resume, explicit mismatch rejected. Lead-only
+   managed compositions validate and compile (preset support proven).
+   Catalog evidence, `[1m]` selectors, and existing providers' rendered
+   YAML are untouched.
+
+Rejected: per-model catalog window edits for the ceiling problem (D63
+central clamp instead); catalog-only single-model fields (a central
+code path covers future models); scope-persisted compaction numbers
+(launch-environment authority stands). Source-complete with full suite
+green (2 pre-existing environmental failures), package + sandbox green,
+same-family review APPROVE-WITH-NITS (3 findings fixed); activation,
+push, and all live probes are separate operator gates. Presets
+`muse-direct`/`muse-contributor-direct`/`qwen-local-direct` are created
+via CompositionStore at activation, not committed.
+
 ## User decision summary (what you're approving by accepting this design)
 
 1. Selected agents become **real files** in a per-session scope; the failure

@@ -49,7 +49,7 @@
         "identity_state": {}, "last_event_source": {}, "last_seen_at": {},
         "last_end_reason": {}, "observed_cwd": {}, "observed_model": {},
         "pending_forks": {}, "cwd": {}, "ordinary_model": {},
-        "context_profile": {}, "mode": {}, "scope_generation": {},
+        "context_profile": {}, "no_subagents": {}, "mode": {}, "scope_generation": {},
         "catalog_version": {}, "catalog_hash": {}, "launcher_version": {},
         "created_at": {}, "forked_from": {}, "migrated_from_version": {}
       }
@@ -173,7 +173,8 @@
     "scope_generation": { "type": "integer", "minimum": 0 },
     "workflows": { "enum": ["native", "off"] },
     "ordinary_model": { "type": "string", "minLength": 1 },
-    "context_profile": { "oneOf": [{ "enum": ["sol", "large", "grok"] }, { "type": "string", "pattern": "^custom-[0-9]+$" }] },
+    "no_subagents": { "type": "boolean" },
+    "context_profile": { "oneOf": [{ "enum": ["sol", "large", "grok", "flash431"] }, { "type": "string", "pattern": "^custom-[0-9]+$" }, { "type": "null" }] },
     "catalog_version": { "type": "integer", "minimum": 1 },
     "catalog_hash": { "type": "string", "pattern": "^sha256:[0-9a-f]{64}$" },
     "launcher_version": { "type": "string", "pattern": "^[0-9]+\\.[0-9]+\\.[0-9]+$" },

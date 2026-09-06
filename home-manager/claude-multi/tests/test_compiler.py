@@ -973,3 +973,146 @@ class GrokProfileFenceTests(unittest.TestCase):
             compiler.direct_model_for_selector(bundle.docs, "claude-multi-grok46-xhigh"),
             ("grok46", "grok"),
         )
+
+
+class SingleModelTests(unittest.TestCase):
+    """WS4c/4d: profile-less models run fenced to their own bound (gpt55)."""
+
+    def _direct(self, model_id, **kwargs):
+        bundle = catalog.load_catalog(CATALOG_ROOT)
+        return bundle, compiler.compile_direct_launch(
+            docs=bundle.docs,
+            session_action=compiler.build_fresh(FIXED_SESSION),
+            model_id=model_id,
+            passthrough=[],
+            scope_dir=Path("/state/scopes") / FIXED_SESSION,
+            hook_command="/nix/store/test/bin/claude-multi",
+            state_root=Path("/state"),
+            **kwargs,
+        )
+
+    def test_single_model_set_is_agents_only(self) -> None:
+        bundle = catalog.load_catalog(CATALOG_ROOT)
+        self.assertEqual(
+            compiler.single_model_launch_models(bundle.docs), ("gpt55",)
+        )
+        # Profile enumeration stays profile-pure; the picker merges.
+        self.assertNotIn("single", compiler.ordinary_launch_models(bundle.docs))
+        self.assertEqual(
+            compiler.ordinary_picker_groups(bundle.docs)["single"], ("gpt55",)
+        )
+
+    def test_single_model_context_math(self) -> None:
+        bundle = catalog.load_catalog(CATALOG_ROOT)
+        # gpt55: own provider bound, scalar passthrough, existing formula.
+        self.assertEqual(
+            compiler.direct_single_model_context(bundle.docs, "gpt55"),
+            (258400, 258400, 214560),
+        )
+
+    def test_single_model_context_refuses_profiled_models(self) -> None:
+        bundle = catalog.load_catalog(CATALOG_ROOT)
+        with self.assertRaises(compiler.CompilerError):
+            compiler.direct_single_model_context(bundle.docs, "sol")
+
+    def test_single_model_selectors(self) -> None:
+        bundle = catalog.load_catalog(CATALOG_ROOT)
+        self.assertEqual(
+            compiler.direct_single_model_selectors(bundle.docs, "gpt55"),
+            ("gpt-multi-gpt55-high",),
+        )
+
+    def test_resolver_maps_single_selector_to_null_profile(self) -> None:
+        bundle = catalog.load_catalog(CATALOG_ROOT)
+        self.assertEqual(
+            compiler.direct_model_for_selector(bundle.docs, "gpt-multi-gpt55-high"),
+            ("gpt55", None),
+        )
+        self.assertEqual(
+            compiler.direct_model_for_selector(bundle.docs, "gpt-5.5"),
+            ("gpt55", None),
+        )
+
+    def test_gpt55_direct_launch_fences_to_own_model(self) -> None:
+        bundle, result = self._direct("gpt55")
+        self.assertEqual(
+            result.env_set["CLAUDE_CODE_AUTO_COMPACT_WINDOW"], "258400"
+        )
+        self.assertEqual(
+            result.env_set["CLAUDE_CODE_MAX_CONTEXT_TOKENS"], "258400"
+        )
+        self.assertEqual(
+            result.scope_plan.settings["availableModels"],
+            ["gpt-multi-gpt55-high"],
+        )
+        self.assertEqual(
+            result.scope_plan.settings["model"], "gpt-multi-gpt55-high"
+        )
+        model_index = result.argv.index("--model")
+        self.assertEqual(result.argv[model_index + 1], "gpt-multi-gpt55-high")
+        effort_index = result.argv.index("--effort")
+        # Agents-only models have no lead block: default lane effort pins it.
+        self.assertEqual(result.argv[effort_index + 1], "high")
+        self.assertEqual(
+            result.snapshot,
+            {"ordinary_model": "gpt55", "context_profile": None},
+        )
+
+    def test_no_subagents_sets_scope_deny_and_env_belt(self) -> None:
+        _bundle, result = self._direct("sol", no_subagents=True)
+        self.assertEqual(
+            result.scope_plan.settings["permissions"], {"deny": ["Agent"]}
+        )
+        self.assertEqual(
+            result.env_set["CLAUDE_CODE_DISABLE_EXPLORE_PLAN_AGENTS"], "1"
+        )
+
+    def test_subagents_allowed_by_default(self) -> None:
+        _bundle, result = self._direct("sol")
+        self.assertNotIn("permissions", result.scope_plan.settings)
+        self.assertNotIn(
+            "CLAUDE_CODE_DISABLE_EXPLORE_PLAN_AGENTS", result.env_set
+        )
+
+
+class LeadOnlyCompositionTests(unittest.TestCase):
+    """WS4e: lead-only compositions (direct presets) resolve and compile."""
+
+    def test_lead_only_muse_direct_resolves_and_compiles(self) -> None:
+        import copy
+
+        bundle = catalog.load_catalog(CATALOG_ROOT)
+        document = copy.deepcopy(bundle.default_composition)
+        document["name"] = "muse-direct"
+        document["slots"] = [{"role": "cm-lead", "model": "muse-spark"}]
+        document["availability"] = {
+            "providers": {"meta": "lead+agents"},
+            "models": {"muse-spark": "lead+agents"},
+        }
+        document["native_agents"] = {
+            "explore": "native",
+            "plan": "native",
+            "general_purpose": "off",
+        }
+        resolved = composition.resolve(bundle.docs, document)
+        self.assertEqual(resolved.lead.model, "muse-spark")
+        self.assertEqual(resolved.variants, ())
+        self.assertIsNone(resolved.scalar_context_tokens)
+        self.assertEqual(resolved.auto_compact_window_tokens, 800000)
+        self.assertEqual(resolved.lead.auto_compact_tokens, 702000)
+        snap = composition.snapshot(resolved)
+        result = compiler.compile_launch(
+            docs=bundle.docs,
+            prompt_bodies=bundle.prompt_bodies,
+            resolved=resolved,
+            session_action=compiler.build_fresh(FIXED_SESSION),
+            passthrough=[],
+            settings_path=SETTINGS_PATH,
+            lead_prompt_path=compiler.lead_prompt_path(
+                Path("/state"), strict_json.bundle_digest(snap), FIXED_SESSION
+            ),
+        )
+        self.assertEqual(
+            result.env_set["CLAUDE_CODE_AUTO_COMPACT_WINDOW"], "800000"
+        )
+        self.assertTrue(result.lead_prompt)

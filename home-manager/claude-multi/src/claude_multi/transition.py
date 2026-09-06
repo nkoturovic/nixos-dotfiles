@@ -727,9 +727,14 @@ def _ordinary_expected_plan(
             "explicit supported `--model`"
         )
     try:
-        selectors = compiler.direct_profile_selectors(
-            docs, record["context_profile"]
-        )
+        if record["context_profile"] is None:
+            selectors = compiler.direct_single_model_selectors(
+                docs, record["ordinary_model"]
+            )
+        else:
+            selectors = compiler.direct_profile_selectors(
+                docs, record["context_profile"]
+            )
     except compiler.CompilerError as exc:
         raise TransitionError(str(exc)) from exc
     return scope.compile_ordinary_scope(
@@ -740,6 +745,7 @@ def _ordinary_expected_plan(
         launch_epoch=record.get("launch_epoch", 0),
         gateway_base_url=trusted.docs["gateway"]["gateway"]["base_url"],
         token_helper_command=token_helper_command,
+        no_subagents=bool(record.get("no_subagents", False)),
     )
 
 

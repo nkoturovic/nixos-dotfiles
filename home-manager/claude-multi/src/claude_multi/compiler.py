@@ -683,10 +683,30 @@ def ordinary_launch_models(docs: dict[str, Any]) -> dict[str, tuple[str, ...]]:
     return {profile: tuple(ids) for profile, ids in sorted(groups.items())}
 
 
+def ordinary_picker_groups(docs: dict[str, Any]) -> dict[str, tuple[str, ...]]:
+    """Picker sections: profile groups plus the single-model section.
+
+    ``ordinary_launch_models`` stays profile-pure (its pins and the
+    profile-math callers depend on it); the picker appends profile-less
+    models under the synthetic ``"single"`` section. Each single model
+    runs fenced to itself — cross-section switches are refused, relaunches
+    are not.
+    """
+
+    groups = ordinary_launch_models(docs)
+    singles = single_model_launch_models(docs)
+    if singles:
+        groups = {**groups, "single": singles}
+    return groups
+
+
 def direct_model_for_selector(
     docs: dict[str, Any], selector: str
-) -> tuple[str, str] | None:
-    """Resolve a trusted ordinary selector to its catalog model and profile."""
+) -> tuple[str, str | None] | None:
+    """Resolve a trusted ordinary selector to its catalog model and profile.
+
+    Profile-less (single-model) selectors resolve with a None profile.
+    """
 
     for model_id, model in docs["models"]["models"].items():
         if "lead" not in model["capabilities"]:
@@ -703,7 +723,66 @@ def direct_model_for_selector(
             candidates.add(model["wire_model"] + "[1m]")
         if selector in candidates:
             return model_id, profile
+    for model_id in single_model_launch_models(docs):
+        model = docs["models"]["models"][model_id]
+        candidates = {model["wire_model"], model["client_selector"]}
+        candidates.update(lane["client_selector"] for lane in model["lanes"].values())
+        if selector in candidates:
+            return model_id, None
     return None
+
+
+def single_model_launch_models(docs: dict[str, Any]) -> tuple[str, ...]:
+    """Catalog models with no ordinary profile: single-model sessions only.
+
+    These are the models ``direct_context_profile`` rejects (lead-incapable
+    or profile-less, e.g. agents-only gpt55). Each runs fenced to its own
+    selectors under its own provider bound — never a shared profile fence.
+    """
+
+    ids: list[str] = []
+    for model_id in sorted(docs["models"]["models"]):
+        try:
+            direct_context_profile(docs, model_id)
+        except CompilerError:
+            ids.append(model_id)
+    return tuple(ids)
+
+
+def direct_single_model_selectors(docs: dict[str, Any], model_id: str) -> tuple[str, ...]:
+    """The model's own selectors: client selector plus every lane selector."""
+
+    model = docs["models"]["models"].get(model_id)
+    if model is None:
+        raise CompilerError(f"model {model_id!r} is not in the catalog")
+    selectors = {model["client_selector"]}
+    selectors.update(lane["client_selector"] for lane in model["lanes"].values())
+    return tuple(sorted(selectors))
+
+
+def direct_single_model_context(
+    docs: dict[str, Any], model_id: str
+) -> tuple[int | None, int, int]:
+    """Process scalar, capacity, and reactive trigger for one profile-less model.
+
+    Profiled models must use ``direct_profile_context`` (their fence is the
+    shared profile minimum); this is fail-closed for them so the two paths
+    can never silently substitute for each other.
+    """
+
+    try:
+        direct_context_profile(docs, model_id)
+    except CompilerError:
+        pass
+    else:
+        raise CompilerError(
+            f"model {model_id!r} has an ordinary profile; use its profile context"
+        )
+    context = docs["models"]["models"][model_id]["context"]
+    window = operating_window(context["provider_tokens"])
+    scalar = context["scalar_tokens"]
+    process_scalar = operating_window(scalar) if scalar is not None else None
+    return process_scalar, window, auto_compact_trigger(window)
 
 
 def direct_profile_selectors(docs: dict[str, Any], profile: str) -> tuple[str, ...]:
@@ -779,18 +858,31 @@ def compile_direct_launch(
     launch_epoch: int = 0,
     token_helper_command: str | None = None,
     session_cwd: Path | str | None = None,
+    no_subagents: bool = False,
 ) -> CompileResult:
     """Compile an ordinary gateway-backed Claude session with no composition."""
 
     models = docs["models"]["models"]
     model = models.get(model_id)
-    if model is None or "lead" not in model["capabilities"]:
-        raise CompilerError(f"model {model_id!r} is not available as a lead")
-    profile = direct_context_profile(docs, model_id)
-    selectors = direct_profile_selectors(docs, profile)
-    process_scalar, compact_window, _compact_trigger = direct_profile_context(
-        docs, profile
-    )
+    if model is None:
+        raise CompilerError(f"model {model_id!r} is not in the catalog")
+    try:
+        profile = direct_context_profile(docs, model_id)
+    except CompilerError:
+        profile = None
+    if profile is None:
+        # Single-model path: profile-less models run fenced to their own
+        # selectors under their own provider bound. Byte-identical env/scope
+        # shape to the profile path, only the numbers' provenance differs.
+        selectors = direct_single_model_selectors(docs, model_id)
+        process_scalar, compact_window, _compact_trigger = (
+            direct_single_model_context(docs, model_id)
+        )
+    else:
+        selectors = direct_profile_selectors(docs, profile)
+        process_scalar, compact_window, _compact_trigger = direct_profile_context(
+            docs, profile
+        )
     safe_args = validate_passthrough(passthrough)
     add_dirs = _extract_add_dirs(safe_args)
 
@@ -816,6 +908,12 @@ def compile_direct_launch(
         env_set["CLAUDE_CODE_MAX_CONTEXT_TOKENS"] = str(process_scalar)
     env_set["CLAUDE_CODE_AUTO_COMPACT_WINDOW"] = str(compact_window)
     env_set["CLAUDE_AUTOCOMPACT_PCT_OVERRIDE"] = str(AUTO_COMPACT_PERCENT)
+    if no_subagents:
+        # Belt to the scope's permissions deny: the explore/plan native
+        # agents stay compiled out even if scope settings are bypassed.
+        # env_unset still names this key (inherited values are cleared
+        # first at launch); the overlay below applies afterwards.
+        env_set["CLAUDE_CODE_DISABLE_EXPLORE_PLAN_AGENTS"] = "1"
 
     env_unset = (
         "CLAUDE_CODE_SUBAGENT_MODEL",
@@ -840,6 +938,7 @@ def compile_direct_launch(
         launch_epoch=launch_epoch,
         gateway_base_url=docs["gateway"]["gateway"]["base_url"],
         token_helper_command=token_helper_command,
+        no_subagents=no_subagents,
     )
     argv: list[str] = []
     if session_action.kind == "fresh":
@@ -855,11 +954,17 @@ def compile_direct_launch(
         str(scope_dir / "settings.json"),
     ]
     if pin_model:
+        if model["lead"] is not None:
+            lead_effort = model["lead"]["effort"]
+        else:
+            # Single-model path for agents-only models: no lead block, so
+            # pin the default lane's effort for the main thread.
+            lead_effort = model["lanes"][model["default_lane"]]["agent_effort"]
         argv += [
             "--model",
             model["client_selector"],
             "--effort",
-            model["lead"]["effort"],
+            lead_effort,
         ]
     argv += safe_args
     return CompileResult(
