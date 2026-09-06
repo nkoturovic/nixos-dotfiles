@@ -21,6 +21,11 @@
   (`home-manager switch`; rollback anchor gen 134). Running processes keep
   their environment until relaunched. WS4 stays deferred; Meta muse-spark
   live probe still approval-gated.
+- **Activated 2026-09-06 at HM generation 135** (operator green light):
+  healthz ok, doctor Ready (only the known 2.1.261 Attention), `models`
+  serves the Astra lanes, ordinary sessions derive 800000/702000 live while
+  managed records keep their snapshots until resume (by design). Rollback
+  anchor stays gen 134.
 - **Backfill**: the Astra+Meta batch (D62, 2.21.0/2.22.0, gen 134) was never
   ledgered — recorded now in D62; full narrative in `HANDOFF-ASTRA-BATCH.md`.
 

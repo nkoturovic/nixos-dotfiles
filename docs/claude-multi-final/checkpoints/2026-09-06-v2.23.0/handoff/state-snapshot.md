@@ -30,6 +30,16 @@
 - Compositions `astra`, `astra-muse`, `astra-qwen-muse` present (0600).
 - Rollback anchor for D63 activation: **gen 134**.
 
+## Activation 2026-09-06 (gen 135)
+
+- `home-manager switch` applied; gateway restarted; healthz `{"status":"ok"}`.
+- `claude-multi doctor`: **Ready** (only the by-design 2.1.261 Attention).
+- `claude-multi models` serves the Astra lanes; catalog evidence values
+  unchanged by design.
+- 38 sessions recorded/durable; ordinary sessions derive 800000/702000 live;
+  managed records keep snapshots until resume; drifted scopes recompiled OK
+  by doctor convergence. Rollback anchor stays gen 134.
+
 ## Deltas that activation will apply (pending green light)
 
 - Launcher 2.22.0 → 2.23.0 (catalog unchanged at 22).
