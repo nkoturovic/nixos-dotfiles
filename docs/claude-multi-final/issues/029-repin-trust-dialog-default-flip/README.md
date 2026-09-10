@@ -1,6 +1,6 @@
 # Issue 029 — Claude 2.1.261 blocks the re-pin: trust dialog flipped its default to cancel
 
-**Status:** investigating — first fix attempted, **did not work** (see
+**Status:** investigating — two fix attempts failed; keystroke ruled out (see
 "Attempt 1" below); pin still 2.1.220.
 **Reported:** 2026-09-10, from the failed `claude-multi update` run.
 **Release:** none.
@@ -89,6 +89,30 @@ between, or `refuseInput`/`hideIndexes` changes input handling). Next
 attempt should isolate the keystroke empirically — drive only the trust
 dialog in a scratch fixture and try `Down+Enter`, `Down+Space`, and a
 single combined write — rather than guessing again inside the 7-minute gate.
+
+## Attempt 2 (2026-09-10) — keystroke isolation; the keystroke was NOT the blocker
+
+Nine candidate answers were driven against 2.1.261 in isolated scratch
+fixtures (same gated harness: fixture HOME, loopback fake provider, no live
+daemon): `Down+CR`, `Down+LF`, `Down+space`, split `Down` then `CR`,
+`j+CR`, `2+CR`, `Tab+CR`, `Right+CR`, `Down+ESC[13~`.
+
+**All nine failed identically**, timing out on the same `WARNING` marker. A
+single-run capture shows the screen resting on the trust dialog with the
+cursor query `\x1b[>0q\x1b[c` (XTVERSION + DA1) in the stream — i.e. the
+client may be waiting on terminal-capability responses before it services
+input, or the harness's write/render interleaving differs from the real
+terminal. Either way **the keystroke choice is not the root cause**, and a
+third attempt should not start from the interaction table.
+
+Revised next steps, in order:
+1. Capture a full raw (non-truncated) transcript of the 2.1.261 run and
+   diff its screen sequence against 2.1.220's to find the first divergence
+   — that, not the dialog text, is what the harness must model.
+2. Check whether 2.1.220 emits the same `\x1b[>0q\x1b[c` query and how the
+   harness currently satisfies it (the probe may reply to queries today, in
+   which case 2.1.261 changed the query or its timing).
+3. Only then adjust the interaction table.
 
 ## Options (choose at implementation time)
 
