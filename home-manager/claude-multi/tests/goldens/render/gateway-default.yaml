@@ -89,15 +89,15 @@ claude-api-key:
     cloak:
       mode: "never"
     models:
-      - name: "deepseek-v4-flash"
+      - name: "deepseek-flash"
         alias: "claude-multi-deepseek-flash-high"
-        display-name: "DeepSeek V4 Flash"
+        display-name: "DeepSeek V4.1 Flash"
         owned-by: "deepseek"
         context-length: 1000000
         force-mapping: true
-      - name: "deepseek-v4-flash"
+      - name: "deepseek-flash"
         alias: "claude-multi-deepseek-flash-max"
-        display-name: "DeepSeek V4 Flash"
+        display-name: "DeepSeek V4.1 Flash"
         owned-by: "deepseek"
         context-length: 1000000
         force-mapping: true

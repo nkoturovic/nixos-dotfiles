@@ -36,7 +36,7 @@
         "output-config-max"
       ],
       "support": "locally-validated-experimental",
-      "support_note": "DeepSeek Anthropic endpoint (Flash probes 2026-08-12; Pro GA accepted 2026-08-19): x-api-key, 1M, thinking default-on. Pro max thinking + model-selected tool use work when tool_choice is omitted; named forced tool_choice returns 400. Text-only; cache_control ignored; server MCP blocks unsupported. Listing: Bearer OpenAI-shape GET /models (Anthropic path 404). China-based, no region pinning.",
+      "support_note": "DeepSeek Anthropic endpoint (Flash probes 2026-08-12; Pro GA 2026-08-19; docs re-verified 2026-09-10): x-api-key, 1M, thinking default-on. Max thinking + model-selected tool use work when tool_choice is omitted; named forced tool_choice returns 400. Flash documents Anthropic image blocks (Pro: none) - unverified here; cache_control ignored; MCP blocks unsupported. deepseek-v4-flash redirects here; from 2026-09-14 04:00 UTC deepseek-v4-pro does too. Listing: Bearer GET /models (Anthropic 404); China-based.",
       "transport": {
         "auth": {
           "header": "x-api-key",

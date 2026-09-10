@@ -96,6 +96,9 @@ untouched; `claude-gateway` is the ordinary non-composition entrypoint.
 - **DeepSeek Pro + Grok 4.6 active** (2.19.0, D58/D59):
   `deepseek-pro` uses stable alias `deepseek-v4-pro` (official Pro-0813 GA),
   high/max 1M lanes; Flash remains stable `deepseek-v4-flash` (Flash-0731).
+  **Superseded 2026-09-10 (D65):** the flash wire is now the canonical
+  `deepseek-flash` (V4.1-Flash), and `deepseek-v4-pro` reroutes to V4.1-Flash
+  from 2026-09-14 04:00 UTC — see DECISIONS D65 and STATUS for the live state.
   `grok46` pins exact OpenRouter wire `x-ai/grok-4.6` (500K, high fallback +
   xhigh default); active state has zero Grok 4.5 references. Moving alias
   `~x-ai/grok-latest` is deliberately not trusted (D3 no-hidden-state).

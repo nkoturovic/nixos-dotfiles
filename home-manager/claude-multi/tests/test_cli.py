@@ -4634,16 +4634,20 @@ class ImprovementBatchTests(CLITestCase):
 
     def test_discover_deepseek_marks_flash_and_pro_cataloged(self) -> None:
         entries = [
-            {"id": "deepseek-v4-flash", "display_name": "", "context_length": None},
+            {"id": "deepseek-flash", "display_name": "", "context_length": None},
             {"id": "deepseek-v4-pro", "display_name": "", "context_length": None},
+            # The retired id still redirects upstream, but it is not a
+            # catalog wire: discover reports it, never adopts it (D3).
+            {"id": "deepseek-v4-flash", "display_name": "", "context_length": None},
         ]
         with unittest.mock.patch.object(
             cli.proxy_mod, "list_provider_models", return_value=entries
         ):
             code, out = self.run_cli(["discover", "deepseek"], interactive=False)
         self.assertEqual(code, 0)
-        self.assertIn("deepseek-v4-flash\tcataloged as deepseek-flash", out)
+        self.assertIn("deepseek-flash\tcataloged as deepseek-flash", out)
         self.assertIn("deepseek-v4-pro\tcataloged as deepseek-pro", out)
+        self.assertIn("deepseek-v4-flash\tnot registered", out)
 
     def test_discover_unknown_provider_is_exit_2(self) -> None:
         code, out = self.run_cli(["discover", "nope"], interactive=False)
@@ -9166,7 +9170,7 @@ class DeepSeekProPaneListingTests(CLITestCase):
         from test_tui import FakeWindow
 
         entries = [
-            {"id":"deepseek-v4-flash","display_name":"","context_length":None},
+            {"id":"deepseek-flash","display_name":"","context_length":None},
             {"id":"deepseek-v4-pro","display_name":"","context_length":None},
             {"id":"deepseek-v5-future","display_name":"Future","context_length":262144},
         ]

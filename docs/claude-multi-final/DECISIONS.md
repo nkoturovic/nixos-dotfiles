@@ -1459,6 +1459,61 @@ push, and all live probes are separate operator gates. Presets
 `muse-direct`/`muse-contributor-direct`/`qwen-local-direct` are created
 via CompositionStore at activation, not committed.
 
+**D65 — DeepSeek V4.1-Flash: canonical wire, and the Pro wire's silent
+reroute (catalog 24→25, launcher stays 2.24.0).** DeepSeek released
+V4.1-Flash on 2026-09-10 (552B MoE, 8B/16B active, native vision, smaller
+KV cache, lower prices). Official docs now name **`deepseek-flash`** as the
+canonical callable id — no dated id is documented — and list the retired
+`deepseek-v4-flash` / `deepseek-v4-flash-vision-exp` as temporary
+compatibility redirects with **no stated sunset**. Separately,
+`deepseek-v4-pro` is rerouted to V4.1-Flash at V4.1-Flash prices from
+**2026-09-14 04:00 UTC until V4.1-Pro launches**.
+
+Auto-binding: none needed. The deepseek route is a **registry-free
+config-driven passthrough** (CLIProxyAPI has no deepseek channel, allowlist,
+or per-model validation), aliases derive from `client_selector` rather than
+the wire, and `force-mapping: true` rewrites the upstream model name back to
+our alias — so every `claude-multi-deepseek-*` selector already runs
+V4.1-Flash, and a wrong wire is invisible to Claude Code except by its
+effects. Hence the fix is about **truthfulness, not routing**.
+
+Changes: flash `wire_model` → `deepseek-flash` (canonical; the legacy string
+now appears only as documented history), display → "DeepSeek V4.1 Flash",
+routing_note/qualification corrected (retired V4-Flash-0731 claim dropped;
+vision noted as upstream-documented but unverified through this gateway);
+pro routing_note/qualification/role_hint now state the 2026-09-14 reroute so
+a composition can no longer believe it is calling Pro after that date;
+provider support_note records both redirects.
+
+Rejected: (a) **no wire migration at all** — viable but bets our route on an
+undocumented expiring redirect while the provider's own docs point
+elsewhere, and the doctrine's remedy for moving aliases (pin a version) is
+unavailable because no dated callable id exists; (b) **removing the pro
+entry** — it would break four compositions and dev policy forces new entries
+to New · Off; keeping it with honest labels preserves the slot for V4.1-Pro;
+(c) **renaming the pro display to name V4.1-Flash** — the pro slot's wire id
+stays `deepseek-v4-pro` while its upstream target flips on a fixed date, so
+that display would need reverting in weeks; routing truth lives in
+routing_note/qualification by design. (This is pro-specific: the flash
+display does carry the version, because that wire names no version and the
+generation is the operative fact; it too is re-verified at each release); (d) **raising `validated_tokens`** for either entry — a docs
+claim is not a measurement, and the evidence field moves only after a
+separately approved live call (flash stays at its existing 1M docs floor,
+pro at 200K; flash's 1M is inconsistent with the conservative-floor
+convention and is flagged as a separate pre-existing question, not silently
+changed here).
+
+Evidence tier: official docs only (the 2026-09-10 release announcement plus
+pricing/updates/vision/anthropic_api/thinking_mode/create-chat-completion/
+list-models, all fetched 2026-09-10); context 1M and the low/high/max
+`output_config.effort` tiers are unchanged, so no lane or contract edits.
+Blast radius: catalog + four test modules + the render golden (four lines:
+two wires, two display names) — no src or launcher change. The new wire is
+served only after a gateway re-render + restart (`claude-multi-proxy init`
+then `systemctl --user restart cli-proxy-api`; no hot-reload on 7.2.80);
+until then the served *name* is stale but routing is not — the retired id
+redirects to the same V4.1-Flash model, so there is no functional gap.
+
 ## User decision summary (what you're approving by accepting this design)
 
 1. Selected agents become **real files** in a per-session scope; the failure

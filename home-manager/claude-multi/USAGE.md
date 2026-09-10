@@ -94,8 +94,8 @@ remains unsupported by Pro thinking and is not silently filtered:
 | `qwen-sol` | Qwen3.8 Max | Sol preferred · Qwen alternates | Qwen lead work |
 | `glm-sol` | GLM-5.2 | Sol preferred · GLM alternates | GLM 1M lead work (max reasoning) |
 | `sol-direct` | GPT 5.6 Sol (1M since 2.18.0, D57) | — | single-model direct sessions |
-| `deepseek` | DeepSeek V4 Pro (high lead) | Flash scan · Pro max implement/finalize · Flash review | measured Flash→Pro pipeline; same-family review (reduced independence) |
-| `deepseek-flash` | DeepSeek V4 Flash | Flash high everywhere · Flash max reviewer | preserved fast/cheap all-Flash side-task rig |
+| `deepseek` | DeepSeek V4 Pro (high lead) | Flash scan · Pro max implement/finalize · Flash review | measured Flash→Pro pipeline; same-family review (reduced independence) · from 2026-09-14 the Pro wire serves V4.1-Flash |
+| `deepseek-flash` | DeepSeek V4.1 Flash | Flash high everywhere · Flash max reviewer | preserved fast/cheap all-Flash side-task rig |
 | `grok-deepseek` | Grok 4.6 xhigh (OpenRouter) | Flash scan · Pro max implementation · Grok xhigh preferred review | Grok lead + measured DeepSeek pipeline + cross-family review |
 
 GLM-5.3 is not currently available on this Alibaba Token Plan route. A reviewed
@@ -107,10 +107,15 @@ new provider/credential explicitly (D61/issue 027). Future reactivation uses
 only the canonical
 [Token Plan runbook](../../docs/claude-multi-final/issues/027-glm-53-token-plan-unavailable/REAPPLY.md).
 
-DeepSeek API aliases are deliberately stable: `deepseek-pro` routes wire
-`deepseek-v4-pro` (currently the official V4-Pro-0813 release) and
-`deepseek-flash` routes `deepseek-v4-flash` (currently Flash-0731); the dated
-version labels are not first-party callable ids. Ordinary typed selectors:
+DeepSeek wires follow DeepSeek's own documented ids (D58/024, amended D65):
+`deepseek-flash` routes the canonical wire `deepseek-flash`, which is
+V4.1-Flash since the 2026-09-10 release — the retired `deepseek-v4-flash`
+string still redirects there and is no longer a catalog wire. `deepseek-pro`
+routes `deepseek-v4-pro`, which DeepSeek reroutes to V4.1-Flash from
+**2026-09-14 04:00 UTC** until V4.1-Pro ships: from that date the Pro entry
+serves the same upstream model as Flash, so prefer the Flash entry and keep
+the Pro slot for when V4.1-Pro lands. Dated version labels (Flash-0731,
+Pro-0813) are not first-party callable ids. Ordinary typed selectors:
 `/model claude-multi-deepseek-pro-high[1m]` or `-max[1m]` (Flash uses the
 matching `deepseek-flash-*` selectors).
 

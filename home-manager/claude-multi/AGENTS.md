@@ -254,11 +254,22 @@ full): run with a disk-backed temp dir, e.g.
   [runbook](../../docs/claude-multi-final/issues/027-glm-53-token-plan-unavailable/REAPPLY.md);
   do not infer availability from another GLM product or reuse its ID/route.
   DeepSeek aliases follow a distinct
-  first-party convention (D58/024): API wires stay `deepseek-v4-flash` /
-  `deepseek-v4-pro`; the dated Flash-0731 / Pro-0813 strings are resolved
-  version labels, not first-party callable ids. A docs-only GA adds the
-  catalog entry with a conservative `validated_tokens` floor; move that
-  evidence field only after the separately approved live call. OpenRouter
+  first-party convention (D58/024, amended by D65): the wire is whatever id
+  DeepSeek's own docs name as canonical — since the V4.1-Flash release that
+  is literally `deepseek-flash` (previously `deepseek-v4-flash`, which is now
+  only a compatibility redirect with no stated sunset); the Pro slot stays
+  `deepseek-v4-pro`, whose requests DeepSeek reroutes to V4.1-Flash from
+  2026-09-14 04:00 UTC until V4.1-Pro ships. Dated Flash-0731 / Pro-0813
+  strings are resolved version labels, never first-party callable ids.
+  **Accepted residual:** a docs-canonical tier name (`deepseek-flash`) can
+  retarget to the next generation with no catalog change and no error — the
+  same hidden-state hazard the OpenRouter rule rejects. It is accepted only
+  because DeepSeek publishes no dated callable id to pin instead, so the
+  routing_note's "currently …" label (and the version-bearing display) is
+  the sole in-repo truth anchor and must be re-verified at each DeepSeek
+  release. A docs-only GA adds the catalog entry with a conservative
+  `validated_tokens` floor; move that evidence field only after the
+  separately approved live call. OpenRouter
   moving aliases (e.g. `~x-ai/grok-latest`) are NOT trusted catalog wires
   even when they currently resolve the target release: D3 requires
   record+catalog to be the complete authority; an upstream alias retarget

@@ -1043,7 +1043,7 @@ class ListingDescriptorTests(unittest.TestCase):
         def fetch(url, headers):
             captured["url"] = url
             captured["headers"] = headers
-            return b'{"data": [{"id": "deepseek-v4-flash"}, {"id": "deepseek-v4-pro"}]}'
+            return b'{"data": [{"id": "deepseek-flash"}, {"id": "deepseek-v4-pro"}]}'
 
         with mock.patch.object(proxy, "resolve_secret", return_value="ds"):
             entries = proxy.list_provider_models(
@@ -1056,7 +1056,7 @@ class ListingDescriptorTests(unittest.TestCase):
         self.assertEqual(
             entries,
             [
-                {"id": "deepseek-v4-flash", "display_name": "", "context_length": None},
+                {"id": "deepseek-flash", "display_name": "", "context_length": None},
                 {"id": "deepseek-v4-pro", "display_name": "", "context_length": None},
             ],
         )

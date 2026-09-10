@@ -141,7 +141,7 @@ class SeedLoadTests(unittest.TestCase):
     def test_version_json_matches_v2_2_schema_and_catalog_change(self) -> None:
         bundle = catalog.load_catalog(CATALOG_ROOT)
         self.assertEqual(bundle.docs["version"]["launcher_version"], "2.24.0")
-        self.assertEqual(bundle.docs["version"]["catalog_version"], 24)
+        self.assertEqual(bundle.docs["version"]["catalog_version"], 25)
 
     def test_qwen38_production_no_preview_residue(self) -> None:
         # D50: qwen3.8-max shipped production 2026-08-03; the D21 revision
@@ -1093,14 +1093,23 @@ class WireSlashPatternTests(unittest.TestCase):
 
 
 class DeepSeekProductionModelsTests(unittest.TestCase):
-    """024: stable aliases resolve the current production versions."""
+    """024: stable aliases resolve the current production versions.
 
-    def test_flash_alias_stays_on_0731(self) -> None:
+    2026-09-10 (V4.1-Flash): the canonical id is literally `deepseek-flash`;
+    the retired `deepseek-v4-flash` string is a compatibility redirect and
+    `deepseek-v4-pro` reroutes to V4.1-Flash from 2026-09-14 04:00 UTC.
+    """
+
+    def test_flash_uses_the_canonical_v41_id(self) -> None:
         bundle = catalog.load_catalog(CATALOG_ROOT)
         flash = bundle.models["deepseek-flash"]
-        self.assertEqual(flash["wire_model"], "deepseek-v4-flash")
-        self.assertIn("V4-Flash-0731", flash["routing_note"])
-        self.assertNotIn("deepseek-v4-flash-0731", json.dumps(flash))
+        self.assertEqual(flash["wire_model"], "deepseek-flash")
+        self.assertEqual(flash["display"], "DeepSeek V4.1 Flash")
+        self.assertIn("V4.1-Flash", flash["routing_note"])
+        self.assertIn("canonical id since 2026-09-10", flash["routing_note"])
+        # No dated callable id is documented by DeepSeek.
+        self.assertNotIn("deepseek-flash-0910", json.dumps(flash))
+        self.assertNotIn("deepseek-v4.1-flash", json.dumps(flash))
 
     def test_pro_ga_shape_uses_stable_alias_not_dated_wire(self) -> None:
         bundle = catalog.load_catalog(CATALOG_ROOT)
@@ -1108,7 +1117,8 @@ class DeepSeekProductionModelsTests(unittest.TestCase):
         self.assertEqual(pro["display"], "DeepSeek V4 Pro")
         self.assertEqual(pro["wire_model"], "deepseek-v4-pro")
         self.assertNotIn("deepseek-v4-pro-0813", json.dumps(pro))
-        self.assertIn("V4-Pro-0813", pro["routing_note"])
+        self.assertIn("2026-09-14", pro["routing_note"])
+        self.assertIn("2026-09-14", pro["context"]["qualification"])
         self.assertEqual(pro["default_lane"], "high")
         self.assertEqual(set(pro["lanes"]), {"high", "max"})
         self.assertEqual(
@@ -1126,6 +1136,7 @@ class DeepSeekProductionModelsTests(unittest.TestCase):
         self.assertIn("corrected max call", pro["context"]["qualification"])
         self.assertIn("model-selected tool_use", pro["context"]["qualification"])
         self.assertIn("not 1M", pro["context"]["qualification"])
+        self.assertIn("V4.1-Flash", pro["context"]["qualification"])
         self.assertIn(
             "named forced tool_choice returns 400",
             bundle.providers["deepseek"]["support_note"],
@@ -1140,7 +1151,7 @@ class DeepSeekProductionModelsTests(unittest.TestCase):
         }
         self.assertEqual(
             {model["wire_model"] for model in deepseek.values()},
-            {"deepseek-v4-flash", "deepseek-v4-pro"},
+            {"deepseek-flash", "deepseek-v4-pro"},
         )
         selectors = [
             lane["client_selector"]

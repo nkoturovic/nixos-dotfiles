@@ -933,7 +933,7 @@ class GrokProfileFenceTests(unittest.TestCase):
         # Wire names, lane selectors, and the canonical wire+'[1m]' report
         # form all resolve (the last is the SessionStart hook's form).
         self.assertEqual(
-            compiler.direct_model_for_selector(bundle.docs, "deepseek-v4-flash"),
+            compiler.direct_model_for_selector(bundle.docs, "deepseek-flash"),
             ("deepseek-flash", "large"),
         )
         self.assertEqual(
@@ -941,8 +941,14 @@ class GrokProfileFenceTests(unittest.TestCase):
             ("deepseek-flash", "large"),
         )
         self.assertEqual(
-            compiler.direct_model_for_selector(bundle.docs, "deepseek-v4-flash[1m]"),
+            compiler.direct_model_for_selector(bundle.docs, "deepseek-flash[1m]"),
             ("deepseek-flash", "large"),
+        )
+        # The retired id is no longer a trusted selector entry point; the
+        # provider still redirects it upstream, but our catalog does not
+        # advertise it (D3: record+catalog are the complete authority).
+        self.assertIsNone(
+            compiler.direct_model_for_selector(bundle.docs, "deepseek-v4-flash")
         )
         self.assertEqual(
             compiler.direct_context_profile(bundle.docs, "deepseek-pro"), "large"

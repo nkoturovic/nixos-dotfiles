@@ -1,5 +1,26 @@
 # STATUS — live tracker
 
+## 2026-09-10 — D65: DeepSeek V4.1-Flash canonical wire + Pro reroute (catalog24→25)
+
+- **Release**: V4.1-Flash (2026-09-10). Canonical id is literally
+  `deepseek-flash`; `deepseek-v4-flash` is a temporary redirect (no stated
+  sunset). `deepseek-v4-pro` reroutes to V4.1-Flash from **2026-09-14 04:00
+  UTC** until V4.1-Pro ships.
+- **Auto-binding**: yes, zero changes — the deepseek route is a registry-free
+  passthrough and aliases derive from `client_selector`, so both entries
+  already run V4.1-Flash. Fixed the *truthfulness*, not the routing.
+- **Changed**: flash wire → `deepseek-flash`, display → "DeepSeek V4.1
+  Flash", both entries' routing_note/qualification corrected, provider note
+  updated (vision upstream-documented, unverified here; both redirects).
+  Launcher unchanged (2.24.0). Catalog 24→25.
+- **Evidence**: official DeepSeek docs (8 pages, fetched 2026-09-10). Context
+  1M and low/high/max `output_config.effort` unchanged → no lane edits.
+  Full suite green (2 known environmental failures); render golden delta is
+  exactly four lines. Serving the new wire needs `claude-multi-proxy init` +
+  `systemctl --user restart cli-proxy-api` (no hot-reload on 7.2.80); before
+  that the served name is stale but routing is not, since the retired id
+  redirects to the same model.
+
 ## 2026-09-06 — D64: WS4 source-complete, NOT activated (2.24.0/catalog23)
 
 - **What**: single-model mode for any catalog model (null-profile records,

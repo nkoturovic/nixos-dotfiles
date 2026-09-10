@@ -70,12 +70,12 @@
         "declared_tokens": 1000000,
         "ordinary_profile": "large",
         "provider_tokens": 1000000,
-        "qualification": "Provider-documented bound: DeepSeek's Models & Pricing doc states 1M context and 384K max output for deepseek-v4-flash (docs verified 2026-08-11). The [1m] client selector gives Claude Code extended-context classification; the compiler applies the 90% auto-compaction percentage to the provider window (composition leads get the full 1M; the ordinary large-profile fence derives the current min, 983616). Wire/auth/blocks smoke-verified 2026-08-12 (x-api-key and Bearer both answer; thinking+text blocks canonical); near-limit behavior unverified until a live acceptance call.",
+        "qualification": "Provider-documented bound: DeepSeek's Models & Pricing doc states 1M context and 384K max output for deepseek-flash (docs re-verified 2026-09-10, V4.1-Flash release). The [1m] client selector gives Claude Code extended-context classification; the compiler applies the 90% auto-compaction percentage to the provider window (composition leads get the full 1M; the ordinary large-profile fence derives the current min, 983616). Wire/auth/blocks smoke-verified 2026-08-12 (x-api-key and Bearer both answer; thinking+text blocks canonical); near-limit behavior unverified until a live acceptance call. Vision is documented upstream for this model (Anthropic image blocks) but is NOT verified through this gateway.",
         "scalar_tokens": null,
         "validated_tokens": 1000000
       },
       "default_lane": "high",
-      "display": "DeepSeek V4 Flash",
+      "display": "DeepSeek V4.1 Flash",
       "lanes": {
         "high": {
           "agent_effort": "high",
@@ -102,8 +102,8 @@
         "cm-implementer": "Use for bounded, selective implementation tasks.",
         "cm-reviewer": "Use for a quick second look; not the deepest review lane."
       },
-      "routing_note": "DeepSeek flash (latest alias, currently V4-Flash-0731); thinking always on (effort pinned per lane; budget_tokens ignored upstream). Extremely fast and cheap side-task workhorse; text-only upstream.",
-      "wire_model": "deepseek-v4-flash"
+      "routing_note": "DeepSeek flash: canonical id since 2026-09-10, currently V4.1-Flash. Retired deepseek-v4-flash still redirects here (no stated sunset). Thinking always on; effort pinned per lane. Fast, cheap side-task workhorse.",
+      "wire_model": "deepseek-flash"
     },
     "deepseek-pro": {
       "capabilities": [
@@ -122,7 +122,7 @@
         "declared_tokens": 1000000,
         "ordinary_profile": "large",
         "provider_tokens": 1000000,
-        "qualification": "Provider-documented GA: stable alias deepseek-v4-pro currently resolves DeepSeek-V4-Pro-0813; DeepSeek documents 1M context and 384K max output (2026-08-19). The [1m] selector gives extended-context classification; composition leads use 1M while the ordinary large profile derives the current min, 983616. Live 2026-08-19: a named forced tool_choice was rejected in thinking mode; the corrected max call omitted tool_choice and returned HTTP 200 with thinking plus one valid model-selected tool_use. Route/auth/max-field/tool shape are verified, not 1M. validated_tokens=200000 remains a conservative docs floor, not a measured bound; near-limit behavior is unverified.",
+        "qualification": "Provider-documented: stable alias deepseek-v4-pro; docs give 1M context and 384K max output (re-verified 2026-09-10). From 2026-09-14 04:00 UTC DeepSeek routes this wire to V4.1-Flash at V4.1-Flash prices until V4.1-Pro launches, so this entry then shares deepseek-flash's upstream model; no dated Pro callable id is documented. [1m] gives extended-context classification; leads use 1M, the large profile derives 983616. Live 2026-08-19 (then V4-Pro-0813): a named forced tool_choice was rejected in thinking mode; the corrected max call omitted tool_choice and returned HTTP 200 with thinking plus one model-selected tool_use. Route/auth/tool shape verified, not 1M. validated_tokens=200000 is a docs floor, not measured; near-limit unverified.",
         "scalar_tokens": null,
         "validated_tokens": 200000
       },
@@ -151,10 +151,10 @@
       "provider": "deepseek",
       "role_hints": {
         "cm-analyst": "Use for broad structural analysis, architecture, refactoring plans, and documentation after a Flash bug scan; Qwen/Sol remain stronger general escalations.",
-        "cm-implementer": "Use for careful production fixes, multi-file implementation, and finalization; prefer Pro over Flash when code changes must propagate completely.",
+        "cm-implementer": "Use for careful production fixes, multi-file implementation, and finalization. After 2026-09-14 this wire serves the same model as deepseek-flash, so the Flash entry is the clearer choice.",
         "cm-reviewer": "Use to fact-check Flash findings and verify implementation detail; same-family review does not satisfy independence for DeepSeek-authored work."
       },
-      "routing_note": "DeepSeek production flagship (currently V4-Pro-0813); thinking default-on. Broad architecture and careful production implementation; pair Flash scan → Pro implementation/fact-check. Qwen3.8 Max and Sol remain stronger general options.",
+      "routing_note": "DeepSeek Pro wire slot: from 2026-09-14 04:00 UTC DeepSeek reroutes deepseek-v4-pro to V4.1-Flash at Flash prices until V4.1-Pro ships. Thinking default-on. While the wire serves Flash, deepseek-flash is the same model under a clearer name.",
       "wire_model": "deepseek-v4-pro"
     },
     "fable": {
