@@ -1011,6 +1011,39 @@ def trusted_from_contract(native_contract: dict[str, Any]) -> TrustedExecutable:
     return TrustedExecutable(Path(resolved), digest, fake=False)
 
 
+# 2.1.261 flipped the workspace-trust dialog: it now sets
+# ``cancelFirst:!0, focus:"cancel", hideIndexes:!0``, so the focused first
+# option is "No, exit" and the confirm option sits second. Earlier clients
+# focus the confirm option first. There is no keystroke sequence valid for
+# both, so the answer is chosen per client version (issue 029).
+_TRUST_DIALOG_CANCEL_FIRST_SINCE = (2, 1, 261)
+
+
+def _client_version(trusted: TrustedExecutable) -> tuple[int, int, int] | None:
+    """The X.Y.Z version encoded in a trusted executable's basename."""
+
+    match = re.fullmatch(r"(\d+)\.(\d+)\.(\d+)", trusted.resolved_path.name)
+    if match is None:
+        return None
+    return tuple(int(part) for part in match.groups())  # type: ignore[return-value]
+
+
+def trust_dialog_answer(trusted: TrustedExecutable) -> bytes:
+    """Keystrokes selecting "Yes, I trust this folder" for this client.
+
+    Fail-closed for an unparseable version: an unknown client gets the
+    older, confirm-first answer, which is also the conservative choice (if
+    the layout is in fact cancel-first, the run exits the dialog and the
+    probe fails loudly rather than reporting a pass it did not earn).
+    """
+
+    version = _client_version(trusted)
+    if version is not None and version >= _TRUST_DIALOG_CANCEL_FIRST_SINCE:
+        # Cancel holds focus; move down onto the confirm option, then accept.
+        return b"\x1b[B\r"
+    return b"1\r"
+
+
 @dataclass(frozen=True)
 class NativeRunResult:
     """Bounded outcome of one gated native run inside the fixture."""

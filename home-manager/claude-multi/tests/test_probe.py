@@ -932,6 +932,38 @@ class TrustedContractTests(ProbeTestCase):
             probe.trusted_from_contract(contract)
 
 
+class TrustDialogAnswerTests(ProbeTestCase):
+    """Issue 029: the trust dialog's default focus is version-dependent."""
+
+    def _trusted(self, version: str) -> probe.TrustedExecutable:
+        return probe.TrustedExecutable(Path("/x") / version, "a" * 64, fake=False)
+
+    def test_pre_2261_clients_focus_confirm(self) -> None:
+        # These focus the confirm option, so option 1 answers "trust".
+        for version in ("2.1.217", "2.1.220", "2.1.260"):
+            with self.subTest(version=version):
+                self.assertEqual(probe.trust_dialog_answer(self._trusted(version)), b"1\r")
+
+    def test_cancel_first_clients_move_down_then_accept(self) -> None:
+        # 2.1.261 sets cancelFirst/focus:"cancel" with hidden indexes: the
+        # focused option is "No, exit", so the answer must move first.
+        for version in ("2.1.261", "2.1.262", "2.2.0", "3.0.0"):
+            with self.subTest(version=version):
+                self.assertEqual(
+                    probe.trust_dialog_answer(self._trusted(version)), b"\x1b[B\r"
+                )
+
+    def test_unparseable_version_is_fail_closed(self) -> None:
+        # An unknown client gets the older answer: if that layout is wrong
+        # the dialog exits and the probe fails loudly, never a false pass.
+        self.assertEqual(
+            probe.trust_dialog_answer(
+                probe.TrustedExecutable(Path("/x/custom-build"), "a" * 64, fake=False)
+            ),
+            b"1\r",
+        )
+
+
 class RunNativeTests(ProbeTestCase):
     def setUp(self) -> None:
         super().setUp()

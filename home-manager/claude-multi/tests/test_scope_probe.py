@@ -1121,7 +1121,10 @@ class RealPinnedBinaryTests(ScopeProbeTestCase):
                     (
                         probe.PTYInteraction(b"Choose", b"2\r"),
                         probe.PTYInteraction(b"Press", b"\r"),
-                        probe.PTYInteraction(b"Quick safety check", b"1\r"),
+                        probe.PTYInteraction(
+                            b"Quick safety check",
+                            probe.trust_dialog_answer(self.trusted),
+                        ),
                         probe.PTYInteraction(b"WARNING", b"2\r"),
                         probe.PTYInteraction(
                             "❯".encode("utf-8"),
@@ -1199,7 +1202,9 @@ class RealPinnedBinaryTests(ScopeProbeTestCase):
         interactions = (
             probe.PTYInteraction(b"Choose", b"2\r"),
             probe.PTYInteraction(b"Press", b"\r"),
-            probe.PTYInteraction(b"Quick safety check", b"1\r"),
+            probe.PTYInteraction(
+                b"Quick safety check", probe.trust_dialog_answer(self.trusted)
+            ),
             probe.PTYInteraction(b"WARNING", b"2\r"),
             probe.PTYInteraction(prompt, b"COMPACTION-SEED-A\r"),
             probe.PTYInteraction(
