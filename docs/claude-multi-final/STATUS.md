@@ -28,6 +28,15 @@
   `-pro-high` both HTTP 200, force-mapped back to our alias. Residual noted:
   the live `deepseek-flash` preset's *description* still reads "DeepSeek V4
   Flash throughout" (cosmetic, operator-owned XDG state).
+- **catalog26 (same day, gen 139)**: `deepseek-flash` `validated_tokens`
+  1,000,000 → 200,000. The 1M context is DeepSeek's *documented* figure and
+  its own qualification admits near-limit is unverified, so the lead prompt
+  was calling a docs claim a "validated provider bound" — against AGENTS §5
+  ("a docs-only GA adds the catalog entry with a conservative
+  `validated_tokens` floor"). Evidence metadata only: the operating window
+  derives from `provider_tokens` clamped by the D63 ceiling and is unchanged
+  at 800000/702000, goldens byte-identical, no scope rebuild needed. Also
+  reset: the live `deepseek-flash` preset description now reads V4.1.
 
 ## 2026-09-06 — D64: WS4 source-complete, NOT activated (2.24.0/catalog23)
 
