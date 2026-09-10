@@ -1459,6 +1459,67 @@ push, and all live probes are separate operator gates. Presets
 `muse-direct`/`muse-contributor-direct`/`qwen-local-direct` are created
 via CompositionStore at activation, not committed.
 
+**D66 — Output tokens are delegated to the client, and the 800K ceiling's
+coverage is verified complete (no release; docs + one test).** Operator
+asked whether max output tokens are correctly configured for DeepSeek
+V4.1-Flash, whether the 800K boundary really applies to every model, and
+whether DeepSeek's thinking modes should map higher.
+
+*800K coverage — verified complete.* `OPERATING_WINDOW_CEILING = 800_000`
+(`composition.py:65`) is applied by `operating_window()` at all six
+producers, and every launch path routes through one of them: managed
+compositions, ordinary/direct, single-model (null-profile), custom-registry
+models (which always receive an ordinary profile, so they clamp too),
+managed resume, ordinary resume, repair/converge, and the legacy
+non-durable argv form. Env is materialized once (`launch.py:978-981`,
+unset-then-overlay), and reserved-key enforcement (`catalog.py:45-60`)
+means no catalog or `lead.env` value can re-inject a window key. Confirmed
+per-model: grok46 500000, gpt55 258400, qwen-flash-next 320032, qwen38
+983616→800000, large profile 800000. Three asymmetries are deliberate or
+inert: `probe.py` (dev-only harness, unreachable from a launch), the raw
+provider/client evidence recorded in snapshots beside the clamped window,
+and managed(True)/ordinary(inherited) `autoCompactEnabled` — the last is
+the D63-era decision to keep respecting the user's setting for ordinary
+sessions, unchanged here. **Gap fixed:** 320032 was asserted nowhere
+(only the picker label mentioned it); now pinned with a below-ceiling
+clamp-invariance assertion in `test_compiler.py`.
+
+*Output tokens — no change, and none is justified yet.* The launcher never
+sets `CLAUDE_CODE_MAX_OUTPUT_TOKENS`: it is a reserved key and is **unset**
+on both launch paths (`compiler.py:412`, `:920`). No catalog field, schema
+field, scope setting, or rendered gateway setting exists for output — the
+dimension is not modelled at all. What governs is the client: the pinned
+2.1.220 binary resolves `max_tokens` as the env value if set, else the
+model-registry default, else the unknown-model fallback `Mxg=32000` (upper
+bound `Oxg=128000`) — verified independently by string extraction. Our
+`claude-multi-*` aliases are not in that registry, so **the client sends
+`max_tokens = 32,000` on every lane**, comfortably inside DeepSeek's 384K
+(393216) ceiling and above its 8K/64K/128K documented upstream defaults.
+Pinning per-model output would mean a new catalog/schema field plus
+compiling a currently-reserved key — exactly what the closed-allowlist rule
+forbids without a demonstrated failure, and it could only *raise* the
+sent value toward costlier territory.
+
+*Thinking/effort — current mapping is correct.* Anthropic-path effort is
+`output_config.effort`; our lanes are `high` (default) and `max`
+(explicit), matching DeepSeek's documented ladder where requested
+`high`→high and `max`→max and thinking is on by default at effort `high`.
+The operator's "map to a reasonable maximum" is already served by the
+existing `-max[1m]` lanes; moving `default_lane` to max would raise cost
+and latency for every side task with no measured benefit, so it is
+recommended against (and is a legal one-field catalog edit if invoked).
+
+*Evidence:* official DeepSeek docs (8 pages, re-fetched 2026-09-10) for the
+ceiling/defaults/effort ladder; the pinned binary's constant table for the
+client's 32000 default; and **two bounded operator-approved probes** on the
+`max` lane (`max_tokens=256` and `32000`). Both returned HTTP 200
+`end_turn` with a thinking block AND a text block — the theorised
+"small max_tokens truncates thinking and yields empty content" failure mode
+did **not** reproduce, so it stays unconfirmed rather than asserted.
+Unknowns left open on purpose: the Anthropic-path default `max_tokens`
+ladder, whether that path requires the field, and whether reasoning tokens
+count inside `max_tokens` (undocumented by DeepSeek).
+
 **D65 — DeepSeek V4.1-Flash: canonical wire, and the Pro wire's silent
 reroute (catalog 24→25, launcher stays 2.24.0).** DeepSeek released
 V4.1-Flash on 2026-09-10 (552B MoE, 8B/16B active, native vision, smaller

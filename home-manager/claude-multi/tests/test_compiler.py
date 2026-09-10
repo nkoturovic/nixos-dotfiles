@@ -6,6 +6,7 @@ import unittest
 from pathlib import Path
 
 from claude_multi import catalog, compiler, composition, strict_json
+from claude_multi.composition import operating_window
 
 
 CATALOG_ROOT = Path(__file__).resolve().parents[1]
@@ -882,6 +883,25 @@ class GrokProfileFenceTests(unittest.TestCase):
         self.assertEqual(window, 500000)
         # (500000 - 20000) * 0.9 — the deterministic reactive trigger.
         self.assertEqual(trigger, 432000)
+
+    def test_flash431_profile_window_and_trigger(self) -> None:
+        # WS4b: the local Qwen profile is the one sub-ceiling profile whose
+        # numbers are NOT the raw provider bound — the fence adds Claude
+        # Code's 20K reserve on top of the server's 300,032 input budget,
+        # so it must be pinned numerically (an audit found it was asserted
+        # nowhere; only the picker label mentioned it).
+        bundle = catalog.load_catalog(CATALOG_ROOT)
+        scalar, window, trigger = compiler.direct_profile_context(
+            bundle.docs, "flash431"
+        )
+        self.assertIsNone(scalar)
+        self.assertEqual(window, 320032)
+        self.assertEqual(trigger, 270028)
+        # Below the D63 ceiling, so the clamp must not touch it.
+        self.assertLess(window, composition.OPERATING_WINDOW_CEILING)
+        self.assertEqual(
+            window, operating_window(window)
+        )
 
     def test_grok_profile_fences_only_grok(self) -> None:
         bundle = catalog.load_catalog(CATALOG_ROOT)
