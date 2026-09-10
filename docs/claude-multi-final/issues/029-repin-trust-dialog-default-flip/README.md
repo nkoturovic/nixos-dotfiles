@@ -1,6 +1,7 @@
 # Issue 029 — Claude 2.1.261 blocks the re-pin: trust dialog flipped its default to cancel
 
-**Status:** diagnosed (ready to implement; no code change made yet).
+**Status:** investigating — first fix attempted, **did not work** (see
+"Attempt 1" below); pin still 2.1.220.
 **Reported:** 2026-09-10, from the failed `claude-multi update` run.
 **Release:** none.
 
@@ -61,6 +62,33 @@ candidates each break one side:
 The interaction table is shared by every `RealPinnedBinaryTests` probe, and
 it runs against the **pinned** binary on every build, so any change must
 keep 2.1.220 green while also working for the candidate.
+
+## Attempt 1 (2026-09-10) — version-aware answer; still fails
+
+Implemented `probe.trust_dialog_answer(trusted)` (probe.py): `< 2.1.261`
+returns `1\r`, `>= 2.1.261` returns `\x1b[B\r` (Down, Enter), fail-closed to
+`1\r` for an unparseable version. Both probe sites now call it, unit-tested
+in `TrustDialogAnswerTests`, and the real pinned-binary suite stayed green
+against 2.1.220 (8 tests OK — no regression).
+
+`claude-multi update` then re-ran the gate against 2.1.261 and **failed
+again on the same marker**, restoring the repo. The PTY capture is
+informative and narrows the fix:
+
+- the dialog rendered cancel-focused (`❯ No, exit`),
+- the Down key **did** register — the next frame shows
+  `❯ Yes, I trust this folder`,
+- but the following frame shows focus back on `❯ No, exit`, i.e. **Enter
+  did not confirm** (or re-rendered the dialog), and the probe then timed
+  out waiting for `WARNING`.
+
+So the layout/focus part of the diagnosis is confirmed, but `\r` is not the
+confirm keystroke in this dialog (plausible causes: the dialog's confirm is
+a different key, the two bytes arrived as separate reads with a re-render
+between, or `refuseInput`/`hideIndexes` changes input handling). Next
+attempt should isolate the keystroke empirically — drive only the trust
+dialog in a scratch fixture and try `Down+Enter`, `Down+Space`, and a
+single combined write — rather than guessing again inside the 7-minute gate.
 
 ## Options (choose at implementation time)
 
