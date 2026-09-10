@@ -33,3 +33,4 @@ Status values: `open` (reported, not yet root-caused) · `investigating` ·
 | 026 | [Non-Claude routes leak `prompt_cache_retention` (HTTP 400)](026-prompt-cache-retention/) | resolved | 2.20.0/catalog20, activated gen 130 (D60) |
 | 027 | [GLM-5.3 is not available on Alibaba Token Plan](027-glm-53-token-plan-unavailable/) · [reactivation runbook](027-glm-53-token-plan-unavailable/REAPPLY.md) | blocked upstream | active route remains GLM-5.2 (D61) |
 | 028 | [Meta route rejects strict-incomplete tool schemas (HTTP 400)](028-meta-strict-tool-schema/) | investigating | — (probe approval-gated; folds into the §6b Meta probe) |
+| 029 | [Claude 2.1.261 re-pin blocked: trust dialog flipped its default to cancel](029-repin-trust-dialog-default-flip/) | diagnosed (ready to implement) | — (pin stays 2.1.220) |
