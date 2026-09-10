@@ -20,6 +20,14 @@
   `systemctl --user restart cli-proxy-api` (no hot-reload on 7.2.80); before
   that the served name is stale but routing is not, since the retired id
   redirects to the same model.
+- **Activated 2026-09-10 at HM generation 138**: rendered config diff was
+  exactly the four expected lines; `doctor --repair-all` converged 41 durable
+  sessions (a catalog bump invalidates compiled scopes — the known step);
+  doctor Ready; 44 selectors served with `deepseek-v4-flash` no longer among
+  them. Bounded end-to-end probes: `claude-multi-deepseek-flash-high` and
+  `-pro-high` both HTTP 200, force-mapped back to our alias. Residual noted:
+  the live `deepseek-flash` preset's *description* still reads "DeepSeek V4
+  Flash throughout" (cosmetic, operator-owned XDG state).
 
 ## 2026-09-06 — D64: WS4 source-complete, NOT activated (2.24.0/catalog23)
 
