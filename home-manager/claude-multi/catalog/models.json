@@ -70,9 +70,9 @@
         "declared_tokens": 1000000,
         "ordinary_profile": "large",
         "provider_tokens": 1000000,
-        "qualification": "Provider-documented bound: DeepSeek's Models & Pricing doc states 1M context and 384K max output for deepseek-flash (docs re-verified 2026-09-10, V4.1-Flash release). The [1m] client selector gives Claude Code extended-context classification; the compiler applies the 90% auto-compaction percentage to the provider window (composition leads get the full 1M; the ordinary large-profile fence derives the current min, 983616). Wire/auth/blocks smoke-verified 2026-08-12 (x-api-key and Bearer both answer; thinking+text blocks canonical); near-limit behavior unverified until a live acceptance call. Vision is documented upstream for this model (Anthropic image blocks) but is NOT verified through this gateway.",
+        "qualification": "Provider-documented bound: DeepSeek's Models & Pricing doc states 1M context and 384K max output for deepseek-flash (docs re-verified 2026-09-10, V4.1-Flash release). The [1m] client selector gives Claude Code extended-context classification; the compiler applies the 90% auto-compaction percentage to the provider window (composition leads get the full 1M; the ordinary large-profile fence derives the current min, 983616). Wire/auth/blocks smoke-verified 2026-08-12 (x-api-key and Bearer both answer; thinking+text blocks canonical); near-limit unverified until a live acceptance call, so validated_tokens stays at the conservative 200,000 docs floor (matching its Pro sibling). Vision is documented upstream for this model but is NOT verified through this gateway.",
         "scalar_tokens": null,
-        "validated_tokens": 1000000
+        "validated_tokens": 200000
       },
       "default_lane": "high",
       "display": "DeepSeek V4.1 Flash",

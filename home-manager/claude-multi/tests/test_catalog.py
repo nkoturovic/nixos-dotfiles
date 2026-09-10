@@ -141,7 +141,7 @@ class SeedLoadTests(unittest.TestCase):
     def test_version_json_matches_v2_2_schema_and_catalog_change(self) -> None:
         bundle = catalog.load_catalog(CATALOG_ROOT)
         self.assertEqual(bundle.docs["version"]["launcher_version"], "2.24.0")
-        self.assertEqual(bundle.docs["version"]["catalog_version"], 25)
+        self.assertEqual(bundle.docs["version"]["catalog_version"], 26)
 
     def test_qwen38_production_no_preview_residue(self) -> None:
         # D50: qwen3.8-max shipped production 2026-08-03; the D21 revision
@@ -1107,6 +1107,10 @@ class DeepSeekProductionModelsTests(unittest.TestCase):
         self.assertEqual(flash["display"], "DeepSeek V4.1 Flash")
         self.assertIn("V4.1-Flash", flash["routing_note"])
         self.assertIn("canonical id since 2026-09-10", flash["routing_note"])
+        # Docs-only evidence keeps the conservative floor (the 1M context is
+        # provider-documented, not measured); a docs claim is not a probe.
+        self.assertEqual(flash["context"]["validated_tokens"], 200000)
+        self.assertIn("conservative 200,000 docs floor", flash["context"]["qualification"])
         # No dated callable id is documented by DeepSeek.
         self.assertNotIn("deepseek-flash-0910", json.dumps(flash))
         self.assertNotIn("deepseek-v4.1-flash", json.dumps(flash))
