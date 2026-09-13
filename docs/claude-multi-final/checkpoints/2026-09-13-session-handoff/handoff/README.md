@@ -5,9 +5,13 @@ this file, then `state-snapshot.md` (where everything is), then
 `open-items.md` (what to do next, with done-criteria).
 
 **Recorded commit:** `7525b31` on `feature/term-only`, **pushed** (0 commits
-ahead of `ssh/feature/term-only`).
+ahead of `ssh/feature/term-only`). *Note: the checkpoint's own commit
+`dee4948` was made after this handoff was written, so `git log -1` will show
+`dee4948` — `7525b31` is the last commit of the work described here.*
 **Live:** launcher **2.24.0 / catalog 26**, Home Manager **gen 139**,
-`claude-multi doctor` → **Ready** (one by-design Attention, see below).
+`claude-multi doctor` → **Ready** with **three** by-design Attention lines
+(stale-binary notice, advisory symlink drift, shared-daemon status — all
+enumerated verbatim in `state-snapshot.md` §1).
 
 ---
 
@@ -37,7 +41,7 @@ for DeepSeek (see `open-items.md` §7).
 
 ```bash
 cd /home/kotur/personal/nixos-dotfiles/home-manager/claude-multi
-git log --oneline -1        # expect 7525b31
+git log --oneline -3        # expect dee4948 (this checkpoint) then 7525b31 (the work)
 PYTHONPATH=src:tests python3 -m unittest discover -s tests -t .
 nix-build --no-out-link package.nix
 nix build --no-link --file tests/default.nix
@@ -137,7 +141,9 @@ them opportunistically if you touch the same files.
    are **five** (the astra-registry patch is missing from the comment).
 5. `DECISIONS.md` headers for D63/D64 say "source-complete, not activated";
    `STATUS.md` records both as activated. **STATUS is the live truth.**
-6. `HANDOFF.md` still describes the pre-D65 DeepSeek wire convention.
+6. `HANDOFF.md:98` states the old `deepseek-v4-flash` wire, but lines 99-101
+   immediately mark it **"Superseded 2026-09-10 (D65)"** — so this one is
+   already handled; only the un-annotated line is pre-D65.
 7. The `flash431` profile window (320,032) is **emergent** from
    `qwen-flash-next`'s `provider_tokens` under the 800K clamp — there is no
    per-profile numeric table anywhere.

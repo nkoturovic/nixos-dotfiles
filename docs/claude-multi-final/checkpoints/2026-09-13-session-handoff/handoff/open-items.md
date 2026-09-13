@@ -30,7 +30,7 @@ gate refuses to promote 2.1.261 because our harness can't drive its onboarding.
   `cancelFirst:!0, focus:"cancel", hideIndexes:!0` — the focused option is
   "No, exit", so the old hard-coded `1\r` answered *cancel*. Intentional
   upstream safety change, not a launcher defect.
-- **Attempt 1** (`ce033cf`) added `probe.trust_dialog_answer()` — version-aware
+- **Attempt 1** (`ce033cf`) added `probe.trust_dialog_answer(trusted)` — version-aware
   (≥ 2.1.261 → `\x1b[B\r`, else `1\r`, fail-closed for unparseable). 2.1.220
   stayed green (8 probe tests OK), but 2.1.261 **still failed**; the capture
   showed Down *did* register (focus moved to "Yes") yet focus reverted, so
@@ -45,8 +45,10 @@ gate refuses to promote 2.1.261 because our harness can't drive its onboarding.
   interleaving differs from a real terminal.
 
 **NEW LEAD (strong, recommended next step): pre-seed trust instead of scripting the dialog.**
-- `hasTrustDialogAccepted` exists in **both** binaries (2.1.220: 10 hits;
-  2.1.261: 9). Both embed the remedy text: *"accept the trust dialog here once
+- `hasTrustDialogAccepted` exists in **both** binaries (`strings -n 10 <bin> |
+  grep -c hasTrustDialogAccepted` → **9** for both 2.1.220 and 2.1.261; the
+  exact string appears 17× / 16× respectively by raw occurrence count).
+  Both embed the remedy text: *"accept the trust dialog here once
   interactively, or set `projects[…].hasTrustDialogAccepted: true` in …"*.
 - The 2.1.261 per-project default object is
   `{allowedTools:[],mcpContextUris:[],mcpServers:{},enabledMcpjsonServers:[],
@@ -157,6 +159,22 @@ The catalog already states the reroute truthfully in
 
 All require **explicit per-call approval** (`AGENTS.md` §6 rule 1).
 
+**How to run one** — the sanctioned automated shape is *one bounded request at
+a time*, and the gateway journal is the evidence surface for all of them:
+
+```bash
+journalctl --user -u cli-proxy-api --since "15 min ago" --no-pager   # selector lines, 400s, upstream refusals
+```
+
+For a direct one-off call, the established pattern from this session is a
+minimal `POST http://127.0.0.1:8317/v1/messages?beta=true` carrying the
+gateway token from `~/.config/claude-multi/api-key` (read it, never print it),
+with the model set to the gateway **alias** (never the wire id, and never with
+the `[1m]` suffix — that is a client-side marker the gateway does not know).
+See `gateway-ops` and `model-routing-debug` skills for the harness patterns.
+The Meta probe should additionally send a tool definition with a partial
+`required` array (issue 028).
+
 | Probe | Purpose | Notes |
 |---|---|---|
 | **Meta muse-spark** (muse-spark + `-contributor`) | Validate auth, thinking-always-on, high/xhigh efforts, the extra `refusal` stop_reason — **and now a tools/schema case** for issue 028 | Then flip the Meta listing descriptor `attempt` → `verified` |
@@ -234,7 +252,35 @@ visibly truncated output) on a DeepSeek lane under real work.
 
 ---
 
-## 9. Documentation fixes (opportunistic)
+## 9. ▶ OAuth-pool recovery (likely live breakage — no guidance existed before)
+
+`anthropic` and `openai` are `oauth-pool` routes; **sol, astra, gpt55 and all
+Anthropic-native models depend on them**. An expired/absent pool token is the
+most likely silent live failure for those models, and there is no documented
+recovery in the checkpoint set. A journal line observed this session:
+`anthropic_auth.go:480 Token refresh attempt 1 failed: token refresh failed
+with status 400: {"error": "invalid_grant", "error_description": "Refresh token
+expired"}`.
+
+**Detect:** `journalctl --user -u cli-proxy-api --no-pager | grep -i "token refresh\|invalid_grant"`,
+or `claude-multi doctor` (it counts credential records per pool), or the
+providers pane in the TUI (**G** → **P**), which shows "sign in needed" when a
+pool has no credential record.
+
+**Recover:** the OAuth sign-in runs outside the TUI —
+`claude-multi-proxy claude-login` / `codex-login` (the exact command is shown
+in the providers pane). New credential records load via the gateway auth-dir
+watcher; if routes stay absent, `systemctl --user restart cli-proxy-api`.
+
+## 10. The dirty working tree file — operator's call, leave it
+
+`home-manager/kotur.dotfiles/profile` is modified and **uncommitted**. It is
+**unrelated** to this session's work: it adds a `~/.bun/bin` PATH block and
+`export LLAMA_CPP_BASE_URL=http://bt-lab-02.lan:8010`. It has been left
+untouched through every commit here. **Do not commit, stash, or revert it
+without asking** — it is the operator's local shell profile edit.
+
+## 11. Documentation fixes (opportunistic)
 
 See `README.md` §6 for seven verified staleness items (checkpoint index,
 top-level README status line, issue-029 index label, the "four patches"
